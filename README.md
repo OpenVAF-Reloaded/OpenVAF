@@ -75,7 +75,7 @@ If the binary is named `openvaf` it comes from the `branches/osdi_0.3` branch an
 
 ## LLVM Version Support
 
-OpenVAF-reloaded supports multiple LLVM versions from 18 to 21. You can choose which version to use at build time via Cargo features:
+OpenVAF-reloaded supports multiple LLVM versions from 18 to 22. You can choose which version to use at build time via Cargo features:
 
 | Feature | LLVM Version | Environment Variable | llvm-sys crate |
 |---------|--------------|----------------------|----------------|
@@ -83,6 +83,7 @@ OpenVAF-reloaded supports multiple LLVM versions from 18 to 21. You can choose w
 | `llvm19` | LLVM 19.1.x | `LLVM_SYS_191_PREFIX` | 191.0.0 |
 | `llvm20` | LLVM 20.1.x | `LLVM_SYS_201_PREFIX` | 201.0.1 |
 | `llvm21` | LLVM 21.1.x | `LLVM_SYS_211_PREFIX` | 211.0.0 |
+| `llvm22` | LLVM 22.1.x | `LLVM_SYS_221_PREFIX` | 221.0.1 |
 
 **Note:** There is no default LLVM version. You must specify the version explicitly using `--features llvmXX` or use the `./configure` script for auto-detection (see Building section).
 
@@ -176,10 +177,10 @@ export LLVM_SYS_181_PREFIX=$(brew --prefix llvm@18)
 export PATH="$(brew --prefix llvm@18)/bin:$PATH"
 ```
 
-### Using LLVM 21 (latest)
+### Using LLVM 22 (latest)
 ```bash
 brew install llvm
-export LLVM_SYS_211_PREFIX=$(brew --prefix llvm)
+export LLVM_SYS_221_PREFIX=$(brew --prefix llvm)
 export PATH="$(brew --prefix llvm)/bin:$PATH"
 ```
 
@@ -208,7 +209,7 @@ The easiest way to build is using the configure script which auto-detects your L
 
 The configure script will:
 1. Search for LLVM installations (via environment variables, PATH, or Homebrew on macOS)
-2. Select the newest available version (21 > 20 > 19 > 18)
+2. Select the newest available version (22 > 21 > 20 > 19 > 18)
 3. Save the configuration to `.llvm-version`
 
 You can also force a specific version:

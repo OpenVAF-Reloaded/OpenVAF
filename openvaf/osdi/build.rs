@@ -24,7 +24,8 @@ fn main() {
 
     // Use clang from LLVM prefix environment variables (check newest first)
     // Fall back to Homebrew LLVM on macOS, then system clang
-    let clang_path = tracked_env_var_os("LLVM_SYS_211_PREFIX")
+    let clang_path = tracked_env_var_os("LLVM_SYS_221_PREFIX")
+        .or_else(|| tracked_env_var_os("LLVM_SYS_211_PREFIX"))
         .or_else(|| tracked_env_var_os("LLVM_SYS_201_PREFIX"))
         .or_else(|| tracked_env_var_os("LLVM_SYS_191_PREFIX"))
         .or_else(|| tracked_env_var_os("LLVM_SYS_181_PREFIX"))

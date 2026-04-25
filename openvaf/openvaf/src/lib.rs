@@ -7,6 +7,8 @@ extern crate llvm_sys_191 as llvm_sys;
 extern crate llvm_sys_201 as llvm_sys;
 #[cfg(feature = "llvm21")]
 extern crate llvm_sys_211 as llvm_sys;
+#[cfg(feature = "llvm22")]
+extern crate llvm_sys_221 as llvm_sys;
 
 use std::fs::{create_dir_all, remove_file};
 use std::io::Write;

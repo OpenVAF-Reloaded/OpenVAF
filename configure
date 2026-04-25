@@ -21,7 +21,7 @@ Usage: $0 [OPTIONS]
 Auto-detect LLVM version and configure the build.
 
 Options:
-  --llvm=VERSION    Force specific LLVM version (18, 19, 20, or 21)
+  --llvm=VERSION    Force specific LLVM version (18, 19, 20, 21, or 22)
   --help            Show this help message
 
 After running configure, use ./build.sh to build with auto-detected settings,
@@ -32,6 +32,7 @@ Environment variables:
   LLVM_SYS_191_PREFIX   Path to LLVM 19 installation
   LLVM_SYS_201_PREFIX   Path to LLVM 20 installation
   LLVM_SYS_211_PREFIX   Path to LLVM 21 installation
+  LLVM_SYS_221_PREFIX   Path to LLVM 22 installation
 
 Examples:
   ./configure                           # Auto-detect
@@ -67,6 +68,7 @@ check_llvm_version() {
         19) env_var="LLVM_SYS_191_PREFIX" ;;
         20) env_var="LLVM_SYS_201_PREFIX" ;;
         21) env_var="LLVM_SYS_211_PREFIX" ;;
+        22) env_var="LLVM_SYS_221_PREFIX" ;;
         *) return 1 ;;
     esac
 
@@ -124,6 +126,7 @@ get_llvm_prefix() {
         19) env_var="LLVM_SYS_191_PREFIX" ;;
         20) env_var="LLVM_SYS_201_PREFIX" ;;
         21) env_var="LLVM_SYS_211_PREFIX" ;;
+        22) env_var="LLVM_SYS_221_PREFIX" ;;
         *) return 1 ;;
     esac
 
@@ -181,7 +184,7 @@ get_llvm_prefix() {
 
 # Detect available LLVM versions (prefer newer)
 detect_llvm() {
-    for ver in 21 20 19 18; do
+    for ver in 22 21 20 19 18; do
         if check_llvm_version "$ver" >/dev/null 2>&1; then
             echo "$ver"
             return 0
@@ -193,12 +196,12 @@ detect_llvm() {
 # Main logic
 if [ -n "$FORCE_VERSION" ]; then
     case "$FORCE_VERSION" in
-        18|19|20|21)
+        18|19|20|21|22)
             LLVM_VERSION="$FORCE_VERSION"
             ;;
         *)
             echo "Error: Invalid LLVM version '$FORCE_VERSION'"
-            echo "Supported versions: 18, 19, 20, 21"
+            echo "Supported versions: 18, 19, 20, 21, 22"
             exit 1
             ;;
     esac
@@ -208,7 +211,7 @@ else
         echo ""
         echo "Error: No supported LLVM version found."
         echo ""
-        echo "Please install LLVM 18, 19, 20, or 21 and either:"
+        echo "Please install LLVM 18, 19, 20, 21, or 22 and either:"
         echo "  1. Add llvm-config to your PATH"
         echo "  2. Set LLVM_SYS_XXX_PREFIX environment variable"
         echo ""

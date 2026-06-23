@@ -22,7 +22,7 @@ llvm21 = ["openvaf/llvm21"]
 
 openvaf = { version = "0.1.2", path = "../openvaf", default-features = false }
 
-clap = "=4.3"
+clap = "4"
 directories-next = "2"
 path-absolutize = "3.1.0"
 anyhow = "1"

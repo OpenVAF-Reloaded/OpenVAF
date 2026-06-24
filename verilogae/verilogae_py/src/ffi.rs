@@ -23,13 +23,13 @@ const TY_FLAGS: c_ulong = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | PY_TPFLAGS_
 // | Py_TPFLAGS_HAVE_VECTORCALL;
 
 macro_rules! zero {
-    ($ty:ty) => {{
-        union Init {
-            data: $ty,
-            raw: [u8; ::std::mem::size_of::<$ty>()],
-        }
-        Init { raw: [0; ::std::mem::size_of::<$ty>()] }.data
-    }};
+    // pyo3-ffi 0.29 made several FFI structs (PyTypeObject, PyMethodDef, ...)
+    // non-Copy, so the old union-based zeroing no longer compiles. Zero the
+    // bytes via MaybeUninit instead; these are repr(C) PODs where the all-zero
+    // bit pattern is valid. Callers wrap this in `unsafe`.
+    ($ty:ty) => {
+        ::std::mem::MaybeUninit::<$ty>::zeroed().assume_init()
+    };
 }
 // manual implementation of PyVarObject_HEAD_INIT macro
 pub const fn new_type<T>() -> PyTypeObject {

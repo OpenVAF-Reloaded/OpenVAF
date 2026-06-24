@@ -47,7 +47,7 @@ lasso = { version = "0.7", features = ["ahash"] }
 indexmap = "2.0"
 md5 = "0.8"
 directories-next = "2"
-libloading = "0.8"
+libloading = "0.9"
 
 rayon-core = "1"
 

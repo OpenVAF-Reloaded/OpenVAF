@@ -322,7 +322,7 @@ impl OsdiInstance {
 }
 
 pub unsafe fn load_osdi_lib(path: &Utf8Path) -> Result<&'static [OsdiDescriptor]> {
-    let lib = Library::new(path)?;
+    let lib = Library::new(path.as_str())?;
     let lib = Box::leak(Box::new(lib));
 
     let major_version: &u32 = *lib.get(b"OSDI_VERSION_MAJOR\0")?;

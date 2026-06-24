@@ -66,7 +66,7 @@ pub fn export_vfs(path: &Utf8Path, opts: &Opts) -> Result<Box<[VfsEntry]>> {
 
 pub fn load(path: &Utf8Path, full_compile: bool, opts: &Opts) -> Result<Library> {
     let lib = build_local_model(path, full_compile, opts)?;
-    let lib = unsafe { Library::new(lib).expect("failed to open lib") };
+    let lib = unsafe { Library::new(lib.as_str()).expect("failed to open lib") };
     Ok(lib)
 }
 

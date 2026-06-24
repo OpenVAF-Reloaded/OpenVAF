@@ -35,7 +35,7 @@ linker = { version = "0.0.0", path = "../linker" }
 base_n = { version = "1", path = "../../lib/base_n" }
 paths = { version = "0.0", path = "../../lib/paths" }
 
-md5 = "0.7"
+md5 = "0.8"
 
 anyhow = "1"
 termcolor = "1.2"

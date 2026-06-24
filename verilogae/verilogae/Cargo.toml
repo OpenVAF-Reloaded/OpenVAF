@@ -45,7 +45,7 @@ paths = { version = "0.0", path = "../../lib/paths" }
 
 lasso = { version = "0.7", features = ["ahash"] }
 indexmap = "2.0"
-md5 = "0.7"
+md5 = "0.8"
 directories-next = "2"
 libloading = "0.8"
 

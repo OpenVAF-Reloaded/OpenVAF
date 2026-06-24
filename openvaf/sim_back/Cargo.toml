@@ -38,4 +38,4 @@ expect-test = "1.4"
 indoc = "2.0.3"
 
 mir_interpret = {version = "0.0.0", path = "../mir_interpret" }
-float-cmp =  "0.9"
+float-cmp = "0.10"

@@ -1,6 +1,6 @@
 use bitset::HybridBitSet;
 use expect_test::{expect, Expect};
-use float_cmp::{ApproxEq, F64Margin};
+use float_cmp::{ApproxEq, F64Margin, FloatMargin};
 use mir::{ControlFlowGraph, DominatorTree, KnownDerivatives};
 use mir_interpret::{Data, Interpreter};
 use mir_reader::parse_function;

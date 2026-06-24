@@ -27,4 +27,4 @@ rustc-hash = "2.0"
 expect-test = "1.4"
 mir_reader = {version = "0.0.0", path = "../mir_reader" }
 mir_interpret = {version = "0.0.0", path = "../mir_interpret" }
-float-cmp =  "0.9"
+float-cmp = "0.10"

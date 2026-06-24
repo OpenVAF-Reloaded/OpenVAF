@@ -61,7 +61,7 @@ target = { version = "0.0.0", path = "../target" }
 
 expect-test = "1.4"
 mir_interpret = {version = "0.0.0", path = "../mir_interpret" }
-float-cmp =  "0.9"
+float-cmp = "0.10"
 mini_harness = { version = "0.0.1", path = "../../lib/mini_harness" }
 
 [[test]]

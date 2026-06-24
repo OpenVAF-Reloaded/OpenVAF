@@ -17,7 +17,7 @@ workqueue = {version = "0.0.0", path = "../../lib/workqueue" }
 bitset = {version = "0.0.0", path = "../../lib/bitset" }
 
 typed-index-collections = "3.1"
-hashbrown = {version = "0.14", features = ["raw"]}
+hashbrown = "0.17"
 rustc-hash = "2.1"
 
 [dev-dependencies]

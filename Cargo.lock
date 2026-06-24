@@ -444,6 +444,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "foldhash"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+
+[[package]]
 name = "getrandom"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -502,6 +508,11 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+dependencies = [
+ "allocator-api2",
+ "equivalent",
+ "foldhash",
+]
 
 [[package]]
 name = "hashlink"
@@ -961,7 +972,7 @@ version = "0.0.0"
 dependencies = [
  "bitset",
  "expect-test",
- "hashbrown 0.14.5",
+ "hashbrown 0.17.1",
  "mir",
  "mir_reader",
  "rustc-hash 2.1.2",

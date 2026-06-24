@@ -4,7 +4,7 @@ use std::mem::{swap, ManuallyDrop};
 use std::ops::{Index, IndexMut};
 
 use bitset::{BitSet, HybridBitSet};
-use hashbrown::raw::RawTable;
+use hashbrown::HashTable;
 use mir::{
     Block, DominatorTree, FuncRef, Function, Inst, InstructionData, Opcode, Value, ValueDef,
     ValueList,
@@ -352,7 +352,7 @@ impl DFSMapping {
 #[derive(Default)]
 struct ClassMap {
     inst_class: TiVec<Inst, PackedOption<ClassId>>,
-    expr_class: RawTable<ClassId>,
+    expr_class: HashTable<ClassId>,
     classes: TiVec<ClassId, EquivalenceClass>,
     state: BuildHasherDefault<FxHasher>,
 }
@@ -360,20 +360,24 @@ struct ClassMap {
 impl ClassMap {
     fn init(&mut self, func: &Function) {
         self.inst_class.resize(func.dfg.num_insts(), None.into());
-        self.expr_class.reserve(func.dfg.num_insts(), |_| unreachable!());
+        self.expr_class.reserve(func.dfg.num_insts(), |&class| {
+            self.classes[class].expr.hash(&self.state, func)
+        });
     }
 
     fn remove_expr_class(&mut self, func: &mut Function, class: ClassId) {
         self.classes[class].insts = HybridBitSet::new_empty();
         let hash = self.classes[class].expr.hash(&self.state, func);
-        self.expr_class.remove_entry(hash, |it| *it == class);
+        if let Ok(entry) = self.expr_class.find_entry(hash, |it| *it == class) {
+            entry.remove();
+        }
         self.classes[class].expr.destroy(func)
     }
 
     fn insert_expr(&mut self, inst: Inst, mut expr: GVNExpression, func: &mut Function) -> ClassId {
         let hash = expr.hash(&self.state, func);
         if let Some(class) =
-            self.expr_class.get(hash, |class| self.classes[*class].expr.eq(&expr, func))
+            self.expr_class.find(hash, |class| self.classes[*class].expr.eq(&expr, func))
         {
             expr.destroy(func);
             *class
@@ -385,9 +389,9 @@ impl ClassMap {
                 insts: HybridBitSet::new_empty(),
             };
             let new_class = self.classes.push_and_get_key(new_class);
-            unsafe {
-                self.expr_class.insert_no_grow(hash, new_class);
-            }
+            self.expr_class.insert_unique(hash, new_class, |&class| {
+                self.classes[class].expr.hash(&self.state, func)
+            });
 
             new_class
         }
@@ -414,7 +418,7 @@ impl ClassMap {
         }
 
         self.inst_class.clear();
-        self.expr_class.clear_no_drop();
+        self.expr_class.clear();
         self.classes.clear();
     }
 }

@@ -10,6 +10,7 @@ extern crate llvm_sys_211 as llvm_sys;
 
 use std::fs;
 use std::io::Write;
+use std::sync::Once;
 use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
@@ -70,7 +71,25 @@ pub fn load(path: &Utf8Path, full_compile: bool, opts: &Opts) -> Result<Library>
     Ok(lib)
 }
 
+static LLVM_INIT: Once = Once::new();
+
+/// Register the native LLVM target/asm printer. When VerilogAE is used through
+/// the openvaf binary this is already done by `osdi::compile`, but the
+/// standalone library (e.g. the Python module) must initialize LLVM itself,
+/// otherwise codegen fails with "no targets are registered".
+fn initialize_llvm() {
+    LLVM_INIT.call_once(|| unsafe {
+        if llvm_sys::target::LLVM_InitializeNativeTarget() != 0 {
+            panic!("Failed to initialize native target");
+        }
+        if llvm_sys::target::LLVM_InitializeNativeAsmPrinter() != 0 {
+            panic!("Failed to initialize native ASM printer");
+        }
+    });
+}
+
 fn build_local_model(path: &Utf8Path, full_compile: bool, opts: &Opts) -> Result<Utf8PathBuf> {
+    initialize_llvm();
     let db = compiler_db::new(path, opts)?;
     let (file, found) = cache::lookup(&db, full_compile, opts)?;
     if found {

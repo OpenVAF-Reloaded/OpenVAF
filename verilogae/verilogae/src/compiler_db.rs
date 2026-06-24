@@ -339,7 +339,7 @@ impl ModelInfo {
                     params.insert(
                         param,
                         ParamInfo {
-                            name: SmolStr::new_inline(""),
+                            name: declarations.to_path(name),
                             units,
                             description,
                             group,

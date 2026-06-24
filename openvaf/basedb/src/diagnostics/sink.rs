@@ -5,7 +5,7 @@ use codespan_reporting::diagnostic::Severity;
 use codespan_reporting::files::Files;
 pub use codespan_reporting::term::termcolor::{Ansi, Buffer, ColorChoice, NoColor};
 use codespan_reporting::term::termcolor::{StandardStream, WriteColor};
-use codespan_reporting::term::{emit, Chars, Config};
+use codespan_reporting::term::{emit_to_write_style, Chars, Config, Styles, StylesWriter};
 use vfs::VfsPath;
 
 use crate::diagnostics::{Diagnostic, Report};
@@ -83,6 +83,7 @@ pub struct ConsoleSink<'a> {
     warning_cnt: usize,
     error_cnt: usize,
     config: Config,
+    styles: Styles,
     db: &'a dyn BaseDB,
     dst: Box<dyn WriteColor + 'a>,
     anon_paths: bool,
@@ -123,8 +124,9 @@ impl<'a> ConsoleSink<'a> {
     }
 
     pub fn print_simple_message(&mut self, severity: Severity, msg: String) {
-        emit(
-            &mut self.dst,
+        let mut writer = StylesWriter::new(&mut *self.dst, &self.styles);
+        emit_to_write_style(
+            &mut writer,
             &self.config,
             &FileSrc { db: self.db, anon_paths: self.anon_paths },
             &Report::new(severity).with_message(msg),
@@ -133,24 +135,27 @@ impl<'a> ConsoleSink<'a> {
     }
 
     pub fn new_with(db: &'a dyn BaseDB, dst: Box<dyn WriteColor + 'a>) -> ConsoleSink<'a> {
-        let mut config = Config { chars: Chars::ascii(), ..Config::default() };
-        config.styles.header_error.set_intense(false);
-        config.styles.header_warning.set_intense(false);
-        config.styles.header_help.set_intense(false);
-        config.styles.header_bug.set_intense(false);
-        config.styles.header_note.set_intense(false);
+        // codespan-reporting 0.13 moved styling out of `Config` into a separate
+        // `Styles` value applied via `StylesWriter`.
+        let config = Config { chars: Chars::ascii(), ..Config::default() };
+        let mut styles = Styles::default();
+        styles.header_error.set_intense(false);
+        styles.header_warning.set_intense(false);
+        styles.header_help.set_intense(false);
+        styles.header_bug.set_intense(false);
+        styles.header_note.set_intense(false);
 
-        config.styles.note_bullet.set_bold(true).set_intense(true);
-        config.styles.line_number.set_bold(true).set_intense(true);
-        config.styles.source_border.set_bold(true).set_intense(true);
-        config.styles.primary_label_bug.set_bold(true);
-        config.styles.primary_label_note.set_bold(true);
-        config.styles.primary_label_help.set_bold(true);
-        config.styles.primary_label_error.set_bold(true);
-        config.styles.primary_label_warning.set_bold(true);
-        config.styles.secondary_label.set_bold(true);
+        styles.note_bullet.set_bold(true).set_intense(true);
+        styles.line_number.set_bold(true).set_intense(true);
+        styles.source_border.set_bold(true).set_intense(true);
+        styles.primary_label_bug.set_bold(true);
+        styles.primary_label_note.set_bold(true);
+        styles.primary_label_help.set_bold(true);
+        styles.primary_label_error.set_bold(true);
+        styles.primary_label_warning.set_bold(true);
+        styles.secondary_label.set_bold(true);
 
-        ConsoleSink { warning_cnt: 0, error_cnt: 0, config, db, dst, anon_paths: false }
+        ConsoleSink { warning_cnt: 0, error_cnt: 0, config, styles, db, dst, anon_paths: false }
     }
 
     /// only print the filename instead of the full path, this is useful for UI tests where we do not want to expose the full path
@@ -181,8 +186,9 @@ impl DiagnosticSink for ConsoleSink<'_> {
             _ => (),
         }
 
-        emit(
-            &mut self.dst,
+        let mut writer = StylesWriter::new(&mut *self.dst, &self.styles);
+        emit_to_write_style(
+            &mut writer,
             &self.config,
             &FileSrc { db: self.db, anon_paths: self.anon_paths },
             &report,

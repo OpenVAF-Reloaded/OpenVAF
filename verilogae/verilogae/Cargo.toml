@@ -51,7 +51,7 @@ libloading = "0.9"
 
 rayon-core = "1"
 
-smol_str = { version = "0.2", default-features = false }
+smol_str = { version = "0.3", default-features = false }
 typed-index-collections = "3"
 ahash = "0.8"
 

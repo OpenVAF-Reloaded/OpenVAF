@@ -20,14 +20,14 @@ use base_n::CASE_INSENSITIVE;
 use camino::{Utf8Path, Utf8PathBuf};
 use hir::{CompilationDB, ParamSysFun, Type};
 use hir_def::db::HirDefDB;
-use hir_lower::{CallBackKind, HirInterner, ParamKind};
+use hir_lower::{CallBackKind, HirInterner, ImplicitEquation, ParamKind};
 use lasso::Rodeo;
 use llvm_sys::target::{LLVMABISizeOfType, LLVMDisposeTargetData};
 use llvm_sys::target_machine::LLVMCodeGenOptLevel;
 use mir_llvm::{CodegenCx, LLVMBackend};
 use ndatable::nda_arrays;
 use salsa::ParallelDatabase;
-use sim_back::{CompiledModule, ModuleInfo};
+use sim_back::{CompiledModule, ModuleInfo, SimUnknownKind};
 use stdx::{impl_debug_display, impl_idx_from};
 use target::spec::Target;
 use typed_indexmap::TiSet;
@@ -269,11 +269,50 @@ pub fn compile<'a>(
         let cx = new_codegen(back, &llmod, &literals);
         let tys = OsdiTys::new(&cx, NonNull::from(target_data).as_ptr());
 
+        // { y_node: u32, z_node: u32, td_offset: u32 }
+        let absdelay_info_ty = cx.ty_struct(
+            "OsdiAbsDelayInfo",
+            &[cx.ty_int(), cx.ty_int(), cx.ty_int()],
+        );
+
+        let mut absdelay_counts: Vec<u32> = Vec::new();
+        let mut absdelay_infos_ll: Vec<&llvm_sys::LLVMValue> = Vec::new();
+
         let descriptors: Vec<_> = osdi_modules
             .iter()
             .map(|module| {
                 let cguint = OsdiCompilationUnit::new(&db, module, &cx, &tys, false);
-                let descriptor = cguint.descriptor(&NonNull::from(target_data).as_ptr(), &db);
+                let td_ptr = NonNull::from(target_data).as_ptr();
+                let descriptor = cguint.descriptor(&td_ptr, &db);
+
+                // Collect absdelay metadata for this module
+                let n = module.intern.absdelay_equations.len() as u32;
+                absdelay_counts.push(n);
+                for (i, &(eq_y, eq_z)) in
+                    module.intern.absdelay_equations.iter().enumerate()
+                {
+                    let find_node = |eq: ImplicitEquation| -> u32 {
+                        module
+                            .dae_system
+                            .unknowns
+                            .index(&SimUnknownKind::Implicit(eq))
+                            .map_or(u32::MAX, |u| u32::from(u))
+                    };
+                    let y_node = find_node(eq_y);
+                    let z_node = find_node(eq_z);
+                    let td_off =
+                        cguint.inst_data.delay_time_offset(i, &td_ptr).unwrap_or(u32::MAX);
+                    let info = cx.const_struct(
+                        absdelay_info_ty,
+                        &[
+                            cx.const_unsigned_int(y_node),
+                            cx.const_unsigned_int(z_node),
+                            cx.const_unsigned_int(td_off),
+                        ],
+                    );
+                    absdelay_infos_ll.push(info);
+                }
+
                 descriptor.to_ll_val(&cx, &tys)
             })
             .collect();
@@ -307,6 +346,23 @@ pub fn compile<'a>(
         }
 
         cx.export_val("OSDI_DESCRIPTOR_SIZE", cx.ty_int(), cx.const_unsigned_int(descr_size), true);
+
+        // Export absdelay descriptor info (only if any module uses absdelay)
+        let has_absdelay = absdelay_counts.iter().any(|&n| n > 0);
+        if has_absdelay {
+            let counts_ll: Vec<_> =
+                absdelay_counts.iter().map(|&n| cx.const_unsigned_int(n)).collect();
+            cx.export_array("OSDI_ABSDELAY_COUNTS", cx.ty_int(), &counts_ll, true, false);
+            if !absdelay_infos_ll.is_empty() {
+                cx.export_array(
+                    "OSDI_ABSDELAY_INFOS",
+                    absdelay_info_ty,
+                    &absdelay_infos_ll,
+                    true,
+                    false,
+                );
+            }
+        }
 
         // Build vector of llvm structures for natures
         let natures: Vec<_> = natures_vec.iter().map(|entry| entry.to_ll_val(&cx, &tys)).collect();

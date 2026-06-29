@@ -11,7 +11,7 @@ use path_absolutize::Absolutize;
 const ABOUT: &str = r"For further information visit https://github.com/arpadbuermen/OpenVAF.";
 
 pub fn main_command() -> Command {
-    Command::new("OpenVAF-reloaded")
+    Command::new("OpenVAF-Reloaded")
         .version(env!("OPENVAF_GIT_VERSION"))
         .author("Pascal Kuthe")
         .after_long_help(ABOUT)

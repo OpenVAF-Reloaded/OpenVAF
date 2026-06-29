@@ -161,19 +161,27 @@ impl Topology {
     pub(crate) fn new(ctx: &mut Context) -> Self {
         let mut branches = TiMap::with_capacity(128);
         let mut contributes = AHashMap::with_capacity(128);
+        // Build one entry per equation so that original ImplicitEquation indices
+        // remain valid as TiVec indices.  Equations whose ImplicitUnknown value
+        // is dead (e.g. absdelay output nodes whose V(z) * sin(0) was folded
+        // away by the optimizer) or that are never referenced get a default
+        // zero-contribution entry — the simulator (ngspice) will stamp the real
+        // equation for those rows.  Collapsed equations still get replace_uses
+        // called so the rest of the compiler sees V(node) = 0, but they too
+        // keep a placeholder entry so indices stay aligned.
         let mut implicit_equations: TiVec<_, _> = ctx
             .intern
             .implicit_equations
             .keys()
-            .filter_map(|eq| {
+            .map(|eq| {
                 let eq_val = ctx.intern.params.get(&ParamKind::ImplicitUnknown(eq));
                 let eq_val = if let Some(&eq_val) = eq_val {
                     if ctx.func.dfg.value_dead(eq_val) {
-                        return None;
+                        return Contribution::default();
                     }
                     eq_val
                 } else {
-                    return None;
+                    return Contribution::default();
                 };
                 let is_collapsed = ctx
                     .intern
@@ -183,13 +191,13 @@ impl Topology {
                     .map(|val| strip_optbarrier(&ctx.func, val));
                 if is_collapsed == Some(TRUE) {
                     ctx.func.dfg.replace_uses(eq_val, F_ZERO);
-                    return None;
+                    return Contribution::default();
                 }
 
-                Some(Contribution {
+                Contribution {
                     unknown: ctx.intern.params.get(&ParamKind::ImplicitUnknown(eq)).copied(),
                     ..Contribution::default()
-                })
+                }
             })
             .collect();
         for (kind, val) in &ctx.intern.outputs {

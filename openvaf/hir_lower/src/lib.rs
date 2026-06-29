@@ -45,6 +45,10 @@ pub enum ImplicitEquationKind {
     Ddt,
     NoiseSrc,
     Idt(IdtKind),
+    /// Synthetic input node y_synth for absdelay slot `i`; enforces V(y_synth) = y_expr.
+    AbsDelayInput(u32),
+    /// Output node z for absdelay slot `i`; its equation row is stamped by the simulator.
+    AbsDelayOutput(u32),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -172,6 +176,8 @@ pub enum PlaceKind {
     ParamMin(Parameter),
     ParamMax(Parameter),
     BoundStep,
+    /// Stores the current value of `td` for absdelay slot `i` into instance data.
+    AbsDelayTime(u32),
 }
 
 impl PlaceKind {
@@ -183,7 +189,8 @@ impl PlaceKind {
 
             PlaceKind::ImplicitResidual { .. }
             | PlaceKind::Contribute { .. }
-            | PlaceKind::BoundStep => Type::Real,
+            | PlaceKind::BoundStep
+            | PlaceKind::AbsDelayTime(_) => Type::Real,
             PlaceKind::ParamMin(param) | PlaceKind::ParamMax(param) | PlaceKind::Param(param) => {
                 param.ty(db)
             }
@@ -231,6 +238,8 @@ pub struct HirInterner {
     pub tagged_reads: IndexMap<Value, Variable, BuildHasherDefault<FxHasher>>,
     pub implicit_equations: TiVec<ImplicitEquation, ImplicitEquationKind>,
     pub lim_state: TiMap<LimitState, Value, Vec<(Value, bool)>>,
+    /// Per absdelay slot: (eq_y = synthetic input node, eq_z = output node).
+    pub absdelay_equations: Vec<(ImplicitEquation, ImplicitEquation)>,
 }
 
 pub type LiveParams<'a> = FilterMap<
@@ -248,6 +257,7 @@ impl Default for HirInterner {
             tagged_reads: IndexMap::with_hasher(BuildHasherDefault::<FxHasher>::default()),
             implicit_equations: TiVec::default(),
             lim_state: TiMap::default(),
+            absdelay_equations: Vec::default(),
         }
     }
 }

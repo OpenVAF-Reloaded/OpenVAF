@@ -222,6 +222,8 @@ pub struct OsdiInstanceData<'ll> {
     pub opvars: IndexMap<Variable, EvalOutput, BuildHasherDefault<FxHasher>>,
     pub jacobian: TiVec<MatrixEntryId, MatrixEntry>,
     pub bound_step: Option<EvalOutputSlot>,
+    /// One eval-output slot per absdelay slot, storing the current `td` value.
+    pub delay_times: Vec<EvalOutputSlot>,
 }
 
 impl<'ll> OsdiInstanceData<'ll> {
@@ -282,6 +284,15 @@ impl<'ll> OsdiInstanceData<'ll> {
             Some(slot)
         });
 
+        let delay_times: Vec<EvalOutputSlot> = (0..module.intern.absdelay_equations.len() as u32)
+            .filter_map(|i| {
+                let val = module.intern.outputs.get(&PlaceKind::AbsDelayTime(i))?;
+                let mut val = val.expand()?;
+                val = strip_optbarrier(module.eval, val);
+                Some(eval_outputs.insert_full(val, ty_f64).0)
+            })
+            .collect();
+
         let param_given = bitfield::arr_ty(params.len() as u32, cx);
         let jacobian_ptr = cx.ty_array(cx.ty_ptr(), module.dae_system.jacobian.len() as u32);
         let jacobian_ptr_react = cx.ty_array(cx.ty_ptr(), num_react);
@@ -332,6 +343,7 @@ impl<'ll> OsdiInstanceData<'ll> {
             opvars,
             jacobian,
             bound_step,
+            delay_times,
         }
     }
 
@@ -348,6 +360,25 @@ impl<'ll> OsdiInstanceData<'ll> {
     pub fn bound_step_elem(&self) -> Option<u32> {
         let elem = self.eval_output_slot_elem(self.bound_step?);
         Some(elem)
+    }
+
+    pub unsafe fn store_delay_times(
+        &self,
+        ptr: &'ll llvm_sys::LLVMValue,
+        builder: &mir_llvm::Builder<'_, '_, 'll>,
+    ) {
+        for &slot in &self.delay_times {
+            self.store_eval_output_slot(slot, ptr, builder);
+        }
+    }
+
+    pub fn delay_time_offset(&self, i: usize, target_data: &LLVMTargetDataRef) -> Option<u32> {
+        let slot = *self.delay_times.get(i)?;
+        let elem = self.eval_output_slot_elem(slot);
+        let off = unsafe {
+            LLVMOffsetOfElement(*target_data, NonNull::from(self.ty).as_ptr(), elem)
+        } as u32;
+        Some(off)
     }
 
     pub unsafe fn param_ptr(

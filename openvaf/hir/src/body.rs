@@ -142,7 +142,9 @@ impl<'a> BodyRef<'a> {
 
     pub fn get_expr(&self, expr: ExprId) -> Expr<'a> {
         match self.body.exprs[expr] {
-            hir_def::Expr::Path { .. } => Expr::Read(self.resolve_path(expr)),
+            hir_def::Expr::Path { .. } | hir_def::Expr::BitSelect { .. } => {
+                Expr::Read(self.resolve_path(expr))
+            }
             hir_def::Expr::BinaryOp { lhs, rhs, op: Some(op) } => Expr::BinaryOp { lhs, rhs, op },
             hir_def::Expr::UnaryOp { expr, op } => Expr::UnaryOp { expr, op },
             hir_def::Expr::Select { cond, then_val, else_val } => {

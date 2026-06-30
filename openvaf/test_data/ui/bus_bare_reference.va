@@ -1,0 +1,10 @@
+`include "disciplines.vams"
+
+module bus_bare_reference(p, n);
+    inout p, n;
+    electrical p, n;
+    electrical [3:0] bus;
+    analog begin
+        V(bus, n) <+ 1.0;
+    end
+endmodule

@@ -2,6 +2,7 @@ pub use basedb::diagnostics::*;
 use basedb::AstIdMap;
 pub use basedb::{BaseDB, FileId};
 use hir_def::db::HirDefDB;
+use hir_def::item_tree::diagnostics::ItemTreeDiagnosticWrapped;
 use hir_def::nameres::diagnostics::DefDiagnosticWrapped;
 use hir_def::nameres::{DefMap, LocalScopeId, ScopeDefItem, ScopeOrigin};
 use hir_def::DefWithBodyId;
@@ -25,6 +26,11 @@ pub(crate) fn collect(db: &CompilationDB, root_file: FileId, sink: &mut impl Dia
     let parse = db.parse(root_file);
     let sm = db.sourcemap(root_file);
     let item_tree = db.item_tree(root_file);
+
+    for diag in &item_tree.diagnostics {
+        let diag = ItemTreeDiagnosticWrapped { diag, parse: &parse, sm: &sm, ast_id_map: &ast_id_map };
+        sink.add_diagnostic(&diag, root_file, db);
+    }
 
     let diagnostics = validation::TypeValidationDiagnostic::collect(db, root_file);
 

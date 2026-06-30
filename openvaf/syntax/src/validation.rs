@@ -317,6 +317,7 @@ fn validate_branch_decl(decl: ast::BranchDecl, errors: &mut Vec<SyntaxError>) {
                     ast::Expr::PortFlow(_) => (),
                     ast::Expr::PathExpr(path)
                         if path.path().map_or(true, |path| path.qualifier().is_none()) => {}
+                    ast::Expr::BitSelectExpr(_) => (),
                     _ => errors.push(SyntaxError::IllegalBranchNodeExpr {
                         single: true,
                         illegal_nodes: vec![arg.syntax().text_range()],
@@ -329,11 +330,14 @@ fn validate_branch_decl(decl: ast::BranchDecl, errors: &mut Vec<SyntaxError>) {
 
                 let mut illegal_nodes = Vec::new();
 
-                if arg1.as_path().is_none() {
+                let is_valid_endpoint =
+                    |e: &ast::Expr| e.as_path().is_some() || matches!(e, ast::Expr::BitSelectExpr(_));
+
+                if !is_valid_endpoint(&arg1) {
                     illegal_nodes.push(arg1.syntax().text_range())
                 }
 
-                if arg2.as_path().is_none() {
+                if !is_valid_endpoint(&arg2) {
                     illegal_nodes.push(arg2.syntax().text_range())
                 }
 

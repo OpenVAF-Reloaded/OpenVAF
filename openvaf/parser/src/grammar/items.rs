@@ -134,6 +134,17 @@ fn constraint(p: &mut Parser) {
     m.complete(p, CONSTRAINT);
 }
 
+/// Parses a `[msb:lsb]` bus-width clause, used by net/port declarations.
+pub(super) fn width_range(p: &mut Parser) {
+    let m = p.start();
+    p.bump(T!['[']);
+    expr(p);
+    p.expect(T![:]);
+    expr(p);
+    p.expect(T![']']);
+    m.complete(p, RANGE);
+}
+
 fn range_or_expr(p: &mut Parser) {
     let m = p.start();
 

@@ -1,0 +1,16 @@
+error: bus bit-select index must be a constant
+   --> /bus_nonconstant_index.va:10:11
+   |
+10 |         V(bus[i], n) <+ 1.0;
+   |           ^^^^^^ non-constant bit-select index
+   |
+   = help: bus bit-select indices must be a constant integer literal (optionally negated)
+
+error: invalid destination for branch contribution
+   --> /bus_nonconstant_index.va:10:9
+   |
+10 |         V(bus[i], n) <+ 1.0;
+   |         ^^^^^^^^^^^^ invalid destination
+   |
+   = help: expected nature access such as V(foo) or I(foo)
+

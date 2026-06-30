@@ -82,6 +82,9 @@ fn port_decl<const MODULE_HEAD: bool>(p: &mut Parser, m: Marker) {
         eat_name_ref(p);
     }
     p.eat(NET_TYPE);
+    if p.at(T!['[']) {
+        width_range(p);
+    }
 
     if MODULE_HEAD {
         decl_list(p, T![')'], module_port, MODULE_PORT_RECOVERY);
@@ -169,6 +172,10 @@ fn net_decl<const NET_TYPE_FIRST: bool>(p: &mut Parser, m: Marker) {
         }
     } else {
         name_ref_r(p, MODULE_ITEM_OR_ATTR_RECOVERY.union(TokenSet::unique(T![;])))
+    }
+
+    if p.at(T!['[']) {
+        width_range(p);
     }
 
     net_dec_list(p);

@@ -110,11 +110,13 @@ Expr =
 | ArrayExpr
 | Call
 | SelectExpr
+| BitSelectExpr
 | PathExpr
 | PortFlow
 
 
 PathExpr = Path // Required to allow
+BitSelectExpr = base: Path '[' index: Expr ']'
 PortFlow = '<' port: Path '>'
 
 SelectExpr =
@@ -230,13 +232,13 @@ Range =
 
 
 NetDecl =
-  AttrList*  discipline:NameRef?  'net_type'? (Name (',' Name)*)';'
+  AttrList*  discipline:NameRef?  'net_type'? width:Range? (Name (',' Name)*)';'
 
 BodyPortDecl =
   PortDecl ';'
 
 PortDecl =
-  AttrList* Direction discipline:NameRef?  'net_type'? (Name (',' Name)*)
+  AttrList* Direction discipline:NameRef?  'net_type'? width:Range? (Name (',' Name)*)
 
 Direction =
   'inout' | 'input' | 'output'

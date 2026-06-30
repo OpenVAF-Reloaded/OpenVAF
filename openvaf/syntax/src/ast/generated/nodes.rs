@@ -268,6 +268,16 @@ impl SelectExpr {
     pub fn colon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![:]) }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BitSelectExpr {
+    pub(crate) syntax: SyntaxNode,
+}
+impl BitSelectExpr {
+    pub fn base(&self) -> Option<Path> { support::child(&self.syntax) }
+    pub fn l_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['[']) }
+    pub fn index(&self) -> Option<Expr> { support::child(&self.syntax) }
+    pub fn r_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![']']) }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PathExpr {
     pub(crate) syntax: SyntaxNode,
 }
@@ -402,6 +412,7 @@ impl NetDecl {
     pub fn net_type_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![net_type])
     }
+    pub fn width(&self) -> Option<Range> { support::child(&self.syntax) }
     pub fn names(&self) -> AstChildren<Name> { support::children(&self.syntax) }
     pub fn semicolon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![;]) }
 }
@@ -474,6 +485,7 @@ impl PortDecl {
     pub fn net_type_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![net_type])
     }
+    pub fn width(&self) -> Option<Range> { support::child(&self.syntax) }
     pub fn names(&self) -> AstChildren<Name> { support::children(&self.syntax) }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -543,6 +555,7 @@ pub enum Expr {
     ArrayExpr(ArrayExpr),
     Call(Call),
     SelectExpr(SelectExpr),
+    BitSelectExpr(BitSelectExpr),
     PathExpr(PathExpr),
     PortFlow(PortFlow),
     Literal(Literal),
@@ -905,6 +918,17 @@ impl AstNode for SelectExpr {
     }
     fn syntax(&self) -> &SyntaxNode { &self.syntax }
 }
+impl AstNode for BitSelectExpr {
+    fn can_cast(kind: SyntaxKind) -> bool { kind == BIT_SELECT_EXPR }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode { &self.syntax }
+}
 impl AstNode for PathExpr {
     fn can_cast(kind: SyntaxKind) -> bool { kind == PATH_EXPR }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
@@ -1198,6 +1222,9 @@ impl From<Call> for Expr {
 impl From<SelectExpr> for Expr {
     fn from(node: SelectExpr) -> Expr { Expr::SelectExpr(node) }
 }
+impl From<BitSelectExpr> for Expr {
+    fn from(node: BitSelectExpr) -> Expr { Expr::BitSelectExpr(node) }
+}
 impl From<PathExpr> for Expr {
     fn from(node: PathExpr) -> Expr { Expr::PathExpr(node) }
 }
@@ -1210,8 +1237,8 @@ impl From<Literal> for Expr {
 impl AstNode for Expr {
     fn can_cast(kind: SyntaxKind) -> bool {
         match kind {
-            PREFIX_EXPR | BIN_EXPR | PAREN_EXPR | ARRAY_EXPR | CALL | SELECT_EXPR | PATH_EXPR
-            | PORT_FLOW => true,
+            PREFIX_EXPR | BIN_EXPR | PAREN_EXPR | ARRAY_EXPR | CALL | SELECT_EXPR
+            | BIT_SELECT_EXPR | PATH_EXPR | PORT_FLOW => true,
             _ => Literal::can_cast(kind),
         }
     }
@@ -1223,6 +1250,7 @@ impl AstNode for Expr {
             ARRAY_EXPR => Expr::ArrayExpr(ArrayExpr { syntax }),
             CALL => Expr::Call(Call { syntax }),
             SELECT_EXPR => Expr::SelectExpr(SelectExpr { syntax }),
+            BIT_SELECT_EXPR => Expr::BitSelectExpr(BitSelectExpr { syntax }),
             PATH_EXPR => Expr::PathExpr(PathExpr { syntax }),
             PORT_FLOW => Expr::PortFlow(PortFlow { syntax }),
             _ => Expr::Literal(Literal::cast(syntax)?),
@@ -1237,6 +1265,7 @@ impl AstNode for Expr {
             Expr::ArrayExpr(it) => &it.syntax,
             Expr::Call(it) => &it.syntax,
             Expr::SelectExpr(it) => &it.syntax,
+            Expr::BitSelectExpr(it) => &it.syntax,
             Expr::PathExpr(it) => &it.syntax,
             Expr::PortFlow(it) => &it.syntax,
             Expr::Literal(it) => it.syntax(),
@@ -1728,6 +1757,11 @@ impl std::fmt::Display for Call {
     }
 }
 impl std::fmt::Display for SelectExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for BitSelectExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }

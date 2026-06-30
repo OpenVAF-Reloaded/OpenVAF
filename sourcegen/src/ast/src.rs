@@ -109,6 +109,7 @@ pub(crate) const KINDS_SRC: KindsSrc = KindsSrc {
         "ATTR",
         "ATTR_LIST",
         "BIN_EXPR",
+        "BIT_SELECT_EXPR",
         "BLOCK_SCOPE",
         "BLOCK_STMT",
         "BRANCH_DECL",

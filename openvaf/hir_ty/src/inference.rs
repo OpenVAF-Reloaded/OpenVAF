@@ -10,12 +10,13 @@ use hir_def::expr::{CaseCond, Literal};
 use hir_def::nameres::diagnostics::PathResolveError;
 use hir_def::nameres::{NatureAccess, ResolvedPath, ScopeDefItem, ScopeDefItemKind};
 use hir_def::{
-    BranchId, BuiltIn, DefWithBodyId, Expr, ExprId, FunctionArgLoc, FunctionId, LocalFunctionArgId,
-    Lookup, NatureId, NodeId, ParamSysFun, Path, Stmt, StmtId, Type, VarId,
+    BranchId, BuiltIn, BusDecl, DefWithBodyId, Expr, ExprId, FunctionArgLoc, FunctionId,
+    LocalFunctionArgId, Lookup, NatureId, NodeId, ParamSysFun, Path, Stmt, StmtId, Type, VarId,
 };
 use stdx::impl_from;
 use stdx::iter::zip;
 use syntax::ast::{self, BinaryOp, UnaryOp};
+use syntax::name::{AsIdent, Name};
 use syntax::{TextRange, TextSize};
 use typed_index_collections::{TiSlice, TiVec};
 
@@ -86,7 +87,7 @@ impl InferenceResult {
             ..Default::default()
         };
 
-        let mut ctx = Ctx { result, body: &body, db, expr_stmt_ty: None };
+        let mut ctx = Ctx { result, body: &body, db, expr_stmt_ty: None, owner: id };
         ctx.expr_stmt_ty = match id {
             DefWithBodyId::ParamId(param) => match &db.param_data(param).ty {
                 Some(ty) => Some(ty.clone()),
@@ -116,6 +117,7 @@ struct Ctx<'a> {
     /// For behavioural (anlog body and function) and untype (nature attr)
     /// bodys this is simply none
     expr_stmt_ty: Option<Type>,
+    owner: DefWithBodyId,
 }
 
 impl Ctx<'_> {
@@ -351,7 +353,16 @@ impl Ctx<'_> {
                 Ty::PortFlow(port)
             }
 
-            Expr::Path { ref path, port: false } => match self.resolve_path(stmt, expr, path)? {
+            Expr::Path { ref path, port: false } => {
+                if let Some(name) = path.as_ident() {
+                    if self.find_bus(&name).is_some() {
+                        self.result
+                            .diagnostics
+                            .push(InferenceDiagnostic::BareBusReference { expr, name });
+                        return None;
+                    }
+                }
+                match self.resolve_path(stmt, expr, path)? {
                 ScopeDefItem::BlockId(_) | ScopeDefItem::ModuleId(_) => Ty::Scope,
                 ScopeDefItem::NatureId(nature) => Ty::Nature(nature),
                 ScopeDefItem::DisciplineId(discipline) => Ty::Discipline(discipline),
@@ -387,7 +398,10 @@ impl Ctx<'_> {
                     Ty::NatureAttr(self.db.nature_attr_ty(attr)?, attr)
                 }
                 ScopeDefItem::ParamSysFun(_) => Ty::Val(Type::Real),
-            },
+                }
+            }
+
+            Expr::BitSelect { ref base, index } => self.infere_bit_select(stmt, expr, base, index)?,
 
             Expr::BinaryOp { op: None, lhs, rhs } => {
                 self.infere_expr(stmt, lhs);
@@ -1248,6 +1262,71 @@ impl Ctx<'_> {
         }
     }
 
+    /// Looks up a vectored net/port declaration by its base name in the module that owns the
+    /// current body. Returns `None` outside a module body or if `name` isn't a known bus.
+    fn find_bus(&self, name: &Name) -> Option<BusDecl> {
+        let DefWithBodyId::ModuleId { module, .. } = self.owner else { return None };
+        let loc = module.lookup(self.db.upcast());
+        let tree = loc.item_tree(self.db.upcast());
+        tree[loc.id].buses.iter().find(|bus| &bus.base_name == name).cloned()
+    }
+
+    fn infere_bit_select(
+        &mut self,
+        stmt: StmtId,
+        expr: ExprId,
+        base: &Path,
+        index: ExprId,
+    ) -> Option<Ty> {
+        let Some(base_name) = base.as_ident() else {
+            self.result.diagnostics.push(InferenceDiagnostic::InvalidBusReference { expr });
+            return None;
+        };
+
+        let Some(bus) = self.find_bus(&base_name) else {
+            // Not a known bus: resolve normally so an ordinary "unresolved identifier"
+            // diagnostic is produced (e.g. for a genuine typo), rather than a bus-specific one.
+            self.resolve_path(stmt, expr, base)?;
+            return None;
+        };
+
+        // The index is type-checked like any other expression (e.g. so a bad sub-expression
+        // still gets ordinary diagnostics), but it must also constant-fold to an integer.
+        self.infere_expr(stmt, index);
+        let idx = match self.body.exprs[index] {
+            Expr::Literal(Literal::Int(i)) => i,
+            Expr::UnaryOp { expr: inner, op: UnaryOp::Neg } => match self.body.exprs[inner] {
+                Expr::Literal(Literal::Int(i)) => -i,
+                _ => {
+                    self.result
+                        .diagnostics
+                        .push(InferenceDiagnostic::NonConstantBitSelectIndex { expr });
+                    return None;
+                }
+            },
+            _ => {
+                self.result.diagnostics.push(InferenceDiagnostic::NonConstantBitSelectIndex { expr });
+                return None;
+            }
+        };
+
+        if !bus.contains_bit(idx) {
+            self.result.diagnostics.push(InferenceDiagnostic::BitSelectOutOfRange {
+                expr,
+                index: idx,
+                msb: bus.msb,
+                lsb: bus.lsb,
+            });
+            return None;
+        }
+
+        let synth_path = Path::new_ident(bus.bit_name(idx));
+        match self.resolve_path(stmt, expr, &synth_path)? {
+            ScopeDefItem::NodeId(node) => Some(Ty::Node(node)),
+            _ => None,
+        }
+    }
+
     fn resolve_item_path<T: ScopeDefItemKind>(
         &mut self,
         stmt: StmtId,
@@ -1292,6 +1371,30 @@ pub enum InferenceDiagnostic {
 
     IndirectAssignRequiresEquality {
         e: ExprId,
+    },
+
+    /// A bus bit-select (`bus[i]`) was used but `bus` is not a known vectored net/port.
+    InvalidBusReference {
+        expr: ExprId,
+    },
+
+    /// A bus bit-select index was not a compile-time-constant integer literal.
+    NonConstantBitSelectIndex {
+        expr: ExprId,
+    },
+
+    /// A bus bit-select index was outside the bus's declared `[msb:lsb]` width.
+    BitSelectOutOfRange {
+        expr: ExprId,
+        index: i32,
+        msb: i32,
+        lsb: i32,
+    },
+
+    /// A vectored net/port was referenced by its base name without a bit-select.
+    BareBusReference {
+        expr: ExprId,
+        name: Name,
     },
 
     InvalidLimitFunction {

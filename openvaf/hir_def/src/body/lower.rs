@@ -95,6 +95,15 @@ impl LowerCtx<'_> {
                 }
             }
 
+            ast::Expr::BitSelectExpr(bit_select) => {
+                if let Some(base) = bit_select.base().and_then(Path::resolve) {
+                    let index = self.collect_opt_expr(bit_select.index());
+                    Expr::BitSelect { base, index }
+                } else {
+                    return self.missing_expr();
+                }
+            }
+
             ast::Expr::Literal(lit) => Expr::Literal(Literal::new(lit.kind())),
         };
         self.alloc_expr(e, AstPtr::new(&expr))

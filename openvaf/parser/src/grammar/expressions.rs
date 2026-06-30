@@ -112,6 +112,12 @@ fn atom_expr(p: &mut Parser) -> Option<CompletedMarker> {
             let m = path(p);
             if p.at(T!('(')) {
                 call(p, m)
+            } else if p.at(T!['[']) {
+                let m = m.precede(p);
+                p.bump(T!['[']);
+                expr(p);
+                p.expect(T![']']);
+                m.complete(p, BIT_SELECT_EXPR)
             } else {
                 let m = m.precede(p);
                 m.complete(p, PATH_EXPR)

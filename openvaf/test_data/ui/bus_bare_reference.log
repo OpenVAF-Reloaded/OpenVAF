@@ -1,0 +1,16 @@
+error: bus 'bus' requires a bit-select [i]
+  --> /bus_bare_reference.va:8:11
+  |
+8 |         V(bus, n) <+ 1.0;
+  |           ^^^ bus referenced without a bit-select
+  |
+  = help: use `bus[i]` to select a single bit
+
+error: invalid destination for branch contribution
+  --> /bus_bare_reference.va:8:9
+  |
+8 |         V(bus, n) <+ 1.0;
+  |         ^^^^^^^^^ invalid destination
+  |
+  = help: expected nature access such as V(foo) or I(foo)
+

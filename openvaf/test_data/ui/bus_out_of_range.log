@@ -1,0 +1,16 @@
+error: bus bit-select index out of range
+  --> /bus_out_of_range.va:8:11
+  |
+8 |         V(bus[10], n) <+ 1.0;
+  |           ^^^^^^^ index 10 out of range
+  |
+  = help: this bus was declared with width [3:0]
+
+error: invalid destination for branch contribution
+  --> /bus_out_of_range.va:8:9
+  |
+8 |         V(bus[10], n) <+ 1.0;
+  |         ^^^^^^^^^^^^^ invalid destination
+  |
+  = help: expected nature access such as V(foo) or I(foo)
+

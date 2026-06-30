@@ -1,0 +1,8 @@
+`include "disciplines.va"
+
+module opamp(out, pin, nin);
+    inout out, pin, nin;
+    electrical out, pin, nin;
+    analog
+        V(out):V(pin,nin) == 0;
+endmodule

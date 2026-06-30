@@ -49,6 +49,9 @@ pub enum ImplicitEquationKind {
     AbsDelayInput(u32),
     /// Output node z for absdelay slot `i`; its equation row is stamped by the simulator.
     AbsDelayOutput(u32),
+    /// Free unknown driven into the LHS branch of indirect branch assignment slot `i`
+    /// (`<dst> : <lhs> == <rhs>;`); its equation row enforces `lhs == rhs`.
+    IndirectBranch(u32),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -244,6 +247,8 @@ pub struct HirInterner {
     /// Per absdelay slot: (eq_y = synthetic input node, eq_z = output node,
     /// has_maxdelay = whether the 3-arg `absdelay(y, td, tdmax)` form was used).
     pub absdelay_equations: Vec<(ImplicitEquation, ImplicitEquation, bool)>,
+    /// Per indirect branch assignment slot: the free unknown's implicit equation.
+    pub indirect_branch_equations: Vec<ImplicitEquation>,
 }
 
 pub type LiveParams<'a> = FilterMap<
@@ -262,6 +267,7 @@ impl Default for HirInterner {
             implicit_equations: TiVec::default(),
             lim_state: TiMap::default(),
             absdelay_equations: Vec::default(),
+            indirect_branch_equations: Vec::default(),
         }
     }
 }

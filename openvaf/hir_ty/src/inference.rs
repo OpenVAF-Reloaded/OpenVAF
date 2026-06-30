@@ -71,6 +71,9 @@ pub struct InferenceResult {
     pub resolved_calls: AHashMap<ExprId, ResolvedFun>,
     pub resolved_signatures: AHashMap<ExprId, Signature>,
     pub assignment_destination: AHashMap<StmtId, AssignDst>,
+    /// For `Stmt::Assignment`s with `assignment_kind == AssignOp::IndirectBranch`, the
+    /// decomposed `(lhs, rhs)` operands of the required `lhs == rhs` constraint expression.
+    pub indirect_branch_constraints: AHashMap<StmtId, (ExprId, ExprId)>,
     pub casts: AHashMap<ExprId, Type>,
     pub diagnostics: Vec<InferenceDiagnostic>,
 }
@@ -121,6 +124,11 @@ impl Ctx<'_> {
             Stmt::Expr(expr) => {
                 // TODO lint for side effect free expressions
                 self.infere_assignment(stmt, expr, self.expr_stmt_ty.clone());
+            }
+            Stmt::Assignment { dst, val, assignment_kind: ast::AssignOp::IndirectBranch } => {
+                let dst_ty =
+                    self.infere_assignment_dst(stmt, dst, ast::AssignOp::IndirectBranch);
+                self.infere_indirect_branch_constraint(stmt, val, dst_ty);
             }
             Stmt::Assignment { dst, val, assignment_kind } => {
                 let dst_ty = self.infere_assignment_dst(stmt, dst, assignment_kind);
@@ -188,6 +196,64 @@ impl Ctx<'_> {
         }
     }
 
+    /// Type checks the constraint of an indirect branch assignment
+    /// (`<dst> : <val>;`). `val` must be a top-level `==` expression; its
+    /// two operands are type checked as `Real` (matching `dst_ty`, which is
+    /// always `Type::Real` for a valid branch-access destination) and
+    /// recorded in `indirect_branch_constraints` for later use by HIR
+    /// lowering, instead of being type checked as a single boolean value.
+    fn infere_indirect_branch_constraint(
+        &mut self,
+        stmt: StmtId,
+        val: ExprId,
+        dst_ty: Option<Type>,
+    ) {
+        let (lhs, rhs) = match self.body.exprs[val] {
+            Expr::BinaryOp { lhs, rhs, op: Some(BinaryOp::EqualityTest) } => (lhs, rhs),
+            _ => {
+                self.result
+                    .diagnostics
+                    .push(InferenceDiagnostic::IndirectAssignRequiresEquality { e: val });
+                return;
+            }
+        };
+
+        for operand in [lhs, rhs] {
+            if let Some(operand_ty) = self.infere_expr(stmt, operand) {
+                if let Some(value_ty) = operand_ty.to_value() {
+                    if let Some(dst_ty) = dst_ty.clone() {
+                        if dst_ty.is_assignable_to(&value_ty) {
+                            if dst_ty != value_ty {
+                                self.result.casts.insert(operand, dst_ty);
+                            }
+                        } else {
+                            self.result.diagnostics.push(
+                                TypeMismatch {
+                                    expected: Cow::Owned(vec![TyRequirement::Val(dst_ty)]),
+                                    found_ty: operand_ty,
+                                    expr: operand,
+                                }
+                                .into(),
+                            );
+                        }
+                    }
+                } else {
+                    let expected = dst_ty.clone().map_or(TyRequirement::AnyVal, TyRequirement::Val);
+                    self.result.diagnostics.push(
+                        TypeMismatch {
+                            expected: Cow::Owned(vec![expected]),
+                            found_ty: operand_ty,
+                            expr: operand,
+                        }
+                        .into(),
+                    );
+                }
+            }
+        }
+
+        self.result.indirect_branch_constraints.insert(stmt, (lhs, rhs));
+    }
+
     pub fn infere_assignment_dst(
         &mut self,
         stmt: StmtId,
@@ -248,7 +314,10 @@ impl Ctx<'_> {
 
         // check that the correct operator is used
         match (&dst, assignment_kind) {
-            (AssignDst::Var(_) | AssignDst::FunVar { .. }, ast::AssignOp::Contribute) => {
+            (
+                AssignDst::Var(_) | AssignDst::FunVar { .. },
+                ast::AssignOp::Contribute | ast::AssignOp::IndirectBranch,
+            ) => {
                 self.result.diagnostics.push(InferenceDiagnostic::InvalidAssignDst {
                     e: expr,
                     maybe_different_operand: Some(ast::AssignOp::Assign),
@@ -1219,6 +1288,10 @@ pub enum InferenceDiagnostic {
     },
 
     ExpectedProbe {
+        e: ExprId,
+    },
+
+    IndirectAssignRequiresEquality {
         e: ExprId,
     },
 

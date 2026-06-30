@@ -188,6 +188,27 @@ impl<'a> BodyRef<'a> {
                 Some(Stmt::EventControl { event, body })
             }
             hir_def::Stmt::Assignment { val, .. } => {
+                if let Some(&(constraint_lhs, constraint_rhs)) =
+                    self.infere.indirect_branch_constraints.get(&stmnt)
+                {
+                    let stmt = match self.infere.assignment_destination[&stmnt] {
+                        inference::AssignDst::Flow(branch) => Stmt::IndirectContribute {
+                            kind: ContributeKind::Flow,
+                            branch: branch.into(),
+                            constraint_lhs,
+                            constraint_rhs,
+                        },
+                        inference::AssignDst::Potential(branch) => Stmt::IndirectContribute {
+                            kind: ContributeKind::Potential,
+                            branch: branch.into(),
+                            constraint_lhs,
+                            constraint_rhs,
+                        },
+                        _ => unreachable!("invalid HIR: indirect branch dst must be a branch access"),
+                    };
+                    return Some(stmt);
+                }
+
                 let stmt = match self.infere.assignment_destination[&stmnt] {
                     inference::AssignDst::Var(id) => {
                         Stmt::Assignment { lhs: AssignmentLhs::Variable(Variable { id }), rhs: val }
@@ -244,6 +265,12 @@ pub enum Stmt<'a> {
     Expr(ExprId),
     EventControl { event: &'a Event, body: StmtId },
     Contribute { kind: ContributeKind, branch: BranchWrite, rhs: ExprId },
+    IndirectContribute {
+        kind: ContributeKind,
+        branch: BranchWrite,
+        constraint_lhs: ExprId,
+        constraint_rhs: ExprId,
+    },
     Assignment { lhs: AssignmentLhs, rhs: ExprId },
     Block { body: &'a [StmtId] },
     If { cond: ExprId, then_branch: StmtId, else_branch: StmtId },

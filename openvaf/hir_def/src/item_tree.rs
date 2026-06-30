@@ -10,6 +10,7 @@
 //! In general, any item in the `ItemTree` stores its `AstId`, which allows mapping it back to its
 //! surface syntax.
 
+pub mod diagnostics;
 mod lower;
 pub mod ndatable;
 mod pretty;
@@ -42,11 +43,36 @@ pub struct ItemTree {
     pub top_level: Box<[RootItem]>,
     pub data: ItemTreeData,
     pub(crate) blocks: AHashMap<AstId<BlockStmt>, Block>,
+    pub diagnostics: Vec<ItemTreeDiagnostic>,
+}
+
+/// Diagnostics produced while lowering the AST to the item tree (e.g. while
+/// processing a bus/vectored-net width clause).
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub enum ItemTreeDiagnostic {
+    /// A `[msb:lsb]` width clause on a net/port declaration did not
+    /// constant-fold to two integer literals; the declaration was treated as
+    /// an ordinary (non-vectored) declaration instead.
+    NonConstantBusWidth { ast_id: ErasedAstId },
+    /// A `branch` declaration referenced a bus by its bare base name with no
+    /// bit-select (e.g. `branch (bus, gnd) br;`).
+    BareBusReferenceInBranch { ast_id: ErasedAstId, bus_name: Name },
+    /// A `branch` declaration used a bit-select index that did not
+    /// constant-fold to an integer literal.
+    NonConstantBranchBitSelect { ast_id: ErasedAstId },
+    /// A `branch` declaration used a bit-select index that is out of the
+    /// bus's declared `[msb:lsb]` range.
+    BranchBitSelectOutOfRange { ast_id: ErasedAstId, bus_name: Name, index: i32, msb: i32, lsb: i32 },
 }
 
 impl Default for ItemTree {
     fn default() -> Self {
-        Self { top_level: Default::default(), data: Default::default(), blocks: AHashMap::new() }
+        Self {
+            top_level: Default::default(),
+            data: Default::default(),
+            blocks: AHashMap::new(),
+            diagnostics: Vec::new(),
+        }
     }
 }
 
@@ -239,6 +265,44 @@ pub struct Module {
     pub num_ports: u32,
     pub items: Vec<ModuleItem>,
     pub ast_id: AstId<ast::ModuleDecl>,
+    /// Vectored-net ("bus") declarations in this module, used to resolve
+    /// bit-select expressions (`bus[i]`) and to diagnose bare references to
+    /// a bus without a bit-select.
+    pub buses: Vec<BusDecl>,
+}
+
+/// A vectored net/port declaration, e.g. `electrical [3:0] bus;`.
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub struct BusDecl {
+    pub base_name: Name,
+    pub msb: i32,
+    pub lsb: i32,
+    pub ast_id: ErasedAstId,
+}
+
+/// Synthesizes the scalar node name for bit `bit` of bus `base_name` (e.g. `"bus[3]"`).
+pub fn bus_bit_name(base_name: &Name, bit: i32) -> Name {
+    Name::resolve(&format!("{}[{}]", base_name, bit))
+}
+
+impl BusDecl {
+    /// Returns the (inclusive) range bound order-independent: min..=max.
+    pub fn min_max(&self) -> (i32, i32) {
+        if self.msb >= self.lsb {
+            (self.lsb, self.msb)
+        } else {
+            (self.msb, self.lsb)
+        }
+    }
+
+    pub fn contains_bit(&self, bit: i32) -> bool {
+        let (lo, hi) = self.min_max();
+        bit >= lo && bit <= hi
+    }
+
+    pub fn bit_name(&self, bit: i32) -> Name {
+        Name::resolve(&format!("{}[{}]", self.base_name, bit))
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]

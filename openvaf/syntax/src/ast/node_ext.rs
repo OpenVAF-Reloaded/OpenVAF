@@ -115,6 +115,16 @@ impl ast::Expr {
             None
         }
     }
+
+    /// If this expression is a bus bit-select (`base[index]`), returns the base path and the
+    /// (unevaluated) index expression.
+    pub fn as_bit_select(&self) -> Option<(Path, ast::Expr)> {
+        if let ast::Expr::BitSelectExpr(bit_select) = self {
+            Some((bit_select.base()?, bit_select.index()?))
+        } else {
+            None
+        }
+    }
 }
 
 impl ast::Range {
@@ -238,11 +248,30 @@ impl EventStmt {
     }
 }
 
+/// A branch endpoint: either a plain node reference (`gnd`) or a bus bit-select (`bus[2]`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BranchEndpoint {
+    Plain(Path),
+    BitSelect(Path, ast::Expr),
+}
+
+impl BranchEndpoint {
+    fn from_expr(expr: &ast::Expr) -> Option<BranchEndpoint> {
+        if let Some(path) = expr.as_path() {
+            Some(BranchEndpoint::Plain(path))
+        } else if let Some((base, index)) = expr.as_bit_select() {
+            Some(BranchEndpoint::BitSelect(base, index))
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BranchKind {
     PortFlow(PortFlow),
-    NodeGnd(Path),
-    Nodes(Path, Path),
+    NodeGnd(BranchEndpoint),
+    Nodes(BranchEndpoint, BranchEndpoint),
 }
 
 impl ast::BranchDecl {
@@ -252,9 +281,11 @@ impl ast::BranchDecl {
         let node2 = nodes.args().nth(1);
 
         let kind = match node2 {
-            Some(node2) => BranchKind::Nodes(node1.as_path()?, node2.as_path()?),
+            Some(node2) => {
+                BranchKind::Nodes(BranchEndpoint::from_expr(&node1)?, BranchEndpoint::from_expr(&node2)?)
+            }
             None => {
-                if let Some(node) = node1.as_path() {
+                if let Some(node) = BranchEndpoint::from_expr(&node1) {
                     BranchKind::NodeGnd(node)
                 } else if let ast::Expr::PortFlow(port_flow) = node1 {
                     BranchKind::PortFlow(port_flow)

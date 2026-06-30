@@ -335,6 +335,72 @@ impl Diagnostic for InferenceDiagnosticWrapped<'_> {
                         "help: indirect branch assignment requires a constraint of the form `<access> == <expr>`".to_owned()
                     ])
             }
+            InferenceDiagnostic::InvalidBusReference { expr } => {
+                let src = self
+                    .parse
+                    .to_file_span(self.body_sm.expr_map_back[expr].as_ref().unwrap().range(), self.sm);
+
+                Report::error()
+                    .with_labels(vec![Label {
+                        style: LabelStyle::Primary,
+                        file_id: src.file,
+                        range: src.range.into(),
+                        message: "invalid bus reference".to_owned(),
+                    }])
+                    .with_message("invalid bus bit-select")
+                    .with_notes(vec![
+                        "help: a bit-select base must be a simple bus name, e.g. `bus[2]`"
+                            .to_owned(),
+                    ])
+            }
+            InferenceDiagnostic::NonConstantBitSelectIndex { expr } => {
+                let src = self
+                    .parse
+                    .to_file_span(self.body_sm.expr_map_back[expr].as_ref().unwrap().range(), self.sm);
+
+                Report::error()
+                    .with_labels(vec![Label {
+                        style: LabelStyle::Primary,
+                        file_id: src.file,
+                        range: src.range.into(),
+                        message: "non-constant bit-select index".to_owned(),
+                    }])
+                    .with_message("bus bit-select index must be a constant")
+                    .with_notes(vec![
+                        "help: bus bit-select indices must be a constant integer literal (optionally negated)"
+                            .to_owned(),
+                    ])
+            }
+            InferenceDiagnostic::BitSelectOutOfRange { expr, index, msb, lsb } => {
+                let src = self
+                    .parse
+                    .to_file_span(self.body_sm.expr_map_back[expr].as_ref().unwrap().range(), self.sm);
+
+                Report::error()
+                    .with_labels(vec![Label {
+                        style: LabelStyle::Primary,
+                        file_id: src.file,
+                        range: src.range.into(),
+                        message: format!("index {index} out of range"),
+                    }])
+                    .with_message("bus bit-select index out of range")
+                    .with_notes(vec![format!("help: this bus was declared with width [{msb}:{lsb}]")])
+            }
+            InferenceDiagnostic::BareBusReference { expr, ref name } => {
+                let src = self
+                    .parse
+                    .to_file_span(self.body_sm.expr_map_back[expr].as_ref().unwrap().range(), self.sm);
+
+                Report::error()
+                    .with_labels(vec![Label {
+                        style: LabelStyle::Primary,
+                        file_id: src.file,
+                        range: src.range.into(),
+                        message: "bus referenced without a bit-select".to_owned(),
+                    }])
+                    .with_message(format!("bus '{name}' requires a bit-select [i]"))
+                    .with_notes(vec![format!("help: use `{name}[i]` to select a single bit")])
+            }
             InferenceDiagnostic::InvalidLimitFunction {
                 expr,
                 func,

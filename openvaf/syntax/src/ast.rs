@@ -11,7 +11,8 @@ pub use self::expr_ext::{ArrayExprKind, BinaryOp, LiteralKind, UnaryOp};
 pub use self::generated::nodes::*;
 pub use self::generated::tokens::*;
 pub use self::node_ext::{
-    AssignOp, BranchKind, ConstraintKind, ConstraintValue, PathSegment, PathSegmentKind,
+    AssignOp, BranchEndpoint, BranchKind, ConstraintKind, ConstraintValue, PathSegment,
+    PathSegmentKind,
 };
 pub use self::traits::*;
 use crate::syntax_node::{

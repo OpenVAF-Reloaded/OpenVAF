@@ -243,11 +243,24 @@ impl ModuleData {
     pub fn module_data_query(db: &dyn HirDefDB, module: ModuleId) -> Arc<ModuleData> {
         let loc = module.lookup(db);
         let item_tree = loc.item_tree(db);
-        let num_ports = item_tree[loc.id].num_ports;
-        let num_nodes = item_tree[loc.id].nodes.len() as u32;
-        let ports = (0..num_ports).map(|id| NodeLoc { module, id: id.into() }.intern(db)).collect();
-        let internal_nodes =
-            (num_ports..num_nodes).map(|id| NodeLoc { module, id: id.into() }.intern(db)).collect();
+        // Filter by `Node::is_port` rather than slicing on `num_ports`: a vectored
+        // ("bus") port declared in the body (non-ANSI style, e.g. `module m(in, out);
+        // output [3:0] out;`) expands into extra port nodes *after* the header's port
+        // count was captured, so a positional cutoff would misclassify them as internal
+        // nodes. `is_port` is authoritative for every node regardless of when/where it
+        // was declared or expanded.
+        let ports = item_tree[loc.id]
+            .nodes
+            .iter_enumerated()
+            .filter(|(_, node)| node.is_port)
+            .map(|(id, _)| NodeLoc { module, id }.intern(db))
+            .collect();
+        let internal_nodes = item_tree[loc.id]
+            .nodes
+            .iter_enumerated()
+            .filter(|(_, node)| !node.is_port)
+            .map(|(id, _)| NodeLoc { module, id }.intern(db))
+            .collect();
         Arc::new(ModuleData { name: item_tree[loc.id].name.clone(), ports, internal_nodes })
     }
 }

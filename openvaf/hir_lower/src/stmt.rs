@@ -1,6 +1,6 @@
 use hir::{BranchWrite, Case, CaseCond, ContributeKind, ExprId, Node, Stmt, StmtId, Type};
 use mir::builder::InstBuilder;
-use mir::{Opcode, F_ZERO};
+use mir::{Opcode, Value, F_ZERO};
 
 use crate::body::BodyLoweringCtx;
 use crate::{CallBackKind, CurrentKind, ParamKind, PlaceKind};
@@ -27,6 +27,14 @@ impl BodyLoweringCtx<'_, '_, '_> {
             }
             Stmt::Contribute { kind, branch, rhs } => {
                 self.contribute(kind == ContributeKind::Potential, branch, rhs)
+            }
+            Stmt::IndirectContribute { kind, branch, constraint_lhs, constraint_rhs } => {
+                self.indirect_contribute(
+                    kind == ContributeKind::Potential,
+                    branch,
+                    constraint_lhs,
+                    constraint_rhs,
+                )
             }
 
             Stmt::Block { body } => {
@@ -141,7 +149,24 @@ impl BodyLoweringCtx<'_, '_, '_> {
         self.ctx.switch_to_block(loop_end);
     }
 
-    fn contribute(&mut self, voltage_src: bool, mut write: BranchWrite, rhs: ExprId) {
+    fn contribute(&mut self, voltage_src: bool, write: BranchWrite, rhs: ExprId) {
+        let is_zero = self.body.get_expr(rhs).is_zero();
+        let rhs = self.lower_expr(rhs);
+        self.contribute_value(voltage_src, write, rhs, is_zero)
+    }
+
+    /// Stamps `rhs_value` into `write`'s branch as a contribution, exactly like
+    /// `V(write) <+ rhs_value` (or `I(write) <+ rhs_value` for current contributions),
+    /// but taking an already-lowered MIR value instead of an `ExprId`. Used both by
+    /// `contribute` (normal `<+` statements) and by indirect branch assignment, which
+    /// contributes a fresh implicit unknown instead of an evaluated expression.
+    fn contribute_value(
+        &mut self,
+        voltage_src: bool,
+        mut write: BranchWrite,
+        rhs: Value,
+        is_zero: bool,
+    ) {
         let mut negate = false;
         if let BranchWrite::Unnamed { hi, lo } = &mut write {
             self.lower_contribute_unnamed_branch(&mut negate, hi, lo, voltage_src)
@@ -149,7 +174,6 @@ impl BodyLoweringCtx<'_, '_, '_> {
         self.ctx.def_place(PlaceKind::IsVoltageSrc(write), voltage_src.into());
 
         let (mut hi, mut lo) = write.nodes(self.ctx.db);
-        let is_zero = self.body.get_expr(rhs).is_zero();
         if voltage_src && is_zero {
             if matches!(write, BranchWrite::Named(_)) {
                 self.lower_contribute_unnamed_branch(&mut negate, &mut hi, &mut lo, voltage_src)
@@ -163,7 +187,6 @@ impl BodyLoweringCtx<'_, '_, '_> {
             F_ZERO,
         );
 
-        let rhs = self.lower_expr(rhs);
         if rhs == F_ZERO {
             return;
         }
@@ -178,6 +201,33 @@ impl BodyLoweringCtx<'_, '_, '_> {
             self.ctx.ins().fadd(old, rhs)
         };
         self.ctx.def_place(place, new);
+    }
+
+    /// Lowers an indirect branch assignment `<dst> : <constraint_lhs> == <constraint_rhs>;`.
+    ///
+    /// Introduces one new free unknown `u`, contributes it into `branch` exactly like a
+    /// normal `<+` contribution (reusing `contribute_value`, so the backend's existing
+    /// voltage-src/current-src stamping - including automatic implicit current-unknown
+    /// augmentation for voltage contributions - applies unchanged), and adds an implicit
+    /// equation enforcing `constraint_lhs - constraint_rhs == 0`, which is solved for `u`.
+    fn indirect_contribute(
+        &mut self,
+        voltage_src: bool,
+        branch: BranchWrite,
+        constraint_lhs: ExprId,
+        constraint_rhs: ExprId,
+    ) {
+        let idx = self.ctx.intern.indirect_branch_equations.len() as u32;
+        let (eq, u) =
+            self.ctx.implicit_equation(crate::ImplicitEquationKind::IndirectBranch(idx));
+        self.ctx.intern.indirect_branch_equations.push(eq);
+
+        self.contribute_value(voltage_src, branch, u, false);
+
+        let lhs = self.lower_expr(constraint_lhs);
+        let rhs = self.lower_expr(constraint_rhs);
+        let residual = self.ctx.ins().fsub(lhs, rhs);
+        self.ctx.def_resist_residual(residual, eq);
     }
 
     fn lower_contribute_unnamed_branch(

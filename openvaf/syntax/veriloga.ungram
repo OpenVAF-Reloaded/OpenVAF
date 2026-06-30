@@ -60,8 +60,8 @@ ExprStmt =
 AssignStmt =
   AttrList* Assign ';'?
 
-Assign = 
-  lval: Expr op: ('<+' | '=') rval: Expr
+Assign =
+  lval: Expr op: ('<+' | '=' | ':') rval: Expr
 
 IfStmt =
   AttrList* 'if' '(' condition:Expr ')'

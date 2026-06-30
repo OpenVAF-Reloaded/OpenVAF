@@ -374,6 +374,11 @@ pub enum AsssigmentOp {
     /// a contribute (<+) stmt
     /// lhs must be a branch access (example `I(a,c) <+ V(a,c)/R;`)
     Contribute,
+
+    /// an indirect branch assignment stmt
+    /// lhs must be a branch access, rhs must be an equality expression
+    /// (example `V(out):V(pin,nin) == 0;`)
+    IndirectBranch,
 }
 
 impl ast::Assign {
@@ -382,6 +387,7 @@ impl ast::Assign {
             let bin_op = match c.kind() {
                 T![=] => AsssigmentOp::Eq,
                 T![<+] => AsssigmentOp::Contribute,
+                T![:] => AsssigmentOp::IndirectBranch,
                 _ => return None,
             };
             Some((c, bin_op))

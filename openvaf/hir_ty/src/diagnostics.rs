@@ -86,6 +86,11 @@ impl Diagnostic for InferenceDiagnosticWrapped<'_> {
                     AssignOp::Assign => res
                         .with_message("invalid destination for assignment")
                         .with_notes(vec!["help: expected a variable".to_owned()]),
+                    AssignOp::IndirectBranch => res
+                        .with_message("invalid destination for indirect branch assignment")
+                        .with_notes(vec![
+                            "help: expected nature access such as V(foo) or I(foo)".to_owned()
+                        ]),
                 };
 
                 match maybe_different_operand {
@@ -95,6 +100,10 @@ impl Diagnostic for InferenceDiagnosticWrapped<'_> {
                     ]),
                     Some(ast::AssignOp::Assign) => res.with_notes(vec![
                         "help: found a variable\nperhaps you meant to assign (=) a value"
+                            .to_owned(),
+                    ]),
+                    Some(ast::AssignOp::IndirectBranch) => res.with_notes(vec![
+                        "help: found a branch access\nperhaps you meant an indirect branch assignment (:)"
                             .to_owned(),
                     ]),
                     None => res,
@@ -307,6 +316,23 @@ impl Diagnostic for InferenceDiagnosticWrapped<'_> {
                     .with_message("'$limit' expected a branch probe as the first argument")
                     .with_notes(vec![
                         "help: expected nature access such as V(foo) or I(foo)".to_owned()
+                    ])
+            }
+            InferenceDiagnostic::IndirectAssignRequiresEquality { e } => {
+                let src = self
+                    .parse
+                    .to_file_span(self.body_sm.expr_map_back[e].as_ref().unwrap().range(), self.sm);
+
+                Report::error()
+                    .with_labels(vec![Label {
+                        style: LabelStyle::Primary,
+                        file_id: src.file,
+                        range: src.range.into(),
+                        message: "expected an equality constraint".to_owned(),
+                    }])
+                    .with_message("invalid indirect branch assignment")
+                    .with_notes(vec![
+                        "help: indirect branch assignment requires a constraint of the form `<access> == <expr>`".to_owned()
                     ])
             }
             InferenceDiagnostic::InvalidLimitFunction {

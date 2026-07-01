@@ -352,7 +352,7 @@ impl ModelInfo {
                     let mut default_val = |attr: Attr| {
                         let val = match attr.val() {
                             Some(ref expr @ Expr::Literal(ref lit)) => match lit.kind() {
-                                LiteralKind::IntNumber(val) => val.value() as f64,
+                                LiteralKind::IntNumber(val) => val.value_as_f64(),
                                 LiteralKind::SiRealNumber(val) => val.value(),
                                 LiteralKind::StdRealNumber(val) => val.value(),
                                 _ => {

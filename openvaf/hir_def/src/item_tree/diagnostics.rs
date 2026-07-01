@@ -86,6 +86,26 @@ impl Diagnostic for ItemTreeDiagnosticWrapped<'_> {
                         msb.max(lsb)
                     )])
             }
+            ItemTreeDiagnostic::ArrayVarUnsupportedScope { ast_id } => {
+                let range = self.ast_id_map.get_syntax(*ast_id).range();
+                let span = self.parse.to_file_span(range, self.sm);
+                Report::error()
+                    .with_message(
+                        "array-variable declarations are only supported at module body scope",
+                    )
+                    .with_labels(vec![Label {
+                        style: LabelStyle::Primary,
+                        file_id: span.file,
+                        range: span.range.into(),
+                        message: "`[msb:lsb]` width clause not supported here".to_owned(),
+                    }])
+                    .with_notes(vec![
+                        "help: declare the array directly in the module body (not inside an \
+                         analog function or a nested begin..end block); the declaration was \
+                         treated as a single scalar variable"
+                            .to_owned(),
+                    ])
+            }
         }
     }
 }

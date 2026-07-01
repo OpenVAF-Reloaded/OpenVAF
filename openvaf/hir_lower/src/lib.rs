@@ -52,6 +52,9 @@ pub enum ImplicitEquationKind {
     /// Free unknown driven into the LHS branch of indirect branch assignment slot `i`
     /// (`<dst> : <lhs> == <rhs>;`); its equation row enforces `lhs == rhs`.
     IndirectBranch(u32),
+    /// State variable `i` of a `laplace_*` transfer-function realization (controllable
+    /// canonical form); its reactive/resistive residuals encode `dx_i/dt = ...`.
+    LaplaceState(u32),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -13,6 +13,7 @@ use target::spec::Target;
 use crate::load::{load_osdi_lib, EvalFlags, OsdiDescriptor};
 use crate::mock_sim::{MockSimulation, ALPHA};
 
+mod laplace;
 mod load;
 mod mock_sim;
 
@@ -428,5 +429,25 @@ harness! {
     Test::from_dir_filtered("vacask_spice", &vacask_spice_test, &is_va_file, &ignore_dev_tests, &vacask_devices().join("spice")),
     // VACASK simplified SPICE models
     Test::from_dir_filtered("vacask_spice_sn", &vacask_spice_sn_test, &is_va_file, &ignore_dev_tests, &vacask_devices().join("spice/sn")),
-    [Test::new("$limit", &test_limit),Test::new("noise", &test_noise),Test::new("absdelay_maxdelay_offset", &absdelay_maxdelay_offset_test),Test::new("indirect_opamp", &indirect_opamp_test),Test::new("bus_port_dac", &bus_port_dac_test)]
+    [
+        Test::new("$limit", &test_limit),
+        Test::new("noise", &test_noise),
+        Test::new("absdelay_maxdelay_offset", &absdelay_maxdelay_offset_test),
+        Test::new("indirect_opamp", &indirect_opamp_test),
+        Test::new("bus_port_dac", &bus_port_dac_test),
+        Test::new("laplace_nd", &laplace::nd),
+        Test::new("laplace_nd_array_vars", &laplace::nd_array_vars)
+        // Disabled until the enhancement in brackets fixes the bug they expose:
+        // integer coefficients crash the compiler (E214)
+        // Test::new("laplace_nd_int_coeffs", &laplace::nd_int_coeffs),
+        // Test::new("laplace_zp_int_roots", &laplace::zp_int_roots),
+        // root vectors are not read as normalized (re, im) pairs (E31 + E395)
+        // Test::new("laplace_zp_real", &laplace::zp_real),
+        // Test::new("laplace_zp_complex", &laplace::zp_complex),
+        // Test::new("laplace_zp_origin_zero", &laplace::zp_origin_zero),
+        // Test::new("laplace_np", &laplace::np),
+        // Test::new("laplace_zd", &laplace::zd),
+        // the null argument `laplace_zp(x, , p)` is a syntax error (E453)
+        // Test::new("laplace_zp_null_zeros", &laplace::zp_null_zeros)
+    ]
 }

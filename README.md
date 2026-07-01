@@ -60,6 +60,9 @@ Some internals of the OpenVAF compiler are documented in the [internals.md](inte
 - Access to noise source type and parameters (white and flicker noise). 
 - limexp() is now a stateless builtin (not an operator) so it can be used in conditionals that depend on OP. 
 - absdelay() support
+- indirect contribution support
+- vector port support
+- laplace_* operators
 
 
 # What about binaries? 

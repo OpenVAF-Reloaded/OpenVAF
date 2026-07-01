@@ -191,6 +191,7 @@ pub struct VarDecl {
 impl ast::AttrsOwner for VarDecl {}
 impl VarDecl {
     pub fn ty(&self) -> Option<Type> { support::child(&self.syntax) }
+    pub fn width(&self) -> Option<Range> { support::child(&self.syntax) }
     pub fn vars(&self) -> AstChildren<Var> { support::children(&self.syntax) }
     pub fn semicolon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![;]) }
 }
@@ -489,6 +490,17 @@ impl PortDecl {
     pub fn names(&self) -> AstChildren<Name> { support::children(&self.syntax) }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Range {
+    pub(crate) syntax: SyntaxNode,
+}
+impl Range {
+    pub fn l_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['(']) }
+    pub fn l_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['[']) }
+    pub fn colon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![:]) }
+    pub fn r_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![')']) }
+    pub fn r_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![']']) }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Var {
     pub(crate) syntax: SyntaxNode,
 }
@@ -516,17 +528,6 @@ impl Constraint {
     pub fn exclude_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![exclude]) }
     pub fn expr(&self) -> Option<Expr> { support::child(&self.syntax) }
     pub fn range(&self) -> Option<Range> { support::child(&self.syntax) }
-}
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Range {
-    pub(crate) syntax: SyntaxNode,
-}
-impl Range {
-    pub fn l_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['(']) }
-    pub fn l_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['[']) }
-    pub fn colon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![:]) }
-    pub fn r_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![')']) }
-    pub fn r_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![']']) }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Direction {
@@ -1138,6 +1139,17 @@ impl AstNode for PortDecl {
     }
     fn syntax(&self) -> &SyntaxNode { &self.syntax }
 }
+impl AstNode for Range {
+    fn can_cast(kind: SyntaxKind) -> bool { kind == RANGE }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode { &self.syntax }
+}
 impl AstNode for Var {
     fn can_cast(kind: SyntaxKind) -> bool { kind == VAR }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
@@ -1162,17 +1174,6 @@ impl AstNode for Param {
 }
 impl AstNode for Constraint {
     fn can_cast(kind: SyntaxKind) -> bool { kind == CONSTRAINT }
-    fn cast(syntax: SyntaxNode) -> Option<Self> {
-        if Self::can_cast(syntax.kind()) {
-            Some(Self { syntax })
-        } else {
-            None
-        }
-    }
-    fn syntax(&self) -> &SyntaxNode { &self.syntax }
-}
-impl AstNode for Range {
-    fn can_cast(kind: SyntaxKind) -> bool { kind == RANGE }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
             Some(Self { syntax })
@@ -1861,6 +1862,11 @@ impl std::fmt::Display for PortDecl {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
+impl std::fmt::Display for Range {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
 impl std::fmt::Display for Var {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
@@ -1872,11 +1878,6 @@ impl std::fmt::Display for Param {
     }
 }
 impl std::fmt::Display for Constraint {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(self.syntax(), f)
-    }
-}
-impl std::fmt::Display for Range {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }

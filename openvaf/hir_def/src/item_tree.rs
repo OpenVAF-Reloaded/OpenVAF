@@ -53,13 +53,20 @@ pub enum ItemTreeDiagnostic {
     /// A `[msb:lsb]` width clause on a net/port declaration did not
     /// constant-fold to two integer literals; the declaration was treated as
     /// an ordinary (non-vectored) declaration instead.
-    NonConstantBusWidth { ast_id: ErasedAstId },
+    NonConstantBusWidth {
+        ast_id: ErasedAstId,
+    },
     /// A `branch` declaration referenced a bus by its bare base name with no
     /// bit-select (e.g. `branch (bus, gnd) br;`).
-    BareBusReferenceInBranch { ast_id: ErasedAstId, bus_name: Name },
+    BareBusReferenceInBranch {
+        ast_id: ErasedAstId,
+        bus_name: Name,
+    },
     /// A `branch` declaration used a bit-select index that did not
     /// constant-fold to an integer literal.
-    NonConstantBranchBitSelect { ast_id: ErasedAstId },
+    NonConstantBranchBitSelect {
+        ast_id: ErasedAstId,
+    },
     /// A `branch` declaration used a bit-select index that is out of the
     /// bus's declared `[msb:lsb]` range.
     BranchBitSelectOutOfRange {
@@ -68,6 +75,9 @@ pub enum ItemTreeDiagnostic {
         index: i32,
         msb: i32,
         lsb: i32,
+    },
+    ArrayVarUnsupportedScope {
+        ast_id: ErasedAstId,
     },
 }
 
@@ -275,9 +285,20 @@ pub struct Module {
     /// bit-select expressions (`bus[i]`) and to diagnose bare references to
     /// a bus without a bit-select.
     pub buses: Vec<BusDecl>,
+    /// Array-variable declarations (`real [msb:lsb] x;`) at module body
+    /// scope, used to resolve bit-select expressions (`x[i]`) the same way
+    /// `buses` does for nets/ports. Kept as a separate list from `buses`
+    /// (rather than merged in) purely so the two declaration kinds stay
+    /// distinguishable in diagnostics/debugging, even though `BusDecl`
+    /// itself is reused verbatim — see `Enhancement-4.md` §3.
+    pub var_arrays: Vec<BusDecl>,
 }
 
-/// A vectored net/port declaration, e.g. `electrical [3:0] bus;`.
+/// A vectored net/port declaration (e.g. `electrical [3:0] bus;`), or an
+/// array-variable declaration (e.g. `real [0:4] x;`) — both share the same
+/// shape (a base name plus an `[msb:lsb]` range expanding into independent
+/// scalar entries), so the same record type is reused for both; see
+/// `Module::buses` / `Module::var_arrays`.
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct BusDecl {
     pub base_name: Name,

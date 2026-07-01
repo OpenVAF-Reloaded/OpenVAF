@@ -288,7 +288,13 @@ impl Literal {
             ast::LiteralKind::String(lit) => {
                 Literal::String(lit.unescaped_value().into_boxed_str())
             }
-            ast::LiteralKind::IntNumber(lit) => Literal::Int(lit.value()),
+            ast::LiteralKind::IntNumber(lit) => match lit.value() {
+                Some(int) => Literal::Int(int),
+                // doesn't fit in i32 (Verilog-A `integer`'s width) -- still a valid real
+                // constant (e.g. a laplace_nd coefficient spelled without a decimal point),
+                // so fall back to a float literal instead of erroring/panicking.
+                None => Literal::Float(lit.value_as_f64().into()),
+            },
             ast::LiteralKind::SiRealNumber(lit) => Literal::Float(lit.value().into()),
             ast::LiteralKind::StdRealNumber(lit) => Literal::Float(lit.value().into()),
             ast::LiteralKind::Inf => {

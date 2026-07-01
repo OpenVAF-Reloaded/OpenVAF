@@ -54,6 +54,14 @@ impl<'a> BodyRef<'a> {
         Some((src, dst))
     }
 
+    /// For a `laplace_*` `num`/`den` argument that is a bare reference to a module-body array
+    /// variable (rather than an array literal): the variable's expanded scalar elements, in
+    /// ascending declared-index order. See `hir_ty::inference::InferenceResult::array_var_refs`.
+    pub fn array_var_ref(&self, expr: ExprId) -> Option<Vec<Variable>> {
+        let ids = self.infere.array_var_refs.get(&expr)?;
+        Some(ids.iter().map(|&id| Variable { id }).collect())
+    }
+
     fn resolve_path(&self, expr: ExprId) -> Ref {
         match self.infere.expr_types[expr] {
             Ty::Var(_, id) => Ref::Variable(Variable { id }),

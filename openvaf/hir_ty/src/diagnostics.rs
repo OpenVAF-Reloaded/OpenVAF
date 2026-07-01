@@ -402,10 +402,10 @@ impl Diagnostic for InferenceDiagnosticWrapped<'_> {
                         style: LabelStyle::Primary,
                         file_id: src.file,
                         range: src.range.into(),
-                        message: "bus referenced without a bit-select".to_owned(),
+                        message: "bus/array referenced without a bit-select".to_owned(),
                     }])
-                    .with_message(format!("bus '{name}' requires a bit-select [i]"))
-                    .with_notes(vec![format!("help: use `{name}[i]` to select a single bit")])
+                    .with_message(format!("'{name}' requires a bit-select [i]"))
+                    .with_notes(vec![format!("help: use `{name}[i]` to select a single element")])
             }
             InferenceDiagnostic::InvalidLimitFunction {
                 expr,

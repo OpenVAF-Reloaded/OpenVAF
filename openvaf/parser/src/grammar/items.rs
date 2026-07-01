@@ -79,6 +79,9 @@ pub(super) fn decl_name(p: &mut Parser) -> bool {
 
 pub(super) fn var_decl(p: &mut Parser, m: Marker) {
     ty(p);
+    if p.at(T!['[']) {
+        width_range(p);
+    }
     decl_list(p, T![;], var, MODULE_ITEM_OR_ATTR_RECOVERY);
     p.eat(T![;]);
     m.complete(p, VAR_DECL);

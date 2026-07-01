@@ -183,10 +183,6 @@ impl BuiltIn {
             | BuiltIn::zi_np
             | BuiltIn::zi_zd
             | BuiltIn::zi_zp
-            | BuiltIn::laplace_nd
-            | BuiltIn::laplace_np
-            | BuiltIn::laplace_zd
-            | BuiltIn::laplace_zp
             | BuiltIn::last_crossing
             | BuiltIn::slew
             | BuiltIn::transition

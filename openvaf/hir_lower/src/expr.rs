@@ -11,7 +11,7 @@ use hir::signatures::{
 };
 use hir::{Body, BuiltIn, Expr, ExprId, Literal, /*ParamSysFun,*/ Ref, ResolvedFun, Type};
 use mir::builder::InstBuilder;
-use mir::{Opcode, Value, FALSE, F_ZERO, GRAVESTONE, INFINITY, TRUE, ZERO};
+use mir::{Opcode, Value, FALSE, F_ONE, F_ZERO, GRAVESTONE, INFINITY, TRUE, ZERO};
 use stdx::iter::zip;
 use syntax::ast::{BinaryOp, UnaryOp};
 
@@ -723,8 +723,148 @@ impl BodyLoweringCtx<'_, '_, '_> {
             }
             BuiltIn::slew | BuiltIn::transition | BuiltIn::limit => self.lower_expr(args[0]),
 
+            BuiltIn::laplace_nd
+            | BuiltIn::laplace_np
+            | BuiltIn::laplace_zd
+            | BuiltIn::laplace_zp => self.lower_laplace(builtin, args),
+
             _ => unreachable!(),
         }
+    }
+
+    /// Lowers `laplace_nd`/`laplace_np`/`laplace_zd`/`laplace_zp(in, num_or_zero, den_or_pole
+    /// [, tol|nature])`.
+    ///
+    /// The transfer function `H(s) = num(s)/den(s)` is converted at compile time into an
+    /// equivalent controllable-canonical-form state-space realization (a small system of
+    /// first-order ODEs), reusing the same `idt`-style implicit-equation + resistive/reactive
+    /// residual machinery as the `idt()` builtin. The output is then a purely algebraic
+    /// combination of the resulting state values, so this needs no special-casing anywhere
+    /// downstream (`sim_back`/`osdi` treat the states as ordinary implicit unknowns).
+    /// The optional trailing tolerance/nature argument is accepted for signature compatibility
+    /// but has no effect: the realization is an exact algebraic transformation, not an
+    /// approximation that could benefit from an error tolerance.
+    fn lower_laplace(&mut self, kind: BuiltIn, args: &[ExprId]) -> Value {
+        let input = self.lower_expr(args[0]);
+
+        let num_is_roots = matches!(kind, BuiltIn::laplace_zd | BuiltIn::laplace_zp);
+        let den_is_roots = matches!(kind, BuiltIn::laplace_np | BuiltIn::laplace_zp);
+
+        let num = self.lower_laplace_array_arg(args[1]);
+        let den = self.lower_laplace_array_arg(args[2]);
+
+        let num = if num_is_roots { self.laplace_roots_to_poly(&num) } else { num };
+        let den = if den_is_roots { self.laplace_roots_to_poly(&den) } else { den };
+
+        self.laplace_state_space(input, &num, &den)
+    }
+
+    /// Lowers a `num`/`den` (or `zero`/`pole`) argument of a `laplace_*` call to its element
+    /// `Value`s, in ascending order. Two shapes are accepted (see `hir_ty::inference::
+    /// infere_laplace_array_arg`): a bare reference to a module-body array variable, read
+    /// directly via `ctx.read_variable` per element (no array-literal `ExprId`s exist for this
+    /// case at all); or an ordinary array-literal expression (`'{a, b, c}'`/`{a, b, c}`), whose
+    /// elements are lowered individually via `lower_expr` (falling back to treating the whole
+    /// expression as a single-element array if it's neither — defensive, not expected to
+    /// trigger given the type-level `ArrayAnyLength` requirement).
+    fn lower_laplace_array_arg(&mut self, expr: ExprId) -> Vec<Value> {
+        if let Some(vars) = self.body.array_var_ref(expr) {
+            return vars.iter().map(|&var| self.ctx.read_variable(var)).collect();
+        }
+
+        let elem_ids: Vec<ExprId> = match self.body.get_expr(expr) {
+            Expr::Array(elems) => elems.to_vec(),
+            _ => vec![expr],
+        };
+        elem_ids.iter().map(|&e| self.lower_expr(e)).collect()
+    }
+
+    /// Expands a list of roots `[r0, r1, ...]` into ascending-power polynomial coefficients of
+    /// `(s - r0)(s - r1)...`, i.e. `poly[i]` is the coefficient of `s^i`.
+    fn laplace_roots_to_poly(&mut self, roots: &[Value]) -> Vec<Value> {
+        let mut poly = vec![F_ONE];
+        for &root in roots {
+            let n = poly.len();
+            let mut next = Vec::with_capacity(n + 1);
+            for i in 0..=n {
+                let rp = if i < n { Some(self.ctx.ins().fmul(root, poly[i])) } else { None };
+                let term = match (i >= 1 && i - 1 < n, rp) {
+                    (true, Some(rp)) => self.ctx.ins().fsub(poly[i - 1], rp),
+                    (true, None) => poly[i - 1],
+                    (false, Some(rp)) => self.ctx.ins().fneg(rp),
+                    (false, None) => F_ZERO,
+                };
+                next.push(term);
+            }
+            poly = next;
+        }
+        poly
+    }
+
+    /// Builds a controllable-canonical-form state-space realization of `H(s) = num(s)/den(s)`
+    /// (both ascending-power coefficient lists, `den` non-empty) driven by `input`, and returns
+    /// the algebraic output value `y`.
+    fn laplace_state_space(&mut self, input: Value, num: &[Value], den: &[Value]) -> Value {
+        let n = den.len() - 1;
+        let a_n = den[n];
+
+        if n == 0 {
+            // No dynamics: H(s) is a constant gain num[0]/den[0].
+            let b0 = num.first().copied().unwrap_or(F_ZERO);
+            let gain = self.ctx.ins().fdiv(b0, a_n);
+            return self.ctx.ins().fmul(gain, input);
+        }
+
+        // Normalized (monic) denominator coefficients a_bar_i = den[i] / a_n, i in 0..n.
+        let a_bar: Vec<Value> = (0..n).map(|i| self.ctx.ins().fdiv(den[i], a_n)).collect();
+
+        // Direct feedthrough d = num[n] / a_n, present only if num is exactly proper (deg == n).
+        let d = if num.len() == n + 1 { self.ctx.ins().fdiv(num[n], a_n) } else { F_ZERO };
+
+        // c_i = (b_i - d * den[i]) / a_n, i in 0..n, with b_i = num[i] (0 if out of range).
+        let c: Vec<Value> = (0..n)
+            .map(|i| {
+                let b_i = num.get(i).copied().unwrap_or(F_ZERO);
+                let d_a_i = self.ctx.ins().fmul(d, den[i]);
+                let numer = self.ctx.ins().fsub(b_i, d_a_i);
+                self.ctx.ins().fdiv(numer, a_n)
+            })
+            .collect();
+
+        // n state implicit equations, each an idt-style reactive/resistive residual pair.
+        let mut states = Vec::with_capacity(n);
+        for _ in 0..n {
+            let idx = self.ctx.intern.implicit_equations.len() as u32;
+            let state = self.ctx.implicit_equation(ImplicitEquationKind::LaplaceState(idx));
+            states.push(state);
+        }
+
+        for i in 0..n {
+            let (eq, _) = states[i];
+            let resist = if i + 1 < n {
+                // dx_i/dt = x_{i+1}  =>  resistive residual = -x_{i+1}
+                self.ctx.ins().fneg(states[i + 1].1)
+            } else {
+                // dx_{n-1}/dt = u - sum_j a_bar_j * x_j  =>  resistive residual = (sum) - u
+                let mut acc = F_ZERO;
+                for j in 0..n {
+                    let term = self.ctx.ins().fmul(a_bar[j], states[j].1);
+                    acc = self.ctx.ins().fadd(acc, term);
+                }
+                self.ctx.ins().fsub(acc, input)
+            };
+            self.ctx.def_resist_residual(resist, eq);
+            self.ctx.def_react_residual(states[i].1, eq);
+        }
+
+        // y = sum_i c_i * x_i + d * u
+        let mut y = F_ZERO;
+        for i in 0..n {
+            let term = self.ctx.ins().fmul(c[i], states[i].1);
+            y = self.ctx.ins().fadd(y, term);
+        }
+        let du = self.ctx.ins().fmul(d, input);
+        self.ctx.ins().fadd(y, du)
     }
 
     fn lower_integral(&mut self, kind: IdtKind, args: &[ExprId]) -> Value {

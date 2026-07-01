@@ -59,6 +59,9 @@ Some internals of the OpenVAF compiler are documented in the [internals.md](inte
 - Initalization of instance parameters from model defaults now works. 
 - Access to noise source type and parameters (white and flicker noise). 
 - absdelay() support
+- indirect contribution support
+- vector port support
+- laplace_* operators
 
 
 # What about binaries? 

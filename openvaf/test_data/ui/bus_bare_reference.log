@@ -1,10 +1,10 @@
-error: bus 'bus' requires a bit-select [i]
+error: 'bus' requires a bit-select [i]
   --> /bus_bare_reference.va:8:11
   |
 8 |         V(bus, n) <+ 1.0;
-  |           ^^^ bus referenced without a bit-select
+  |           ^^^ bus/array referenced without a bit-select
   |
-  = help: use `bus[i]` to select a single bit
+  = help: use `bus[i]` to select a single element
 
 error: invalid destination for branch contribution
   --> /bus_bare_reference.va:8:9

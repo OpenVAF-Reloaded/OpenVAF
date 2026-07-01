@@ -74,9 +74,16 @@ impl ast::Expr {
                 } else {
                     f.value().into()
                 })),
-                LiteralKind::IntNumber(i) => {
-                    Some(ConstExprValue::Int(if negate { -i.value() } else { i.value() }))
-                }
+                LiteralKind::IntNumber(i) => Some(match i.value() {
+                    Some(int) => ConstExprValue::Int(if negate { -int } else { int }),
+                    // doesn't fit in i32 (Verilog-A `integer`'s width) -- still a valid real
+                    // constant, e.g. a laplace_nd coefficient too large to be a bit-select
+                    // index/bus width anyway (those consumers already reject a non-Int here).
+                    None => {
+                        let f = i.value_as_f64();
+                        ConstExprValue::Float((if negate { -f } else { f }).into())
+                    }
+                }),
                 _ => None,
             },
             _ => None,
@@ -336,8 +343,21 @@ impl ast::SiRealNumber {
 }
 
 impl ast::IntNumber {
-    pub fn value(&self) -> i32 {
-        self.syntax.text().parse().unwrap()
+    /// Parses this integer literal's text as an `i32`, or `None` if it doesn't fit (e.g. a
+    /// literal like `6134876650875544`, larger than Verilog-A's 32-bit `integer` type can
+    /// hold) -- callers should fall back to `value_as_f64` in that case rather than treating
+    /// it as an error, since a bare digit-string with no `.`/exponent is still a perfectly
+    /// valid (if unusually spelled) real-number literal wherever a `real` is expected.
+    pub fn value(&self) -> Option<i32> {
+        self.syntax.text().parse().ok()
+    }
+
+    /// Parses this integer literal's text as an `f64`. Always succeeds for any token the
+    /// lexer classified as `IntNumber` (a plain digit string is always valid float syntax,
+    /// and never exceeds f64's much larger range) -- the fallback for `value()` returning
+    /// `None`.
+    pub fn value_as_f64(&self) -> f64 {
+        self.syntax.text().parse().expect("IntNumber token must be valid float syntax too")
     }
 }
 

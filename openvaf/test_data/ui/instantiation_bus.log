@@ -1,0 +1,16 @@
+warning[L018]: module name 'resistor' collides with ngspice's built-in 'Resistor' device
+    --> /instantiation_bus.va__elaborated.va:135:1
+    |  
+135 | / module resistor(p, n);
+136 | |     inout p, n;
+137 | |     electrical p, n;
+138 | |     parameter real r = 1000;
+    . |
+141 | |     end
+142 | | endmodule
+    | \---------^ 'resistor' matches a built-in ngspice device name
+    |  
+    = help: `.model <name> resistor` in a SPICE netlist may silently bind to ngspice's built-in 'Resistor' device instead of this OSDI module; rename 'resistor' to something that doesn't collide, or only ever reach it via Verilog-A `instantiate`, never `.model` directly
+    = reserved_module_name is set to warn by default
+      use a CLI argument or an attribute to overwrite
+

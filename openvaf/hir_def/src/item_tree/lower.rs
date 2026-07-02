@@ -11,9 +11,9 @@ use typed_index_collections::TiVec;
 
 use super::{
     Block, Branch, BranchKind, BusDecl, Discipline, DisciplineAttr, DisciplineAttrKind, Domain,
-    Function, FunctionArg, FunctionItem, ItemTree, ItemTreeDiagnostic, ItemTreeId, Module,
-    ModuleItem, Nature, NatureAttr, NatureRef, NatureRefKind, Net, Node, Param, Port, RootItem,
-    Var,
+    Function, FunctionArg, FunctionItem, Instantiation, ItemTree, ItemTreeDiagnostic, ItemTreeId,
+    Module, ModuleItem, Nature, NatureAttr, NatureRef, NatureRefKind, Net, Node, Param, Port,
+    RootItem, Var,
 };
 // use tracing::trace;
 use crate::db::HirDefDB;
@@ -359,7 +359,71 @@ impl Ctx {
                 }
                 ast::ModuleItem::BranchDecl(branch) => self.lower_branch(branch, dst),
                 ast::ModuleItem::AliasParam(alias) => self.lower_alias_param(alias, dst),
+                ast::ModuleItem::Instantiation(inst) => self.lower_instantiation(inst, dst),
             };
+        }
+    }
+
+    /// Lowers a module-instantiation statement. Each comma-separated
+    /// `InstanceUnit` becomes one or more `Instantiation` item-tree entries
+    /// (one per array element for an arrayed instance, mirroring
+    /// `expand_bus_names`'s per-bit expansion) all sharing the statement's
+    /// `ast_id`, disambiguated by `unit_idx`/`array_index`. Port/parameter
+    /// binding details are intentionally *not* captured here: they're read
+    /// straight from the AST (via `ast_id`) by name resolution and by the
+    /// elaboration pass, exactly like how `Net`/`Port` only cache their
+    /// discipline here and leave the rest to the AST.
+    fn lower_instantiation(&mut self, decl: ast::Instantiation, dst: &mut Vec<ModuleItem>) {
+        let ast_id = self.source_ast_id_map.ast_id(&decl);
+        let Some(module) = decl.module().map(|it| it.as_name()) else { return };
+
+        for (unit_idx, unit) in decl.instance_units().enumerate() {
+            let Some(name) = unit.name() else { continue };
+            let base_name = name.as_name();
+
+            let range = match unit.width() {
+                Some(range) => range,
+                None => {
+                    let id = self.tree.data.instantiations.push_and_get_key(Instantiation {
+                        name: base_name,
+                        unit_idx,
+                        array_index: None,
+                        module: module.clone(),
+                        ast_id,
+                    });
+                    dst.push(id.into());
+                    continue;
+                }
+            };
+
+            match fold_width_range(&range) {
+                Some((msb, lsb)) => {
+                    let (lo, hi) = if msb <= lsb { (msb, lsb) } else { (lsb, msb) };
+                    for idx in lo..=hi {
+                        let id = self.tree.data.instantiations.push_and_get_key(Instantiation {
+                            name: super::bus_bit_name(&base_name, idx),
+                            unit_idx,
+                            array_index: Some(idx),
+                            module: module.clone(),
+                            ast_id,
+                        });
+                        dst.push(id.into());
+                    }
+                }
+                None => {
+                    self.tree.diagnostics.push(ItemTreeDiagnostic::NonConstantInstanceArrayWidth {
+                        ast_id: ast_id.into(),
+                    });
+                    let id = self.tree.data.instantiations.push_and_get_key(Instantiation {
+                        name: base_name,
+                        unit_idx,
+                        array_index: None,
+                        module: module.clone(),
+                        ast_id,
+                    });
+                    dst.push(id.into());
+                }
+            }
         }
     }
 

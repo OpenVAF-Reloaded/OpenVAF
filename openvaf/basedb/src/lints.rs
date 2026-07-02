@@ -181,5 +181,6 @@ pub mod builtin {
         pub const variant_const_simparam = LintData{default_lvl: Warn, documentation_id: 15};
         pub const port_without_direction = LintData{default_lvl: Deny, documentation_id: 16};
         pub const trivial_probe = LintData{default_lvl: Warn, documentation_id: 17};
+        pub const reserved_module_name = LintData{default_lvl: Warn, documentation_id: 18};
     }
 }

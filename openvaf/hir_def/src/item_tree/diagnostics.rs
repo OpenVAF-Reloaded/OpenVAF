@@ -86,6 +86,24 @@ impl Diagnostic for ItemTreeDiagnosticWrapped<'_> {
                         msb.max(lsb)
                     )])
             }
+            ItemTreeDiagnostic::NonConstantInstanceArrayWidth { ast_id } => {
+                let range = self.ast_id_map.get_syntax(*ast_id).range();
+                let span = self.parse.to_file_span(range, self.sm);
+                Report::error()
+                    .with_message("instance-array range `[msb:lsb]` is not a constant expression")
+                    .with_labels(vec![Label {
+                        style: LabelStyle::Primary,
+                        file_id: span.file,
+                        range: span.range.into(),
+                        message: "expected a constant integer expression on both sides of ':'"
+                            .to_owned(),
+                    }])
+                    .with_notes(vec![
+                        "help: only integer literals (optionally unary-negated) are supported \
+                         here; the instantiation was treated as a single (non-arrayed) instance"
+                            .to_owned(),
+                    ])
+            }
             ItemTreeDiagnostic::ArrayVarUnsupportedScope { ast_id } => {
                 let range = self.ast_id_map.get_syntax(*ast_id).range();
                 let span = self.parse.to_file_span(range, self.sm);

@@ -369,7 +369,9 @@ impl Ctx<'_> {
                     }
                 }
                 match self.resolve_path(stmt, expr, path)? {
-                    ScopeDefItem::BlockId(_) | ScopeDefItem::ModuleId(_) => Ty::Scope,
+                    ScopeDefItem::BlockId(_)
+                    | ScopeDefItem::ModuleId(_)
+                    | ScopeDefItem::InstantiationId(_) => Ty::Scope,
                     ScopeDefItem::NatureId(nature) => Ty::Nature(nature),
                     ScopeDefItem::DisciplineId(discipline) => Ty::Discipline(discipline),
                     ScopeDefItem::NodeId(node) => Ty::Node(node),

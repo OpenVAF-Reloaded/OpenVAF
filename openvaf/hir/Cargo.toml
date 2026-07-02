@@ -23,6 +23,8 @@ stdx = {version = "0.0.0", path = "../../lib/stdx" }
 hir_def = {version = "0.0.0", path = "../hir_def" }
 hir_ty = {version = "0.0.0", path = "../hir_ty" }
 syntax = {version = "0.0.0", path = "../syntax"}
+lexer = {version = "0.0.0", path = "../lexer" }
+tokens = {version = "0.0.0", path = "../tokens" }
 indexmap = "2.0"
 
 salsa = "0.17.0-pre.2"

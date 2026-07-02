@@ -1,0 +1,32 @@
+warning[L018]: module name 'resistor' collides with ngspice's built-in 'Resistor' device
+   --> /reserved_module_name.va:5:1
+   |  
+ 5 | / module resistor(p, n);
+ 6 | |     inout p, n;
+ 7 | |     electrical p, n;
+ 8 | |     parameter real r = 1000;
+   . |
+11 | |     end
+12 | | endmodule
+   | \---------^ 'resistor' matches a built-in ngspice device name
+   |  
+   = help: `.model <name> resistor` in a SPICE netlist may silently bind to ngspice's built-in 'Resistor' device instead of this OSDI module; rename 'resistor' to something that doesn't collide, or only ever reach it via Verilog-A `instantiate`, never `.model` directly
+   = reserved_module_name is set to warn by default
+     use a CLI argument or an attribute to overwrite
+
+warning[L018]: module name 'CAPACITOR' collides with ngspice's built-in 'Capacitor' device
+   --> /reserved_module_name.va:15:1
+   |  
+15 | / module CAPACITOR(p, n);
+16 | |     inout p, n;
+17 | |     electrical p, n;
+18 | |     parameter real c = 1e-12;
+   . |
+21 | |     end
+22 | | endmodule
+   | \---------^ 'CAPACITOR' matches a built-in ngspice device name
+   |  
+   = help: `.model <name> CAPACITOR` in a SPICE netlist may silently bind to ngspice's built-in 'Capacitor' device instead of this OSDI module; rename 'CAPACITOR' to something that doesn't collide, or only ever reach it via Verilog-A `instantiate`, never `.model` directly
+   = reserved_module_name is set to warn by default
+     use a CLI argument or an attribute to overwrite
+

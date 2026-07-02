@@ -14,8 +14,9 @@ use crate::nameres::{DefMap, ScopeOrigin};
 use crate::{
     AliasParamId, AliasParamLoc, BlockId, BlockLoc, BranchId, BranchLoc, DefWithBodyId,
     DisciplineAttrId, DisciplineAttrLoc, DisciplineId, DisciplineLoc, FunctionArgId,
-    FunctionArgLoc, FunctionId, FunctionLoc, ModuleId, ModuleLoc, NatureAttrId, NatureAttrLoc,
-    NatureId, NatureLoc, NodeId, NodeLoc, ParamId, ParamLoc, VarId, VarLoc,
+    FunctionArgLoc, FunctionId, FunctionLoc, InstantiationId, InstantiationLoc, ModuleId,
+    ModuleLoc, NatureAttrId, NatureAttrLoc, NatureId, NatureLoc, NodeId, NodeLoc, ParamId,
+    ParamLoc, VarId, VarLoc,
 };
 
 #[salsa::query_group(InternDatabase)]
@@ -46,6 +47,8 @@ pub trait InternDB: BaseDB {
     fn intern_function_arg(&self, loc: FunctionArgLoc) -> FunctionArgId;
     #[salsa::interned]
     fn intern_alias_param(&self, loc: AliasParamLoc) -> AliasParamId;
+    #[salsa::interned]
+    fn intern_instantiation(&self, loc: InstantiationLoc) -> InstantiationId;
 }
 
 #[salsa::query_group(HirDefDatabase)]

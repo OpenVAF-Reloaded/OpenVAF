@@ -1,3 +1,18 @@
+warning[L018]: module name 'diode' collides with ngspice's built-in 'Diode' device
+  --> /formatting.va:1:1
+  |  
+1 | / module diode;
+2 | |     analog begin 
+3 | |         $display("hello %r %+09.*g %d, %d", "foo", 2.4, "bar", 7.5, 7);
+4 | |         $display("hello %*.9e %..f %s %J %s", 3.1, "G", "foo", 3.141);
+5 | |     end
+6 | | endmodule
+  | \---------^ 'diode' matches a built-in ngspice device name
+  |  
+  = help: `.model <name> diode` in a SPICE netlist may silently bind to ngspice's built-in 'Diode' device instead of this OSDI module; rename 'diode' to something that doesn't collide, or only ever reach it via Verilog-A `instantiate`, never `.model` directly
+  = reserved_module_name is set to warn by default
+    use a CLI argument or an attribute to overwrite
+
 error: type mismatch: expected real value but found string literal
   --> /formatting.va:3:45
   |

@@ -45,6 +45,7 @@ mod attributes;
 mod body;
 mod db;
 pub mod diagnostics;
+mod elaborate;
 mod rec_declarations;
 
 pub mod signatures {
@@ -355,6 +356,12 @@ impl Scope {
                     ScopeDefItem::BranchId(id) => ScopeDef::Branch(Branch { id }),
                     ScopeDefItem::FunctionId(id) => ScopeDef::Function(Function { id }),
                     // implementation details
+                    // NOTE: `InstantiationId` (a module-instantiation site)
+                    // deliberately has no `hir`-level wrapper yet -- nothing
+                    // consumes instantiations through this friendlier API;
+                    // the elaboration pass works directly against
+                    // `hir_def::ItemTree`/`DefMap`. Add a `ScopeDef`
+                    // variant here if IDE-facing tooling needs it later.
                     ScopeDefItem::BuiltIn(_)
                     | ScopeDefItem::NatureId(_)
                     | ScopeDefItem::NatureAccess(_)
@@ -362,7 +369,8 @@ impl Scope {
                     | ScopeDefItem::ParamSysFun(_)
                     | ScopeDefItem::FunctionReturn(_)
                     | ScopeDefItem::FunctionArgId(_)
-                    | ScopeDefItem::NatureAttrId(_) => return None,
+                    | ScopeDefItem::NatureAttrId(_)
+                    | ScopeDefItem::InstantiationId(_) => return None,
                 };
                 Some((name.to_owned(), res))
             })

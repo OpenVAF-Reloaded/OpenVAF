@@ -1,0 +1,17 @@
+module resistor
+
+    node p = {is_input: true, is_output:true, gnd: false , discipline Some(Name("electrical"))}
+    node n = {is_input: true, is_output:true, gnd: false , discipline Some(Name("electrical"))}
+    param real r
+    param real tc
+module divider
+
+    node in = {is_input: true, is_output:true, gnd: false , discipline Some(Name("electrical"))}
+    node out = {is_input: true, is_output:true, gnd: false , discipline Some(Name("electrical"))}
+    node gnd = {is_input: true, is_output:true, gnd: false , discipline Some(Name("electrical"))}
+    instantiation r1 = resistor
+    instantiation r2 = resistor
+    instantiation rarr[0] = resistor
+    instantiation rarr[1] = resistor
+    instantiation rarr[2] = resistor
+    instantiation rarr[3] = resistor

@@ -68,6 +68,14 @@ impl CompilationDB {
         CompilationUnit { root_file: self.root_file }
     }
 
+    /// Redirects this database's root file, used by the module-instantiation
+    /// elaboration pass (`crate::elaborate`) to point everything downstream
+    /// at a synthesized, already-flattened file instead of the file the
+    /// user actually wrote.
+    pub(crate) fn set_root_file(&mut self, root_file: FileId) {
+        self.root_file = root_file;
+    }
+
     pub fn new<'a>(
         root_file: VfsPath,
         contents: Result<Vec<u8>, io::Error>,
@@ -131,6 +139,9 @@ impl CompilationDB {
         };
 
         res.set_global_lint_overwrites(root_file, overwrites);
+
+        crate::elaborate::elaborate_instantiations(&mut res)?;
+
         Ok(res)
     }
 }

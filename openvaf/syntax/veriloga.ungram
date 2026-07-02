@@ -197,6 +197,7 @@ ModuleItem =
 | VarDecl
 | ParamDecl
 | AliasParam
+| Instantiation
 
 ModulePorts = '('ports: (ModulePort (',' ModulePort)*)? ')'
 ModulePort = kind: ModulePortKind
@@ -259,3 +260,26 @@ FunctionArg =
 
 BranchDecl =
   AttrList* 'branch' ArgList (Name (',' Name)*)';'
+
+// Sub-module instantiation, e.g. `resistor #(.r(1e3)) r1(in, out);`
+// or an instance array `resistor #(.r(1e3)) r[0:3](p, gnd);`.
+Instantiation =
+  AttrList* module:NameRef ParamOverrides?
+  (InstanceUnit (',' InstanceUnit)*) ';'
+
+ParamOverrides =
+  '#' '(' (ParamAssign (',' ParamAssign)*)? ')'
+
+ParamAssign =
+  ('.' name:Name '(' val:Expr ')') | val:Expr
+
+InstanceUnit =
+  name:Name width:Range? PortConns
+
+PortConns =
+  '(' (PortConn (',' PortConn)*)? ')'
+
+// A single port actual. Named (`.p(net)`), positional (`net`), or entirely
+// empty (an open/unconnected port, e.g. the middle slot in `inst(a, , c)`).
+PortConn =
+  ('.' name:Name '(' net:Expr ')') | net:Expr

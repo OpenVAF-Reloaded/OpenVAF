@@ -1,0 +1,29 @@
+divider = module;
+
+    $angle = hierarchical parameter system function;
+    $hflip = hierarchical parameter system function;
+    $mfactor = hierarchical parameter system function;
+    $vflip = hierarchical parameter system function;
+    $xposition = hierarchical parameter system function;
+    $yposition = hierarchical parameter system function;
+    gnd = node;
+    in = node;
+    out = node;
+    r1 = instance;
+    r2 = instance;
+    rarr[0] = instance;
+    rarr[1] = instance;
+    rarr[2] = instance;
+    rarr[3] = instance;
+resistor = module;
+
+    $angle = hierarchical parameter system function;
+    $hflip = hierarchical parameter system function;
+    $mfactor = hierarchical parameter system function;
+    $vflip = hierarchical parameter system function;
+    $xposition = hierarchical parameter system function;
+    $yposition = hierarchical parameter system function;
+    n = node;
+    p = node;
+    r = parameter;
+    tc = parameter;

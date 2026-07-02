@@ -1,3 +1,19 @@
+warning[L018]: module name 'diode' collides with ngspice's built-in 'Diode' device
+   --> /ddx.va:2:1
+   |  
+ 2 | / (* openvaf_allow="trivial_probe" *)
+ 3 | | module diode(a, c);
+ 4 | |     real x;
+ 5 | |     inout c;
+   . |
+29 | |     end
+30 | | endmodule
+   | \---------^ 'diode' matches a built-in ngspice device name
+   |  
+   = help: `.model <name> diode` in a SPICE netlist may silently bind to ngspice's built-in 'Diode' device instead of this OSDI module; rename 'diode' to something that doesn't collide, or only ever reach it via Verilog-A `instantiate`, never `.model` directly
+   = reserved_module_name is set to warn by default
+     use a CLI argument or an attribute to overwrite
+
 warning[L011]: unknown supplied to the ddx operator is not standard compliant
    --> /ddx.va:16:21
    |

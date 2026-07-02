@@ -29,9 +29,9 @@ pub use crate::data::FunctionArg;
 use crate::db::HirDefDB;
 pub use crate::expr::{Case, Expr, ExprId, Literal, Stmt, StmtId};
 pub use crate::item_tree::{
-    AliasParam, Branch, BranchKind, BusDecl, Discipline, DisciplineAttr, Function, ItemTree,
-    ItemTreeId, ItemTreeNode, Module, Nature, NatureAttr, NatureRef, NatureRefKind, NodeTypeDecl,
-    Param, Var,
+    AliasParam, Branch, BranchKind, BusDecl, Discipline, DisciplineAttr, Function, Instantiation,
+    ItemTree, ItemTreeId, ItemTreeNode, Module, Nature, NatureAttr, NatureRef, NatureRefKind,
+    NodeTypeDecl, Param, Var,
 };
 use crate::nameres::ScopeDefItem;
 pub use crate::path::Path;
@@ -270,6 +270,9 @@ impl_intern!(NatureId, NatureLoc, intern_nature, lookup_intern_nature);
 
 pub type BranchLoc = ItemLoc<Branch>;
 impl_intern!(BranchId, BranchLoc, intern_branch, lookup_intern_branch);
+
+pub type InstantiationLoc = ItemLoc<Instantiation>;
+impl_intern!(InstantiationId, InstantiationLoc, intern_instantiation, lookup_intern_instantiation);
 
 pub type VarLoc = ItemLoc<Var>;
 impl_intern!(VarId, VarLoc, intern_var, lookup_intern_var);

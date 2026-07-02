@@ -124,6 +124,10 @@ impl<'a> Printer<'a> {
                     let param = &self.tree[param];
                     wln!(self, "aliasparam {} = {:?}", param.name, param.src);
                 }
+                ModuleItem::Instantiation(inst) => {
+                    let inst = &self.tree[inst];
+                    wln!(self, "instantiation {} = {}", inst.name, inst.module);
+                }
             }
         }
     }

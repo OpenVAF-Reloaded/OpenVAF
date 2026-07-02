@@ -1,0 +1,32 @@
+`include "disciplines.vams"
+
+// Collides (case-insensitively) with ngspice's built-in "Resistor" device --
+// should trigger the `reserved_module_name` lint (warn by default).
+module resistor(p, n);
+    inout p, n;
+    electrical p, n;
+    parameter real r = 1000;
+    analog begin
+        I(p, n) <+ V(p, n) / r;
+    end
+endmodule
+
+// Same idea, different casing -- the check is case-insensitive.
+module CAPACITOR(p, n);
+    inout p, n;
+    electrical p, n;
+    parameter real c = 1e-12;
+    analog begin
+        I(p, n) <+ c * ddt(V(p, n));
+    end
+endmodule
+
+// No collision -- should not trigger anything.
+module my_custom_resistor(p, n);
+    inout p, n;
+    electrical p, n;
+    parameter real r = 1000;
+    analog begin
+        I(p, n) <+ V(p, n) / r;
+    end
+endmodule

@@ -1,0 +1,17 @@
+module resistor(p, n);
+    inout p, n;
+    electrical p, n;
+    parameter real r = 1000;
+    parameter real tc = 0;
+    analog begin
+        I(p, n) <+ V(p, n) / r;
+    end
+endmodule
+
+module divider(in, out, gnd);
+    inout in, out, gnd;
+    electrical in, out, gnd;
+    resistor #(.r(1e3)) r1(in, out);
+    resistor #(1e3, 2e3) r2(.p(out), .n(gnd));
+    resistor rarr[0:3](out, gnd);
+endmodule

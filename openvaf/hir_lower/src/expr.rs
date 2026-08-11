@@ -728,57 +728,52 @@ impl BodyLoweringCtx<'_, '_, '_> {
         let (equation, val) = self.ctx.implicit_equation(ImplicitEquationKind::Idt(kind));
 
         let mut enable_integral = self.ctx.use_param(ParamKind::EnableIntegration);
-        let residual = if kind.has_ic() {
-            if kind.has_assert() {
-                enable_integral = self.lower_select_with(
-                    enable_integral,
-                    |mut s| {
-                        let assert = s.lower_expr(args[2]);
-                        s.ctx.ins().feq(assert, F_ZERO)
-                    },
-                    |_| FALSE,
-                )
-            }
+        if kind.has_assert() {
+            enable_integral = self.lower_select_with(
+                enable_integral,
+                |mut s| {
+                    let assert = s.lower_expr(args[2]);
+                    s.ctx.ins().feq(assert, F_ZERO)
+                },
+                |_| FALSE,
+            )
+        }
 
-            self.lower_multi_select(enable_integral, |mut ctx, branch| {
-                if branch {
-                    if kind.has_modulus() {
-                        let modulus = ctx.lower_expr(args[2]);
-                        let (min, max) = if kind.has_offset() {
-                            let offset = ctx.lower_expr(args[2]);
-                            (offset, ctx.ctx.ins().fadd(offset, modulus))
-                        } else {
-                            (F_ZERO, modulus)
-                        };
-                        let too_large = ctx.ctx.ins().fgt(val, max);
-                        ctx.lower_multi_select(too_large, |mut ctx, too_large| {
-                            if too_large {
-                                [ctx.ctx.ins().fsub(val, min), F_ZERO]
-                            } else {
-                                let too_small = ctx.ctx.ins().flt(val, min);
-                                ctx.lower_multi_select(too_small, |mut ctx, too_small| {
-                                    if too_small {
-                                        [ctx.ctx.ins().fsub(val, min), F_ZERO]
-                                    } else {
-                                        let arg = ctx.lower_expr(args[0]);
-                                        [ctx.ctx.ins().fneg(arg), val]
-                                    }
-                                })
-                            }
-                        })
+        let residual = self.lower_multi_select(enable_integral, |mut ctx, branch| {
+            if branch {
+                if kind.has_modulus() {
+                    let modulus = ctx.lower_expr(args[2]);
+                    let (min, max) = if kind.has_offset() {
+                        let offset = ctx.lower_expr(args[3]);
+                        (offset, ctx.ctx.ins().fadd(offset, modulus))
                     } else {
-                        let arg = ctx.lower_expr(args[0]);
-                        [ctx.ctx.ins().fneg(arg), val]
-                    }
+                        (F_ZERO, modulus)
+                    };
+                    let too_large = ctx.ctx.ins().fgt(val, max);
+                    ctx.lower_multi_select(too_large, |mut ctx, too_large| {
+                        if too_large {
+                            [ctx.ctx.ins().fsub(val, min), F_ZERO]
+                        } else {
+                            let too_small = ctx.ctx.ins().flt(val, min);
+                            ctx.lower_multi_select(too_small, |mut ctx, too_small| {
+                                if too_small {
+                                    [ctx.ctx.ins().fsub(val, min), F_ZERO]
+                                } else {
+                                    let arg = ctx.lower_expr(args[0]);
+                                    [ctx.ctx.ins().fneg(arg), val]
+                                }
+                            })
+                        }
+                    })
                 } else {
-                    let ic = ctx.lower_expr(args[1]);
-                    [ctx.ctx.ins().fsub(val, ic), F_ZERO]
+                    let arg = ctx.lower_expr(args[0]);
+                    [ctx.ctx.ins().fneg(arg), val]
                 }
-            })
-        } else {
-            let arg = self.lower_expr(args[0]);
-            [self.ctx.ins().fneg(arg), val]
-        };
+            } else {
+                let ic = if kind.has_ic() { ctx.lower_expr(args[1]) } else { F_ZERO };
+                [ctx.ctx.ins().fsub(val, ic), F_ZERO]
+            }
+        });
 
         self.ctx.def_resist_residual(residual[0], equation);
         self.ctx.def_react_residual(residual[1], equation);

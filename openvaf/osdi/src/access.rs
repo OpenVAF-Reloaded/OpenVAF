@@ -9,7 +9,7 @@ use llvm_sys::LLVMIntPredicate::LLVMIntNE;
 use mir_llvm::UNNAMED;
 
 use crate::compilation_unit::OsdiCompilationUnit;
-use crate::metadata::osdi_0_4::{ACCESS_FLAG_INSTANCE, ACCESS_FLAG_SET};
+use crate::metadata::osdi_0_5::{ACCESS_FLAG_INSTANCE, ACCESS_FLAG_SET};
 
 impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
     pub fn access_function_prototype(&self) -> &'ll llvm_sys::LLVMValue {

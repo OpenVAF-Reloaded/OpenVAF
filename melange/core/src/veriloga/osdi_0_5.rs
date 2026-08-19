@@ -3,7 +3,7 @@
 use std::os::raw::{c_char, c_void};
 
 pub const OSDI_VERSION_MAJOR_CURR: u32 = 0;
-pub const OSDI_VERSION_MINOR_CURR: u32 = 4;
+pub const OSDI_VERSION_MINOR_CURR: u32 = 5;
 pub const PARA_TY_MASK: u32 = 3;
 pub const PARA_TY_REAL: u32 = 0;
 pub const PARA_TY_INT: u32 = 1;
@@ -143,6 +143,12 @@ pub struct OsdiNatureRef {
     pub index: u32,
 }
 #[repr(C)]
+pub struct OsdiAbsDelayInfo {
+    pub y_node: u32,
+    pub z_node: u32,
+    pub td_offset: u32,
+}
+#[repr(C)]
 #[non_exhaustive]
 pub struct OsdiDescriptor {
     pub name: *mut c_char,
@@ -197,6 +203,8 @@ pub struct OsdiDescriptor {
     pub noise_source_type: *mut u32,
     pub load_noise_params: fn(*mut c_void, *mut c_void, *mut f64, *mut f64),
     pub module_flags: u32,
+    pub absdelay_count: u32,
+    pub absdelays: *mut OsdiAbsDelayInfo,
 }
 impl OsdiDescriptor {
     pub fn access(

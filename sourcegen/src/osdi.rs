@@ -90,11 +90,11 @@ impl Header {
         }
 
         let name = &name[5..];
-        let (version_major, name) = name.split_once('_').unwrap();
-        let version_minor = name.split_once(".h").unwrap().0;
+        let (version_major, name) = name.split_once('_')?;
+        let version_minor = name.split_once(".h")?.0;
 
-        let version_major = version_major.parse().unwrap();
-        let version_minor = version_minor.parse().unwrap();
+        let version_major = version_major.parse().ok()?;
+        let version_minor = version_minor.parse().ok()?;
 
         let path = entry.path();
         let src = read_to_string(path).unwrap();

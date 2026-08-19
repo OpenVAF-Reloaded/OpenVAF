@@ -1,4 +1,4 @@
-use crate::metadata::osdi_0_4::{
+use crate::metadata::osdi_0_5::{
     OsdiAttribute, OsdiAttributeValue, OsdiDiscipline, OsdiNature, ATTR_TYPE_INT, ATTR_TYPE_REAL,
     ATTR_TYPE_STR, DOMAIN_CONTINUOUS, DOMAIN_DISCRETE, DOMAIN_NOT_GIVEN, NATREF_DISCIPLINE_FLOW,
     NATREF_DISCIPLINE_POTENTIAL, NATREF_NATURE, NATREF_NONE,

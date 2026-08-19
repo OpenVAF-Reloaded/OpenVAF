@@ -431,6 +431,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
 
             inst_data.store_bound_step(instance, &builder);
             inst_data.store_delay_times(instance, &builder);
+            inst_data.store_delay_maxes(instance, &builder);
 
             builder.ret();
         }

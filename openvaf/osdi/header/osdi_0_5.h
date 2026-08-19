@@ -160,11 +160,12 @@ typedef struct OsdiNatureRef {
   uint32_t index;
 }OsdiNatureRef;
 
-typedef struct OsdiAbsDelayInfo {
+typedef struct OsdiAbsDelay {
   uint32_t y_node;
   uint32_t z_node;
   uint32_t td_offset;
-} OsdiAbsDelayInfo;
+  uint32_t maxdelay_offset;
+} OsdiAbsDelay;
 
 typedef struct OsdiDescriptor {
   char *name;
@@ -236,7 +237,7 @@ typedef struct OsdiDescriptor {
   void (*load_noise_params)(void *inst, void *model, double *power, double *exponent);
   uint32_t module_flags;
   uint32_t absdelay_count;
-  OsdiAbsDelayInfo *absdelays;
+  OsdiAbsDelay *absdelays;
 }OsdiDescriptor;
 
 typedef struct OsdiNature {

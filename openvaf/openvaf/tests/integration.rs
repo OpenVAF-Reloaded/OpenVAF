@@ -2,7 +2,7 @@ use std::f64::consts;
 use std::ffi::OsStr;
 use std::path::Path;
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use expect_test::expect_file;
 use float_cmp::assert_approx_eq;
 use mini_harness::{harness, Result};
@@ -15,6 +15,50 @@ use crate::mock_sim::{MockSimulation, ALPHA};
 
 mod load;
 mod mock_sim;
+
+fn absdelay_maxdelay_offset_test() -> Result<()> {
+    const SRC: &str = r#"`include "constants.vams"
+`include "disciplines.vams"
+
+module absdelay_mix(A,B,C);
+    inout A, B, C;
+    electrical A,B,C;
+
+    branch (A,B) br_a_b;
+    branch (B,C) br_b_c;
+
+    parameter real td = 1e-9 from [0:inf];
+    parameter real tdmax = 2e-9 from [0:inf];
+
+    analog begin
+        I(br_a_b) <+ absdelay(V(br_a_b), td);
+        I(br_b_c) <+ absdelay(V(br_b_c), td, tdmax);
+    end
+endmodule
+"#;
+    let root_file: Utf8PathBuf =
+        Utf8PathBuf::try_from(std::env::temp_dir())?.join("openvaf_absdelay_maxdelay_test.va");
+    std::fs::write(&root_file, SRC)?;
+    let descr = compile_and_load(&root_file);
+    println!("absdelay_count = {}", descr.absdelay_count);
+    assert_eq!(descr.absdelay_count, 2);
+    let slots = unsafe { std::slice::from_raw_parts(descr.absdelays, descr.absdelay_count as usize) };
+    for (i, s) in slots.iter().enumerate() {
+        println!(
+            "slot {i}: y_node={} z_node={} td_offset={} maxdelay_offset={}",
+            s.y_node, s.z_node, s.td_offset, s.maxdelay_offset
+        );
+    }
+    let no_max = slots.iter().find(|s| s.maxdelay_offset == u32::MAX).unwrap();
+    let has_max = slots.iter().find(|s| s.maxdelay_offset != u32::MAX).unwrap();
+    assert_eq!(no_max.maxdelay_offset, u32::MAX, "2-arg slot must have maxdelay_offset == MAX");
+    assert_ne!(has_max.maxdelay_offset, u32::MAX, "3-arg slot must have a real maxdelay_offset");
+    assert_ne!(
+        has_max.maxdelay_offset, has_max.td_offset,
+        "maxdelay_offset must differ from td_offset"
+    );
+    Ok(())
+}
 
 fn compile_and_load(root_file: &Utf8Path) -> &'static OsdiDescriptor {
     let openvaf_opts = openvaf::Opts {
@@ -264,5 +308,5 @@ harness! {
     Test::from_dir_filtered("vacask_spice", &vacask_spice_test, &is_va_file, &ignore_dev_tests, &vacask_devices().join("spice")),
     // VACASK simplified SPICE models
     Test::from_dir_filtered("vacask_spice_sn", &vacask_spice_sn_test, &is_va_file, &ignore_dev_tests, &vacask_devices().join("spice/sn")),
-    [Test::new("$limit", &test_limit),Test::new("noise", &test_noise)]
+    [Test::new("$limit", &test_limit),Test::new("noise", &test_noise),Test::new("absdelay_maxdelay_offset", &absdelay_maxdelay_offset_test)]
 }

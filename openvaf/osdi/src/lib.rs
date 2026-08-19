@@ -269,6 +269,14 @@ pub fn compile<'a>(
         let cx = new_codegen(back, &llmod, &literals);
         let tys = OsdiTys::new(&cx, NonNull::from(target_data).as_ptr());
 
+        // Legacy OSDI_ABSDELAY_COUNTS / OSDI_ABSDELAY_INFOS side channel (see
+        // osdi_0_4_enhancement1.h). Its OsdiAbsDelayInfo layout is frozen at
+        // { y_node, z_node, td_offset } (12 bytes) for consumers built against
+        // that extension, distinct from the newer OsdiAbsDelay used by
+        // OsdiDescriptor.absdelays below (which also carries maxdelay_offset).
+        let absdelay_info_ty =
+            cx.ty_struct("OsdiAbsDelayInfo", &[cx.ty_int(), cx.ty_int(), cx.ty_int()]);
+
         let mut absdelay_counts: Vec<u32> = Vec::new();
         let mut absdelay_infos_ll: Vec<&llvm_sys::LLVMValue> = Vec::new();
 
@@ -280,12 +288,20 @@ pub fn compile<'a>(
                 let descriptor = cguint.descriptor(&td_ptr, &db);
 
                 // Also mirror this module's absdelay metadata into the legacy
-                // OSDI_ABSDELAY_COUNTS / OSDI_ABSDELAY_INFOS side-channel globals
-                // (kept for consumers built against that extension).
+                // side-channel globals (kept for consumers built against that
+                // extension); maxdelay_offset is intentionally dropped here.
                 let absdelays = cguint.absdelays(&td_ptr);
                 absdelay_counts.push(absdelays.len() as u32);
-                absdelay_infos_ll
-                    .extend(absdelays.iter().map(|info| info.to_ll_val(&cx, &tys)));
+                absdelay_infos_ll.extend(absdelays.iter().map(|info| {
+                    cx.const_struct(
+                        absdelay_info_ty,
+                        &[
+                            cx.const_unsigned_int(info.y_node),
+                            cx.const_unsigned_int(info.z_node),
+                            cx.const_unsigned_int(info.td_offset),
+                        ],
+                    )
+                }));
 
                 descriptor.to_ll_val(&cx, &tys)
             })
@@ -330,7 +346,7 @@ pub fn compile<'a>(
             if !absdelay_infos_ll.is_empty() {
                 cx.export_array(
                     "OSDI_ABSDELAY_INFOS",
-                    tys.osdi_abs_delay_info,
+                    absdelay_info_ty,
                     &absdelay_infos_ll,
                     true,
                     false,

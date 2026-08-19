@@ -4,8 +4,8 @@
 #include <stdint.h>
 #endif
 
-/* Companion to osdi_0_4.h — assumes OSDI_NUM_DESCRIPTORS / OsdiDescriptor from
- * that header are in scope on the consumer side. */
+/* Companion to osdi_0_4.h / osdi_0_5.h — assumes OSDI_NUM_DESCRIPTORS /
+ * OsdiDescriptor from that header are in scope on the consumer side. */
 
 /*
  * OSDI 0.4 — Enhancement 1:  absdelay() support
@@ -26,6 +26,14 @@
  * symbols; a model that uses no `absdelay()` does not export them at all.
  * Therefore old simulators run new models (minus absdelay) and new simulators
  * run old models unchanged.
+ *
+ * As of OSDI 0.5 (osdi_0_5.h) the same per-slot information is ALSO carried
+ * directly on each `OsdiDescriptor` via the `absdelay_count` / `absdelays`
+ * fields (same `OsdiAbsDelayInfo` layout as here, and the same zero-length-
+ * array convention as every other count/array pair in OsdiDescriptor).
+ * OpenVAF-reloaded still exports the OSDI_ABSDELAY_COUNTS / OSDI_ABSDELAY_INFOS
+ * globals described below unchanged, so consumers built against either
+ * mechanism keep working.
  *
  *
  * 1. Model of `absdelay()`

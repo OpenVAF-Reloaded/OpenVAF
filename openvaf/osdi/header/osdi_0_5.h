@@ -8,7 +8,7 @@
 
 
 #define OSDI_VERSION_MAJOR_CURR 0
-#define OSDI_VERSION_MINOR_CURR 4
+#define OSDI_VERSION_MINOR_CURR 5
 
 #define PARA_TY_MASK 3
 #define PARA_TY_REAL 0
@@ -156,9 +156,15 @@ typedef struct OsdiNoiseSource {
 }OsdiNoiseSource;
 
 typedef struct OsdiNatureRef {
-  uint32_t ref_type; 
-  uint32_t index; 
+  uint32_t ref_type;
+  uint32_t index;
 }OsdiNatureRef;
+
+typedef struct OsdiAbsDelayInfo {
+  uint32_t y_node;
+  uint32_t z_node;
+  uint32_t td_offset;
+} OsdiAbsDelayInfo;
 
 typedef struct OsdiDescriptor {
   char *name;
@@ -229,6 +235,8 @@ typedef struct OsdiDescriptor {
   uint32_t *noise_source_type;
   void (*load_noise_params)(void *inst, void *model, double *power, double *exponent);
   uint32_t module_flags;
+  uint32_t absdelay_count;
+  OsdiAbsDelayInfo *absdelays;
 }OsdiDescriptor;
 
 typedef struct OsdiNature {

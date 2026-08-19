@@ -143,10 +143,11 @@ pub struct OsdiNatureRef {
     pub index: u32,
 }
 #[repr(C)]
-pub struct OsdiAbsDelayInfo {
+pub struct OsdiAbsDelay {
     pub y_node: u32,
     pub z_node: u32,
     pub td_offset: u32,
+    pub maxdelay_offset: u32,
 }
 #[repr(C)]
 #[non_exhaustive]
@@ -204,7 +205,7 @@ pub struct OsdiDescriptor {
     pub load_noise_params: fn(*mut c_void, *mut c_void, *mut f64, *mut f64),
     pub module_flags: u32,
     pub absdelay_count: u32,
-    pub absdelays: *mut OsdiAbsDelayInfo,
+    pub absdelays: *mut OsdiAbsDelay,
 }
 impl OsdiDescriptor {
     pub fn access(

@@ -690,14 +690,17 @@ impl BodyLoweringCtx<'_, '_, '_> {
             }
 
             BuiltIn::absdelay => {
+                let delay_idx = self.ctx.intern.absdelay_equations.len() as u32;
                 let y_expr = self.lower_expr(args[0]);
                 let mut td = self.lower_expr(args[1]);
-                if signature == ABSDELAY_MAX {
+                let has_maxdelay = signature == ABSDELAY_MAX;
+                if has_maxdelay {
                     let tdmax = self.lower_expr(args[2]);
+                    // Store the raw (unclamped) upper bound for OSDI exposure.
+                    self.ctx.def_place(PlaceKind::AbsDelayMax(delay_idx), tdmax);
                     let use_td = self.ctx.ins().fle(td, tdmax);
                     td = self.lower_select_with(use_td, |_| td, |_| tdmax);
                 }
-                let delay_idx = self.ctx.intern.absdelay_equations.len() as u32;
 
                 // Synthetic input node: equation V(y_synth) = y_expr
                 let (eq_y, y_val) =
@@ -706,7 +709,7 @@ impl BodyLoweringCtx<'_, '_, '_> {
                 let (eq_z, z_val) =
                     self.ctx.implicit_equation(ImplicitEquationKind::AbsDelayOutput(delay_idx));
 
-                self.ctx.intern.absdelay_equations.push((eq_y, eq_z));
+                self.ctx.intern.absdelay_equations.push((eq_y, eq_z, has_maxdelay));
 
                 // Resistive residual for eq_y: y_expr - V(y_synth) = 0
                 let resist_y = self.ctx.ins().fsub(y_expr, y_val);

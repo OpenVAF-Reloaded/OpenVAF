@@ -29,7 +29,7 @@ use crate::inst_data::{
 };
 use crate::load::JacobianLoadType;
 use crate::metadata::osdi_0_5::{
-    OsdiAbsDelayInfo, OsdiDescriptor, OsdiJacobianEntry, OsdiNatureRef, OsdiNode, OsdiNodePair,
+    OsdiAbsDelay, OsdiDescriptor, OsdiJacobianEntry, OsdiNatureRef, OsdiNode, OsdiNodePair,
     OsdiNoiseSource, OsdiParamOpvar, OsdiTys, JACOBIAN_ENTRY_REACT, JACOBIAN_ENTRY_REACT_CONST,
     JACOBIAN_ENTRY_RESIST, JACOBIAN_ENTRY_RESIST_CONST, MODULEFLAG_ABSTIME, NATREF_DISCIPLINE_FLOW,
     NATREF_DISCIPLINE_POTENTIAL, NATREF_NONE, NOISE_TYPE_FLICKER, NOISE_TYPE_TABLE,
@@ -326,7 +326,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             .collect()
     }
 
-    pub fn absdelays(&self, target_data: &LLVMTargetDataRef) -> Vec<OsdiAbsDelayInfo> {
+    pub fn absdelays(&self, target_data: &LLVMTargetDataRef) -> Vec<OsdiAbsDelay> {
         let OsdiCompilationUnit { inst_data, module, .. } = self;
         let find_node = |eq: ImplicitEquation| -> u32 {
             module
@@ -340,10 +340,11 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             .absdelay_equations
             .iter()
             .enumerate()
-            .map(|(i, &(eq_y, eq_z))| OsdiAbsDelayInfo {
+            .map(|(i, &(eq_y, eq_z, _))| OsdiAbsDelay {
                 y_node: find_node(eq_y),
                 z_node: find_node(eq_z),
                 td_offset: inst_data.delay_time_offset(i, target_data).unwrap_or(u32::MAX),
+                maxdelay_offset: inst_data.delay_max_offset(i, target_data).unwrap_or(u32::MAX),
             })
             .collect()
     }

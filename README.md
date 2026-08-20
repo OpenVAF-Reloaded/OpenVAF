@@ -10,41 +10,43 @@
 
 # OpenVAF-reloaded
 
-OpenVAF is a Verilog-A compiler written by Pascal Kuthe. The compiler outputs a dynamic library whose functionality can be accessed via the OSDI API. The original compiler received no support since end of 2023. This fork of [the original repository](https://github.com/pascalkuthe/OpenVAF) was started by Árpád Bűrmen in early 2024. Since then several small bugs were fixed that prevented the use of OpenVAF for building SPICE3-equivalent device models. 
+OpenVAF is a Verilog-A compiler written by Pascal Kuthe. The compiler outputs a dynamic library whose functionality can be accessed via the OSDI API. The original compiler received no support since end of 2023. This fork of [the original repository](https://github.com/pascalkuthe/OpenVAF) was started by Árpád Bűrmen in early 2024. Since then several small bugs were fixed that prevented the use of OpenVAF for building SPICE3-equivalent device models.
 
-To add new functionality to OpenVAF the OSDI interface has been modified. Consequently the current version of OSDI API is 0.4. OSDI API 0.4 differs from version 0.3 in the module descriptor. It also exports `OSDI_DESCRIPTOR_SIZE` which can be used to traverse the array of descriptors without relying on the definition of the `OsdiDescriptor` structure (i.e. size of the structure in the OSDI header file used by the simulator). New members are added after the first part of the descriptor which still complies with the OSDI 0.3 specification. Simulators that support only OSDI 0.3 can still use models exposing the newer OSDI API by applying some minor changes. 
+To add new functionality to OpenVAF the OSDI interface has been modified. Consequently the current version of OSDI API is 0.5. OSDI API 0.5 differs from version 0.3 in the module descriptor. It also exports `OSDI_DESCRIPTOR_SIZE` which can be used to traverse the array of descriptors without relying on the definition of the `OsdiDescriptor` structure (i.e. size of the structure in the OSDI header file used by the simulator). New members are added after the first part of the descriptor which still complies with the OSDI 0.3 specification. Simulators that support only OSDI 0.3 can still use models exposing the newer OSDI API by applying some minor changes. 
 
 The last version of OpenVAF before the project was renamed to **OpenVAF-reloaded** and the binary was renamed to `openvaf-r` is tagged with `osdi_0.3`. The `master` branch includes several extensions of the compiler and exposes the OSDI 0.4 API in the generated models. 
 
 The next version of OSDI is 0.5. Work on it is ongoing in the `mb-experimental` branch where extensions developed by Meisam Bahadori are getting merged. 
 
 
-# OSDI 0.4
+# OSDI 0.5
 
-In OSDI 0.4 new members are added to the module descriptor data structure after the members defined in the OSDI 0.3 specification. The descriptor (if cast to the declaration given in the OSDI 0.3 header file) remains compatible with OSDI 0.3 and should work just like before. Simulators using OSDI API 0.3 can be adapted to use version 0.4 by applying the following changes 
-- allowing major.minor version >=0.4 beside 0.3, 
+OSDI 0.5 is the continuation of OSDI 0.4 with support for extensions developed by Meisam Bahadori. Just like in OSDI 0.4 new members are added to the module descriptor data structure after the members defined in the OSDI 0.4 specification. The descriptor (if cast to the declaration given in the OSDI 0.3 header file) remains compatible with OSDI 0.3 and should work just like before. Simulators using OSDI API 0.3 can be adapted to use version 0.5 by applying the following changes 
+- allowing major.minor version >=0.5 beside 0.3, 
 - reading the `OSDI_DESCRIPTOR_SIZE` symbol of type `uint32` specifying the descriptor size, 
 - making sure the table of descriptors (pointed to by the `OSDI_DESCRIPTORS` symbol) is traversed in steps of size `OSDI_DESCRIPTOR_SIZE` instead of `sizeof(OsdiDescriptor)`, and
 - casting each descriptor to the structure declared in the OSDI header file, version 0.3. 
 
-This is the current state of OSDI 0.4 support
+This is the current state of OSDI 0.5 support
 
 |Simulator|OSDI version supported|Comment|
 |---------------|------------|---------------------------------------------------------------|
-|[Ngspice](https://ngspice.sourceforge.io/) 43            |0.3         |        |
-|[Ngspice](https://ngspice.sourceforge.io/) >=44          |0.3 & 0.4   |uses only 0.3 features        |
-|[SPICE OPUS](https://www.spiceopus.si/) 3.0              |0.3         |                                                               |
-|[VACASK](https://codeberg.org/arpadbuermen/VACASK) 0.1.2 |0.3         |                                                               |
-|[VACASK](https://codeberg.org/arpadbuermen/VACASK) >=0.2 |0.4         |                                                               |
+|[Ngspice](https://ngspice.sourceforge.io/) 43             |0.3         |        |
+|[Ngspice](https://ngspice.sourceforge.io/) >=44           |0.3 & 0.4   |uses only 0.3 features        |
+|[Ngspice](https://ngspice.sourceforge.io/) >=48           |0.3-0.5     ||
+|[SPICE OPUS](https://www.spiceopus.si/) 3.0               |0.3         |                                                               |
+|[VACASK](https://codeberg.org/arpadbuermen/VACASK) 0.1.2  |0.3         |                                                               |
+|[VACASK](https://codeberg.org/arpadbuermen/VACASK) >=0.2  |0.4         |                                                               |
+|[VACASK](https://codeberg.org/arpadbuermen/VACASK) >0.3.3 |0.4 & 0.5         |                                                               |
 
 If you know of any other simulator supporting OSDI models generated by OpenVAF, let me know. 
 
 Some internals of the OpenVAF compiler are documented in the [internals.md](internals.md) file. 
 
-## What is new in OSDI 0.4 and OpenVAF in general? 
+## What is new in OSDI 0.5 and OpenVAF in general? 
 
-- OSDI descriptor size for traversing the OSDI descriptor table in simulators not supporting OSDI 0.4 
-- Support for reading param given flags of parameters in the instance and model data structures. This is pretty much self-explanatory. Look at the [OSDI 0.4 header file](openvaf/osdi/header/osdi_0_4.h). This one takes care of issue #76 in the original repository. 
+- OSDI descriptor size for traversing the OSDI descriptor table in simulators not supporting OSDI 0.5 
+- Support for reading param given flags of parameters in the instance and model data structures. This is pretty much self-explanatory. Look at the [OSDI 0.5 header file](openvaf/osdi/header/osdi_0_5.h). This one takes care of issue #76 in the original repository. 
 - Support for writing nonzero resistive and reactive Jacobian contributions to an array of doubles. 
 - List of model inputs (node pairs). 
 - Functions for loading Jacobians with offset (for harmonic balance analysis). 
@@ -56,6 +58,7 @@ Some internals of the OpenVAF compiler are documented in the [internals.md](inte
 - $bound_step() fixed. 
 - Initalization of instance parameters from model defaults now works. 
 - Access to noise source type and parameters (white and flicker noise). 
+- absdelay() support
 
 
 # What about binaries? 
@@ -66,10 +69,7 @@ Yes, binaries for 64-bit Linux and Windows are available [here](https://fides.fe
 openvaf-reloaded-<version>-<platform>
 ```
 
-The version name is generated with `git --describe`. The OpenVAF-reloaded that produces models with the OSDI API 0.3 is version `osdi_0.3`. All newer versions (`osdi_0.4`) produce models with OSDI API 0.4. 
-
-If the binary is named `openvaf` it comes from the `branches/osdi_0.3` branch and produces models with the OSDI 0.3 API (note that this branch is no longer maintained). If the binary is named `openvaf-r` it comes from the `master` branch and produces models with the OSDI 0.4 API. 
-
+The version name is generated with `git --describe`. The OpenVAF-reloaded that produces models with the OSDI API 0.3 is version `osdi_0.3`. Newer versions `osdi_0.4` and `osdi_0.5` produce models with OSDI API 0.4 and 0.5, respectively. 
 
 # Building OpenVAF-reloaded
 

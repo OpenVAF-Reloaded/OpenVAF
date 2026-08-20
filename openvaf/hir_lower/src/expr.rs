@@ -721,9 +721,7 @@ impl BodyLoweringCtx<'_, '_, '_> {
                 // The absdelay result is V(z); eq_z's equation is handled by the simulator
                 z_val
             }
-            BuiltIn::slew | BuiltIn::transition | BuiltIn::limit => {
-                self.lower_expr(args[0])
-            }
+            BuiltIn::slew | BuiltIn::transition | BuiltIn::limit => self.lower_expr(args[0]),
 
             _ => unreachable!(),
         }

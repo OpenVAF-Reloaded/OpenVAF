@@ -389,9 +389,9 @@ impl<'ll> OsdiInstanceData<'ll> {
     pub fn delay_time_offset(&self, i: usize, target_data: &LLVMTargetDataRef) -> Option<u32> {
         let slot = *self.delay_times.get(i)?;
         let elem = self.eval_output_slot_elem(slot);
-        let off = unsafe {
-            LLVMOffsetOfElement(*target_data, NonNull::from(self.ty).as_ptr(), elem)
-        } as u32;
+        let off =
+            unsafe { LLVMOffsetOfElement(*target_data, NonNull::from(self.ty).as_ptr(), elem) }
+                as u32;
         Some(off)
     }
 
@@ -408,9 +408,9 @@ impl<'ll> OsdiInstanceData<'ll> {
     pub fn delay_max_offset(&self, i: usize, target_data: &LLVMTargetDataRef) -> Option<u32> {
         let slot = self.delay_maxes.get(i).copied().flatten()?;
         let elem = self.eval_output_slot_elem(slot);
-        let off = unsafe {
-            LLVMOffsetOfElement(*target_data, NonNull::from(self.ty).as_ptr(), elem)
-        } as u32;
+        let off =
+            unsafe { LLVMOffsetOfElement(*target_data, NonNull::from(self.ty).as_ptr(), elem) }
+                as u32;
         Some(off)
     }
 

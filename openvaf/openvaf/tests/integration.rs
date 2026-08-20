@@ -42,7 +42,8 @@ endmodule
     let descr = compile_and_load(&root_file);
     println!("absdelay_count = {}", descr.absdelay_count);
     assert_eq!(descr.absdelay_count, 2);
-    let slots = unsafe { std::slice::from_raw_parts(descr.absdelays, descr.absdelay_count as usize) };
+    let slots =
+        unsafe { std::slice::from_raw_parts(descr.absdelays, descr.absdelay_count as usize) };
     for (i, s) in slots.iter().enumerate() {
         println!(
             "slot {i}: y_node={} z_node={} td_offset={} maxdelay_offset={}",

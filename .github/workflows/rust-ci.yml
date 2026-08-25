@@ -14,6 +14,7 @@ on:
       - main
       - llvm18
       - verley-macos
+      - mb-experimental
   pull_request:
     branches:
       - '**'

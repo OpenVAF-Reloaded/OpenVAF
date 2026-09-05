@@ -4,6 +4,9 @@ resolver = "2"
 members = ["openvaf/*","melange/*", "verilogae/*", "xtask/", "lib/*", "sourcegen"]
 exclude = ["melange/examples", "verilogae/tests", "openvaf/test_data"]
 
+[workspace.dependencies]
+salsa = "0.17.0-pre.2"
+
 [profile.release]
 lto = "off"
 incremental = true

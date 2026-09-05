@@ -58,5 +58,5 @@ ahash = "0.8"
 anyhow = "1"
 termcolor = "1.2"
 
-salsa = "0.17.0-pre.2"
+salsa = { workspace = true }
 camino = "1.1.4"

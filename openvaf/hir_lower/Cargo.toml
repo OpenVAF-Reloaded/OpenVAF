@@ -28,7 +28,7 @@ indexmap = "2.0"
 lasso = {version = "0.7", features = ["ahash"]}
 
 [dev-dependencies]
-salsa = "0.17.0-pre.2"
+salsa = { workspace = true }
 expect-test = "1.4"
 mini_harness = { version = "0.0.1", path = "../../lib/mini_harness" }
 basedb = { version = "0.0.0", path = "../basedb" }

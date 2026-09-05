@@ -25,7 +25,7 @@ hir_def = {version = "0.0.0", path = "../hir_def" }
 arena = {version = "0.0.0", path = "../../lib/arena" }
 syntax = {version = "0.0.0", path = "../syntax"}
 
-salsa = "0.17.0-pre.2"
+salsa = { workspace = true }
 
 typed-index-collections = "3.1"
 

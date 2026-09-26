@@ -794,6 +794,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "llvm-sys"
+version = "231.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0475bc87fdfb41f07d459d26d01534dbf24f51260dc8a38b661988e5e6b3432"
+dependencies = [
+ "anyhow",
+ "cc",
+ "lazy_static",
+ "libc",
+ "regex-lite",
+ "semver",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -947,6 +961,7 @@ dependencies = [
  "llvm-sys 201.0.1",
  "llvm-sys 211.0.0",
  "llvm-sys 221.0.1",
+ "llvm-sys 231.0.0",
  "log",
  "mir",
  "target",
@@ -1048,6 +1063,7 @@ dependencies = [
  "llvm-sys 201.0.1",
  "llvm-sys 211.0.0",
  "llvm-sys 221.0.1",
+ "llvm-sys 231.0.0",
  "md5",
  "mini_harness",
  "mir_llvm",
@@ -1108,6 +1124,7 @@ dependencies = [
  "llvm-sys 201.0.1",
  "llvm-sys 211.0.0",
  "llvm-sys 221.0.1",
+ "llvm-sys 231.0.0",
  "log",
  "mini_harness",
  "mir",
@@ -1631,6 +1648,7 @@ dependencies = [
  "llvm-sys 201.0.1",
  "llvm-sys 211.0.0",
  "llvm-sys 221.0.1",
+ "llvm-sys 231.0.0",
  "md5",
  "mir",
  "mir_autodiff",

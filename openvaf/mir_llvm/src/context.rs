@@ -119,7 +119,13 @@ impl<'a, 'll> CodegenCx<'a, 'll> {
                 0,
             )
         };
-        #[cfg(any(feature = "llvm19", feature = "llvm20", feature = "llvm21", feature = "llvm22"))]
+        #[cfg(any(
+            feature = "llvm19",
+            feature = "llvm20",
+            feature = "llvm21",
+            feature = "llvm22",
+            feature = "llvm23"
+        ))]
         let val = unsafe {
             llvm_sys::core::LLVMConstStringInContext2(
                 NonNull::from(self.llcx).as_ptr(),

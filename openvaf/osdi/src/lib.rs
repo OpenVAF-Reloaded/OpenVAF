@@ -9,6 +9,8 @@ extern crate llvm_sys_201 as llvm_sys;
 extern crate llvm_sys_211 as llvm_sys;
 #[cfg(feature = "llvm22")]
 extern crate llvm_sys_221 as llvm_sys;
+#[cfg(feature = "llvm23")]
+extern crate llvm_sys_231 as llvm_sys;
 
 use std::collections::HashMap;
 use std::ffi::CString;

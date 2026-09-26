@@ -67,6 +67,7 @@ case "$LLVM_VERSION" in
     20) export LLVM_SYS_201_PREFIX="$LLVM_PREFIX" ;;
     21) export LLVM_SYS_211_PREFIX="$LLVM_PREFIX" ;;
     22) export LLVM_SYS_221_PREFIX="$LLVM_PREFIX" ;;
+    23) export LLVM_SYS_231_PREFIX="$LLVM_PREFIX" ;;
 esac
 
 # Add LLVM to PATH if needed

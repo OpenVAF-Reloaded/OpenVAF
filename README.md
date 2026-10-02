@@ -270,7 +270,7 @@ cargo test --features llvm21
 cargo test --release --features llvm21
 ```
 
-By default only fast tests are run. To run all tests set the `RUN_SLOW_TEST` variable to 1, e.g.
+By default only fast tests are run. To run all tests set the `RUN_SLOW_TESTS` variable to 1, e.g.
 ```bash
 RUN_SLOW_TESTS=1 cargo test
 ```

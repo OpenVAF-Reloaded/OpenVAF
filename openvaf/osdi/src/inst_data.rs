@@ -1246,7 +1246,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                     ParamKind::Temperature => (
                         &*LLVMBuildStructGEP2(
                             NonNull::from(llbuilder).as_ptr(),
-                            NonNull::from(cx.ty_double()).as_ptr(),
+                            NonNull::from(inst_data.ty).as_ptr(),
                             NonNull::from(inst_ptr).as_ptr(),
                             TEMPERATURE,
                             UNNAMED,
@@ -1329,7 +1329,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                     ParamKind::Temperature => (
                         &*LLVMBuildStructGEP2(
                             NonNull::from(llbuilder).as_ptr(),
-                            NonNull::from(cx.ty_double()).as_ptr(),
+                            NonNull::from(inst_data.ty).as_ptr(),
                             NonNull::from(inst_ptr).as_ptr(),
                             TEMPERATURE,
                             UNNAMED,

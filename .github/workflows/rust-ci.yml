@@ -296,8 +296,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Use default Homebrew LLVM (latest) on all macOS runners
-        image: [macos-15-intel, macos-15, macos-14]
+        # Use Homebrew LLVM 21 (llvm@21) on all macOS runners
+        image: [macos-15-intel, macos-15, macos-26]
 
     runs-on: ${{ matrix.image }}
     needs: [format, machete, purge-caches]
@@ -310,14 +310,14 @@ jobs:
     - name: Install dependencies with Homebrew
       uses: tecolicom/actions-use-homebrew-tools@v1
       with:
-        tools: pkg-config sccache llvm
+        tools: pkg-config sccache llvm@21
         cache: yes
 
     - name: Set LLVM environment variables
       run: |
-        echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+        echo "$(brew --prefix llvm@21)/bin" >> "$GITHUB_PATH"
         {
-          echo "LLVM_SYS_211_PREFIX=$(brew --prefix llvm)"
+          echo "LLVM_SYS_211_PREFIX=$(brew --prefix llvm@21)"
           echo "RUST_BACKTRACE=1"
           echo "RUN_DEV_TESTS=1"
         } >> "$GITHUB_ENV"
@@ -341,8 +341,8 @@ jobs:
           ~/.cargo/git/db/
           target/
         save-always: true
-        key: ${{ runner.os }}-${{runner.arch}}-llvm-cargo-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: ${{ runner.os }}-${{runner.arch}}-llvm-cargo-
+        key: ${{ matrix.image }}-${{runner.arch}}-llvm21-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: ${{ matrix.image }}-${{runner.arch}}-llvm21-cargo-
 
     - name: Build
       run: cargo build --release --features llvm21

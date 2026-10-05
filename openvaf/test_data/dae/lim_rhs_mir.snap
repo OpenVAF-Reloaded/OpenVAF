@@ -1,34 +1,34 @@
-function %(v16, v17, v18, v19, v20, v36, v46) {
+function %(v16, v17, v18, v19, v25, v30, v40) {
     inst0 = const fn %$limit[Spur(1)](2) -> 1
     inst1 = const fn %$store[lim_state0](1) -> 1
 
                                 block5:
-@0009                               br v20, block2, block4
+@0009                               br v19, block2, block4
 
                                 block2:
-@0009                               v21 = call inst0(v18, v19)
+@0009                               v20 = call inst0(v17, v18)
 @0009                               jmp block4
 
                                 block4:
-@0009                               v22 = phi [v21, block2], [v18, block5]
-@0009                               v23 = call inst1(v22)
-@000a                               v24 = exp v23
-@000b                               v25 = fmul v17, v24
-                                    v53 = fmul v36, v25
-                                    v37 = optbarrier v53
-                                    v38 = fneg v25
-                                    v43 = optbarrier v53
-                                    v62 = fmul v36, v38
-                                    v45 = optbarrier v62
-                                    v47 = fsub v46, v18
-                                    v48 = fmul v25, v47
-                                    v54 = fmul v36, v48
-                                    v49 = optbarrier v54
-                                    v51 = fmul v38, v47
-                                    v57 = fmul v36, v51
-                                    v52 = optbarrier v57
-                                    v55 = optbarrier v62
-                                    v58 = optbarrier v36
-                                    v60 = optbarrier v62
-                                    v63 = optbarrier v53
+@0009                               v21 = phi [v20, block2], [v17, block5]
+@0009                               v22 = call inst1(v21)
+@000a                               v23 = exp v22
+@000b                               v24 = fmul v16, v23
+                                    v47 = fmul v30, v24
+                                    v31 = optbarrier v47
+                                    v32 = fneg v24
+                                    v37 = optbarrier v47
+                                    v56 = fmul v30, v32
+                                    v39 = optbarrier v56
+                                    v41 = fsub v40, v17
+                                    v42 = fmul v24, v41
+                                    v48 = fmul v30, v42
+                                    v43 = optbarrier v48
+                                    v45 = fmul v32, v41
+                                    v51 = fmul v30, v45
+                                    v46 = optbarrier v51
+                                    v49 = optbarrier v56
+                                    v52 = optbarrier v30
+                                    v54 = optbarrier v56
+                                    v57 = optbarrier v47
 }

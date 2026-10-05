@@ -12,12 +12,12 @@ function %(v16, v19, v26, v27, v40, v41, v60) {
                                 block7:
                                     v36 = phi [v16, block6], [v3, block8]
                                     v42 = optbarrier v36
-                                    v43 = fsub v42, v27
+                                    v43 = fsub v42, v26
                                     v56 = fmul v41, v40
                                     v44 = optbarrier v56
-                                    v53 = fmul v41, v27
+                                    v53 = fmul v41, v26
                                     v45 = optbarrier v53
-                                    v46 = fneg v27
+                                    v46 = fneg v26
                                     v50 = optbarrier v60
                                     v55 = fmul v41, v46
                                     v54 = optbarrier v55

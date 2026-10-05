@@ -27,7 +27,7 @@ use sim_back::init::CacheSlot;
 use stdx::packed_option::PackedOption;
 use stdx::{impl_debug_display, impl_idx_from};
 use typed_index_collections::TiVec;
-use typed_indexmap::TiMap;
+use typed_indexmap::{TiMap, TiSet};
 
 use crate::compilation_unit::{OsdiCompilationUnit, OsdiModule};
 use crate::{bitfield, lltype, Offset};
@@ -99,6 +99,13 @@ impl EvalOutput {
 pub struct EvalOutputSlot(u32);
 impl_idx_from!(EvalOutputSlot(u32));
 impl_debug_display! {match EvalOutputSlot{EvalOutputSlot(id) => "out{id}";}}
+
+/// Slot in the constants section (after eval outputs) of the instance data.
+/// Holds a unique constant Jacobian entry value, stored by setup_instance.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+pub struct ConstSlot(u32);
+impl_idx_from!(ConstSlot(u32));
+impl_debug_display! {match ConstSlot{ConstSlot(id) => "const{id}";}}
 
 #[derive(Clone, Copy, Debug)]
 pub struct Residual {
@@ -216,6 +223,9 @@ pub struct OsdiInstanceData<'ll> {
     pub params: IndexMap<OsdiInstanceParam, &'ll llvm_sys::LLVMType, BuildHasherDefault<FxHasher>>,
     pub eval_outputs: TiMap<EvalOutputSlot, mir::Value, &'ll llvm_sys::LLVMType>,
     pub cache_slots: TiVec<CacheSlot, &'ll llvm_sys::LLVMType>,
+    /// Unique constant Jacobian entry values (as f64 bits), each stored once
+    /// in the constants section after the eval outputs.
+    pub consts: TiSet<ConstSlot, u64>,
 
     pub residual: TiVec<SimUnknown, Residual>,
     pub noise: Vec<NoiseSource>,
@@ -268,12 +278,20 @@ impl<'ll> OsdiInstanceData<'ll> {
             .map(|residual| Residual::new(residual, &mut eval_outputs, ty_f64, module.eval))
             .collect();
         let mut num_react = 0;
-        let jacobian = module
+        let jacobian: TiVec<MatrixEntryId, MatrixEntry> = module
             .dae_system
             .jacobian
             .iter()
             .map(|entry| MatrixEntry::new(entry, module, &mut eval_outputs, ty_f64, &mut num_react))
             .collect();
+        let mut consts = TiSet::default();
+        for entry in jacobian.iter() {
+            for output in [entry.resist, entry.react].into_iter().flatten() {
+                if let EvalOutput::Const(Const::Float(val), _) = output {
+                    consts.ensure(val.bits());
+                }
+            }
+        }
         let noise = module
             .dae_system
             .noise_sources
@@ -334,6 +352,7 @@ impl<'ll> OsdiInstanceData<'ll> {
             .chain(params.values().copied())
             .chain(cache_slots.iter().copied())
             .chain(eval_outputs.raw.values().copied())
+            .chain(consts.iter().map(|_| ty_f64))
             .collect();
 
         let name = &module.sym;
@@ -351,6 +370,7 @@ impl<'ll> OsdiInstanceData<'ll> {
             params,
             eval_outputs,
             cache_slots,
+            consts,
             residual,
             noise,
             opvars,
@@ -412,6 +432,10 @@ impl<'ll> OsdiInstanceData<'ll> {
             unsafe { LLVMOffsetOfElement(*target_data, NonNull::from(self.ty).as_ptr(), elem) }
                 as u32;
         Some(off)
+    }
+
+    pub fn param_elem(&self, param: OsdiInstanceParam) -> Option<u32> {
+        Some(NUM_CONST_FIELDS + self.params.get_index_of(&param)? as u32)
     }
 
     pub unsafe fn param_ptr(
@@ -583,7 +607,7 @@ impl<'ll> OsdiInstanceData<'ll> {
         (ptr, ty)
     }
 
-    fn eval_output_slot_elem(&self, slot: EvalOutputSlot) -> u32 {
+    pub fn eval_output_slot_elem(&self, slot: EvalOutputSlot) -> u32 {
         NUM_CONST_FIELDS
             + self.params.len() as u32
             + self.cache_slots.len() as u32
@@ -1057,6 +1081,42 @@ impl<'ll> OsdiInstanceData<'ll> {
 
         // Store value where dst pointer points to
         LLVMBuildStore(NonNull::from(llbuilder).as_ptr(), NonNull::from(val).as_ptr(), ptr);
+    }
+
+    pub fn const_slot_elem(&self, slot: ConstSlot) -> u32 {
+        NUM_CONST_FIELDS
+            + self.params.len() as u32
+            + self.cache_slots.len() as u32
+            + self.eval_outputs.len() as u32
+            + u32::from(slot)
+    }
+
+    /// Constants section slot holding the given constant value
+    pub fn const_slot(&self, val: Const) -> Option<ConstSlot> {
+        match val {
+            Const::Float(val) => self.consts.index(&val.bits()),
+            _ => None,
+        }
+    }
+
+    // Stores all constants in the constants section of the instance data
+    pub unsafe fn store_consts(
+        &self,
+        cx: &CodegenCx<'_, 'll>,
+        ptr: &'ll llvm_sys::LLVMValue,
+        llbuilder: &llvm_sys::LLVMBuilder,
+    ) {
+        for (slot, &bits) in self.consts.iter_enumerated() {
+            let dst = LLVMBuildStructGEP2(
+                NonNull::from(llbuilder).as_ptr(),
+                NonNull::from(self.ty).as_ptr(),
+                NonNull::from(ptr).as_ptr(),
+                self.const_slot_elem(slot),
+                UNNAMED,
+            );
+            let val = cx.const_real(f64::from_bits(bits));
+            LLVMBuildStore(NonNull::from(llbuilder).as_ptr(), NonNull::from(val).as_ptr(), dst);
+        }
     }
 
     pub fn cache_slot_elem(&self, slot: CacheSlot) -> u32 {

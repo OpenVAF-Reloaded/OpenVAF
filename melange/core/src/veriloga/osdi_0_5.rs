@@ -113,6 +113,13 @@ pub struct OsdiJacobianEntry {
     pub flags: u32,
 }
 #[repr(C)]
+pub struct OsdiJacobianValue {
+    pub resist_flags: u32,
+    pub react_flags: u32,
+    pub resist_off: u32,
+    pub react_off: u32,
+}
+#[repr(C)]
 pub struct OsdiNode {
     pub name: *mut c_char,
     pub units: *mut c_char,
@@ -206,6 +213,7 @@ pub struct OsdiDescriptor {
     pub module_flags: u32,
     pub absdelay_count: u32,
     pub absdelays: *mut OsdiAbsDelay,
+    pub jacobian_values: *mut OsdiJacobianValue,
 }
 impl OsdiDescriptor {
     pub fn access(

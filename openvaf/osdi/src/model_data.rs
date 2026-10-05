@@ -50,6 +50,10 @@ impl<'ll> OsdiModelData<'ll> {
         OsdiModelData { param_given, params, ty }
     }
 
+    pub fn param_elem(&self, param: Parameter) -> Option<u32> {
+        Some(NUM_CONST_FIELDS + self.params.get_index_of(&param)? as u32)
+    }
+
     pub fn nth_param_loc(
         &self,
         cx: &CodegenCx<'_, 'll>,

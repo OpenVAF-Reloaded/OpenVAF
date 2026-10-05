@@ -1,10 +1,10 @@
-function %(v16, v17, v20, v22, v25, v26, v34, v41, v42, v45, v47, v49, v52) {
+function %(v16, v17, v20, v22, v25, v33, v40, v41, v44, v46, v48, v49, v52) {
     inst0 = const fn %white_noise(Spur(1))(1) -> 1
     inst1 = const fn %ddt(1) -> 1
     inst2 = const fn %white_noise(Spur(2))(1) -> 1
     v3 = fconst 0.0
     v6 = fconst 0x1.0000000000000p0
-    v28 = fconst 0x1.0000000000000p-1
+    v27 = fconst 0x1.0000000000000p-1
 
                                 block2:
 @0005                               v18 = fdiv v16, v17
@@ -12,29 +12,29 @@ function %(v16, v17, v20, v22, v25, v26, v34, v41, v42, v45, v47, v49, v52) {
                                     v77 = fdiv v20, v17
 @0012                               v23 = fmul v22, v3
                                     v76 = fmul v22, v20
-@0018                               v27 = sqrt v26
-@001a                               v29 = fmul v27, v28
-@001c                               v30 = fmul v29, v22
-@001f                               v31 = fmul v30, v3
-                                    v74 = fmul v30, v20
-@0021                               v33 = fneg v3
-                                    v64 = fneg v31
+@0018                               v26 = sqrt v25
+@001a                               v28 = fmul v26, v27
+@001c                               v29 = fmul v28, v22
+@001f                               v30 = fmul v29, v3
+                                    v74 = fmul v29, v20
+@0021                               v32 = fneg v3
+                                    v64 = fneg v30
                                     v75 = fneg v74
-@0036                               v44 = fmul v42, v27
-@0038                               v46 = fmul v44, v45
-@003b                               v48 = fmul v46, v3
-                                    v71 = fmul v46, v47
-@0041                               v50 = fmul v26, v49
+@0036                               v43 = fmul v41, v26
+@0038                               v45 = fmul v43, v44
+@003b                               v47 = fmul v45, v3
+                                    v71 = fmul v45, v46
+@0041                               v50 = fmul v25, v49
 @0043                               v51 = fmul v50, v49
 @0047                               v53 = fmul v52, v52
 @0048                               v54 = fsub v6, v53
 @0049                               v55 = fmul v51, v54
-                                    v57 = fadd v48, v3
+                                    v57 = fadd v47, v3
                                     v58 = optbarrier v3
                                     v59 = optbarrier v21
                                     v60 = optbarrier v3
-                                    v61 = optbarrier v33
-                                    v62 = optbarrier v33
+                                    v61 = optbarrier v32
+                                    v62 = optbarrier v32
                                     v63 = optbarrier v57
                                     v65 = optbarrier v18
                                     v66 = optbarrier v23

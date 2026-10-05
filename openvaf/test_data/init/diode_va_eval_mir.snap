@@ -1,4 +1,4 @@
-function %(v16, v17, v19, v20, v22, v28, v29, v30, v33, v35, v40, v47, v48, v50, v53, v55, v58, v59, v60, v61, v62, v76, v77, v81, v86, v95, v100, v107, v108, v122, v201, v274, v276, v283, v361, v362, v403, v85, v404, v410) {
+function %(v16, v17, v19, v20, v22, v28, v29, v30, v33, v35, v40, v47, v48, v50, v53, v55, v58, v59, v60, v61, v62, v76, v77, v81, v86, v95, v100, v107, v108, v122, v201, v274, v276, v283, v355, v356, v397, v85, v398, v404) {
     inst0 = const fn %ddt(1) -> 1
     inst1 = const fn %simparam_opt(2) -> 1
     inst2 = const fn %flickr_noise(Spur(2))(2) -> 1
@@ -17,7 +17,7 @@ function %(v16, v17, v19, v20, v22, v28, v29, v30, v33, v35, v40, v47, v48, v50,
     v97 = fconst 0x1.eb851eb851eb8p0
     v125 = sconst "<DUMMY>"
     v126 = fconst 0x1.19799812dea11p-40
-    v360 = fconst 0x1.0b0e7dd0a406ep-74
+    v354 = fconst 0x1.0b0e7dd0a406ep-74
 
                                 block20:
 @0003                               v18 = fgt v16, v17
@@ -29,162 +29,162 @@ function %(v16, v17, v19, v20, v22, v28, v29, v30, v33, v35, v40, v47, v48, v50,
 
                                 block4:
 @000e                               v24 = phi [v21, block2], [v19, block20]
-@fffffff2                           v415 = phi [v6, block2], [v3, block20]
+@fffffff2                           v409 = phi [v6, block2], [v3, block20]
 @0010                               v25 = fmul v23, v24
-@fffffff0                           v416 = fmul v415, v23
+@fffffff0                           v410 = fmul v409, v23
 @0015                               v27 = fdiv v25, v26
-@ffffffeb                           v418 = fdiv v416, v26
+@ffffffeb                           v412 = fdiv v410, v26
 @0016                               v31 = fdiv v24, v30
-@ffffffea                           v420 = fdiv v415, v30
+@ffffffea                           v414 = fdiv v409, v30
 @0018                               v32 = ln v31
-@ffffffe8                           v421 = fdiv v420, v31
+@ffffffe8                           v415 = fdiv v414, v31
 @001a                               v34 = fmul v32, v33
-@ffffffe6                           v422 = fmul v421, v33
+@ffffffe6                           v416 = fmul v415, v33
 @001d                               v36 = fdiv v34, v35
-@ffffffe3                           v424 = fdiv v422, v35
+@ffffffe3                           v418 = fdiv v416, v35
 @0021                               v39 = fsub v31, v6
 @0024                               v41 = fmul v39, v40
-@ffffffdc                           v426 = fmul v420, v40
+@ffffffdc                           v420 = fmul v414, v40
 @0025                               v42 = fmul v27, v35
-@ffffffdb                           v427 = fmul v418, v35
+@ffffffdb                           v421 = fmul v412, v35
 @0026                               v43 = fdiv v41, v42
-@ffffffda                           v428 = fmul v42, v42
-@ffffffda                           v429 = fdiv v426, v42
-@ffffffda                           v430 = fmul v427, v41
-@ffffffda                           v431 = fdiv v430, v428
-@ffffffda                           v432 = fsub v429, v431
+@ffffffda                           v422 = fmul v42, v42
+@ffffffda                           v423 = fdiv v420, v42
+@ffffffda                           v424 = fmul v421, v41
+@ffffffda                           v425 = fdiv v424, v422
+@ffffffda                           v426 = fsub v423, v425
 @0027                               v44 = fadd v36, v43
-@ffffffd9                           v433 = fadd v424, v432
+@ffffffd9                           v427 = fadd v418, v426
 @0028                               v45 = exp v44
-@ffffffd8                           v435 = fmul v433, v45
+@ffffffd8                           v429 = fmul v427, v45
 @002d                               v46 = fmul v29, v45
-@ffffffd3                           v436 = fmul v435, v29
+@ffffffd3                           v430 = fmul v429, v29
 @0030                               v51 = pow v31, v50
-@ffffffd0                           v437 = feq v31, v3
-@ffffffd0                           br v437, block21, block22
+@ffffffd0                           v431 = feq v31, v3
+@ffffffd0                           br v431, block21, block22
 
                                 block22:
-@ffffffd0                           v438 = fdiv v50, v31
-@ffffffd0                           v440 = fmul v420, v438
-@ffffffd0                           v441 = fmul v440, v51
+@ffffffd0                           v432 = fdiv v50, v31
+@ffffffd0                           v434 = fmul v414, v432
+@ffffffd0                           v435 = fmul v434, v51
 @ffffffd0                           jmp block21
 
                                 block21:
-@ffffffd0                           v442 = phi [v3, block4], [v441, block22]
+@ffffffd0                           v436 = phi [v3, block4], [v435, block22]
 @0035                               v52 = fmul v48, v51
-@ffffffcb                           v443 = fmul v442, v48
+@ffffffcb                           v437 = fmul v436, v48
 @0038                               v56 = pow v31, v55
-@ffffffc8                           br v437, block23, block24
+@ffffffc8                           br v431, block23, block24
 
                                 block24:
-@ffffffc8                           v445 = fdiv v55, v31
-@ffffffc8                           v447 = fmul v420, v445
-@ffffffc8                           v448 = fmul v447, v56
+@ffffffc8                           v439 = fdiv v55, v31
+@ffffffc8                           v441 = fmul v414, v439
+@ffffffc8                           v442 = fmul v441, v56
 @ffffffc8                           jmp block23
 
                                 block23:
-@ffffffc8                           v449 = phi [v3, block21], [v448, block24]
+@ffffffc8                           v443 = phi [v3, block21], [v442, block24]
 @0044                               v57 = fmul v16, v56
-@ffffffbc                           v450 = fmul v449, v16
+@ffffffbc                           v444 = fmul v443, v16
 @0046                               v64 = fdiv v59, v42
-@ffffffba                           v452 = fmul v427, v59
-@ffffffba                           v453 = fdiv v452, v428
-@ffffffba                           v454 = fsub v3, v453
-@ffffffba                           v455 = fdiv v6, v42
+@ffffffba                           v446 = fmul v421, v59
+@ffffffba                           v447 = fdiv v446, v422
+@ffffffba                           v448 = fsub v3, v447
+@ffffffba                           v449 = fdiv v6, v42
 @0046                               v67 = fgt v64, v65
 @0046                               br v67, block5, block6
 
                                 block5:
 @0046                               v68 = fsub v64, v65
 @0046                               v69 = fmul v66, v68
-@ffffffba                           v461 = fmul v454, v66
-@ffffffba                           v462 = fmul v455, v66
+@ffffffba                           v455 = fmul v448, v66
+@ffffffba                           v456 = fmul v449, v66
 @0046                               v70 = fadd v66, v69
 @0046                               jmp block7
 
                                 block6:
 @0046                               v71 = exp v64
-@ffffffba                           v457 = fmul v454, v71
-@ffffffba                           v458 = fmul v455, v71
+@ffffffba                           v451 = fmul v448, v71
+@ffffffba                           v452 = fmul v449, v71
 @0046                               jmp block7
 
                                 block7:
 @0047                               v72 = phi [v70, block5], [v71, block6]
-@ffffffb9                           v465 = phi [v461, block5], [v457, block6]
-@ffffffb9                           v466 = phi [v462, block5], [v458, block6]
+@ffffffb9                           v459 = phi [v455, block5], [v451, block6]
+@ffffffb9                           v460 = phi [v456, block5], [v452, block6]
 @0049                               v74 = fsub v72, v6
 @004c                               v75 = fmul v46, v74
-@ffffffb4                           v469 = fmul v436, v74
-@ffffffb4                           v470 = fmul v465, v46
-@ffffffb4                           v471 = fadd v469, v470
-@ffffffb4                           v472 = fmul v466, v46
+@ffffffb4                           v463 = fmul v430, v74
+@ffffffb4                           v464 = fmul v459, v46
+@ffffffb4                           v465 = fadd v463, v464
+@ffffffb4                           v466 = fmul v460, v46
 @005a                               v90 = fsub v85, v59
 @005e                               v94 = fdiv v90, v27
-@ffffffa2                           v474 = fmul v27, v27
-@ffffffa2                           v475 = fmul v418, v90
-@ffffffa2                           v476 = fdiv v475, v474
-@ffffffa2                           v477 = fsub v3, v476
-@ffffffa2                           v478 = fdiv v7, v27
+@ffffffa2                           v468 = fmul v27, v27
+@ffffffa2                           v469 = fmul v412, v90
+@ffffffa2                           v470 = fdiv v469, v468
+@ffffffa2                           v471 = fsub v3, v470
+@ffffffa2                           v472 = fdiv v7, v27
 @0060                               v96 = fmul v94, v94
-@ffffffa0                           v479 = fmul v477, v94
-@ffffffa0                           v481 = fadd v479, v479
-@ffffffa0                           v482 = fmul v478, v94
-@ffffffa0                           v484 = fadd v482, v482
+@ffffffa0                           v473 = fmul v471, v94
+@ffffffa0                           v475 = fadd v473, v473
+@ffffffa0                           v476 = fmul v472, v94
+@ffffffa0                           v478 = fadd v476, v476
 @0061                               v98 = fadd v96, v97
 @0067                               v99 = sqrt v98
-@ffffff99                           v487 = fmul v11, v99
-@ffffff99                           v488 = fdiv v481, v487
-@ffffff99                           v489 = fdiv v484, v487
+@ffffff99                           v481 = fmul v11, v99
+@ffffff99                           v482 = fdiv v475, v481
+@ffffff99                           v483 = fdiv v478, v481
 @0068                               v101 = fadd v94, v99
-@ffffff98                           v490 = fadd v477, v488
-@ffffff98                           v491 = fadd v478, v489
+@ffffff98                           v484 = fadd v471, v482
+@ffffff98                           v485 = fadd v472, v483
 @0069                               v102 = fmul v27, v101
-@ffffff97                           v492 = fmul v418, v101
-@ffffff97                           v493 = fmul v490, v27
-@ffffff97                           v494 = fadd v492, v493
-@ffffff97                           v495 = fmul v491, v27
+@ffffff97                           v486 = fmul v412, v101
+@ffffff97                           v487 = fmul v484, v27
+@ffffff97                           v488 = fadd v486, v487
+@ffffff97                           v489 = fmul v485, v27
 @006b                               v105 = fdiv v102, v11
-@ffffff95                           v497 = fdiv v494, v11
-@ffffff95                           v498 = fdiv v495, v11
+@ffffff95                           v491 = fdiv v488, v11
+@ffffff95                           v492 = fdiv v489, v11
 @006f                               v106 = fsub v85, v105
-@ffffff91                           v499 = fsub v3, v497
-@ffffff91                           v500 = fsub v3, v498
+@ffffff91                           v493 = fsub v3, v491
+@ffffff91                           v494 = fsub v3, v492
 @0070                               v109 = fmul v108, v77
 @0075                               v112 = fdiv v106, v77
-@ffffff8b                           v502 = fdiv v499, v77
-@ffffff8b                           v503 = fdiv v500, v77
+@ffffff8b                           v496 = fdiv v493, v77
+@ffffff8b                           v497 = fdiv v494, v77
 @0076                               v113 = fsub v6, v112
-@ffffff8a                           v504 = fsub v3, v502
-@ffffff8a                           v505 = fsub v3, v503
+@ffffff8a                           v498 = fsub v3, v496
+@ffffff8a                           v499 = fsub v3, v497
 @0079                               v115 = fsub v6, v81
 @007a                               v116 = pow v113, v115
-@ffffff86                           v506 = feq v113, v3
-@ffffff86                           br v506, block25, block26
+@ffffff86                           v500 = feq v113, v3
+@ffffff86                           br v500, block25, block26
 
                                 block26:
-@ffffff86                           v507 = fdiv v115, v113
-@ffffff86                           v509 = fmul v504, v507
-@ffffff86                           v510 = fmul v509, v116
-@ffffff86                           v511 = fmul v505, v507
-@ffffff86                           v512 = fmul v511, v116
+@ffffff86                           v501 = fdiv v115, v113
+@ffffff86                           v503 = fmul v498, v501
+@ffffff86                           v504 = fmul v503, v116
+@ffffff86                           v505 = fmul v499, v501
+@ffffff86                           v506 = fmul v505, v116
 @ffffff86                           jmp block25
 
                                 block25:
-@ffffff86                           v513 = phi [v3, block7], [v510, block26]
-@ffffff86                           v514 = phi [v3, block7], [v512, block26]
+@ffffff86                           v507 = phi [v3, block7], [v504, block26]
+@ffffff86                           v508 = phi [v3, block7], [v506, block26]
 @007b                               v117 = fsub v6, v116
-@ffffff85                           v515 = fsub v3, v513
-@ffffff85                           v516 = fsub v3, v514
+@ffffff85                           v509 = fsub v3, v507
+@ffffff85                           v510 = fsub v3, v508
 @007c                               v118 = fmul v109, v117
-@ffffff84                           v517 = fmul v515, v109
-@ffffff84                           v518 = fmul v516, v109
+@ffffff84                           v511 = fmul v509, v109
+@ffffff84                           v512 = fmul v510, v109
 @0084                               v121 = fdiv v118, v115
-@ffffff7c                           v520 = fdiv v517, v115
-@ffffff7c                           v521 = fdiv v518, v115
+@ffffff7c                           v514 = fdiv v511, v115
+@ffffff7c                           v515 = fdiv v512, v115
 @008a                               v127 = call inst1(v125, v126)
 @008b                               v128 = fmul v127, v59
 @008d                               v129 = fadd v75, v128
-@ffffff73                           v525 = fadd v472, v127
+@ffffff73                           v519 = fadd v466, v127
 @008d                               v130 = flt v75, v3
 @008d                               br v130, block8, block10
 
@@ -199,139 +199,139 @@ function %(v16, v17, v19, v20, v22, v28, v29, v30, v33, v35, v40, v47, v48, v50,
 
                                 block11:
 @0099                               v159 = fdiv v61, v52
-@ffffff67                           v528 = fmul v52, v52
-@ffffff67                           v529 = fmul v443, v61
-@ffffff67                           v530 = fdiv v529, v528
-@ffffff67                           v531 = fsub v3, v530
-@ffffff67                           v532 = fdiv v6, v52
-@009f                               v170 = fmul v360, v24
+@ffffff67                           v522 = fmul v52, v52
+@ffffff67                           v523 = fmul v437, v61
+@ffffff67                           v524 = fdiv v523, v522
+@ffffff67                           v525 = fsub v3, v524
+@ffffff67                           v526 = fdiv v6, v52
+@009f                               v170 = fmul v354, v24
 @00a0                               v171 = fdiv v170, v52
 @00a1                               v172 = sqrt v171
                                     jmp block13
 
                                 block13:
-                                    v387 = phi [v3, block10], [v172, block11]
-                                    v345 = phi [v3, block10], [v159, block11]
-                                    v535 = phi [v3, block10], [v531, block11]
-                                    v536 = phi [v3, block10], [v532, block11]
+                                    v381 = phi [v3, block10], [v172, block11]
+                                    v339 = phi [v3, block10], [v159, block11]
+                                    v529 = phi [v3, block10], [v525, block11]
+                                    v530 = phi [v3, block10], [v526, block11]
 @00ac                               br v18, block14, block16
 
                                 block14:
 @00af                               v200 = fmul v75, v59
-@ffffff51                           v537 = fmul v471, v59
-@ffffff51                           v538 = fmul v472, v59
-@ffffff51                           v539 = fadd v538, v75
+@ffffff51                           v531 = fmul v465, v59
+@ffffff51                           v532 = fmul v466, v59
+@ffffff51                           v533 = fadd v532, v75
 @00b4                               br v144, block17, block19
 
                                 block17:
 @00b6                               v208 = pow v61, v11
-@ffffff4a                           v540 = feq v61, v3
-@ffffff4a                           br v540, block27, block28
+@ffffff4a                           v534 = feq v61, v3
+@ffffff4a                           br v534, block27, block28
 
                                 block28:
-@ffffff4a                           v541 = fdiv v11, v61
-@ffffff4a                           v543 = fmul v541, v208
+@ffffff4a                           v535 = fdiv v11, v61
+@ffffff4a                           v537 = fmul v535, v208
 @ffffff4a                           jmp block27
 
                                 block27:
-@ffffff4a                           v544 = phi [v3, block17], [v543, block28]
+@ffffff4a                           v538 = phi [v3, block17], [v537, block28]
 @00b7                               v213 = fdiv v208, v52
-@ffffff49                           v545 = fmul v52, v52
-@ffffff49                           v546 = fmul v443, v208
-@ffffff49                           v547 = fdiv v546, v545
-@ffffff49                           v548 = fsub v3, v547
-@ffffff49                           v549 = fdiv v544, v52
+@ffffff49                           v539 = fmul v52, v52
+@ffffff49                           v540 = fmul v437, v208
+@ffffff49                           v541 = fdiv v540, v539
+@ffffff49                           v542 = fsub v3, v541
+@ffffff49                           v543 = fdiv v538, v52
                                     v214 = fadd v200, v213
-                                    v550 = fadd v537, v548
+                                    v544 = fadd v531, v542
                                     jmp block19
 
                                 block19:
 @00bf                               v215 = phi [v200, block14], [v214, block27]
-@ffffff41                           v553 = phi [v537, block14], [v550, block27]
-@ffffff41                           v555 = phi [v3, block14], [v549, block27]
+@ffffff41                           v547 = phi [v531, block14], [v544, block27]
+@ffffff41                           v549 = phi [v3, block14], [v543, block27]
                                     v230 = fdiv v20, v57
-                                    v556 = fmul v57, v57
-                                    v557 = fdiv v6, v57
-                                    v558 = fmul v450, v20
-                                    v559 = fdiv v558, v556
-                                    v560 = fsub v557, v559
-                                    v231 = fsub v215, v230
-                                    v561 = fsub v553, v560
-@00c2                               jmp block16
+                                    v550 = fmul v57, v57
+                                    v551 = fdiv v6, v57
+                                    v552 = fmul v444, v20
+                                    v553 = fdiv v552, v550
+                                    v554 = fsub v551, v553
+@00c2                               v231 = fsub v215, v230
+@ffffff3e                           v555 = fsub v547, v554
+                                    jmp block16
 
                                 block16:
-                                    v355 = phi [v3, block13], [v231, block19]
-                                    v564 = phi [v3, block13], [v561, block19]
-                                    v565 = phi [v3, block13], [v539, block19]
-                                    v566 = phi [v3, block13], [v555, block19]
-                                    v357 = optbarrier v521
-                                    v358 = optbarrier v472
-                                    v374 = optbarrier v132
-                                    v402 = optbarrier v387
-                                    v598 = fmul v403, v129
-                                    v405 = optbarrier v598
-                                    v599 = fmul v403, v121
-                                    v406 = optbarrier v599
-                                    v407 = fneg v129
-                                    v567 = fneg v471
-                                    v568 = fneg v525
-                                    v408 = fneg v121
-                                    v569 = fneg v520
-                                    v570 = fneg v521
-                                    v411 = fadd v407, v345
-                                    v571 = fadd v567, v535
-                                    v412 = fneg v345
-                                    v574 = fneg v535
-                                    v575 = fneg v536
-                                    v602 = fmul v403, v355
-                                    v413 = optbarrier v602
-                                    v612 = fmul v403, v471
-                                    v576 = optbarrier v612
-                                    v613 = fmul v403, v520
-                                    v577 = optbarrier v613
-                                    v610 = fmul v403, v525
-                                    v580 = optbarrier v610
-                                    v611 = fmul v403, v521
-                                    v581 = optbarrier v611
-                                    v620 = fmul v403, v574
-                                    v582 = optbarrier v620
-                                    v621 = fmul v403, v575
-                                    v584 = optbarrier v621
-                                    v625 = fmul v403, v564
-                                    v585 = optbarrier v625
-                                    v586 = fneg v565
-                                    v622 = fmul v403, v565
-                                    v587 = optbarrier v622
-                                    v588 = fneg v566
-                                    v589 = fadd v586, v566
-                                    v632 = fmul v403, v571
-                                    v590 = optbarrier v632
-                                    v633 = fmul v403, v569
-                                    v591 = optbarrier v633
-                                    v628 = fmul v403, v568
-                                    v594 = optbarrier v628
-                                    v629 = fmul v403, v570
-                                    v595 = optbarrier v629
-                                    v597 = fadd v525, v536
-                                    v601 = fmul v403, v412
-                                    v600 = optbarrier v601
-                                    v604 = fmul v403, v411
-                                    v603 = optbarrier v604
-                                    v606 = fmul v403, v408
-                                    v605 = optbarrier v606
-                                    v607 = optbarrier v403
-                                    v608 = optbarrier v404
-                                    v609 = optbarrier v410
-                                    v614 = optbarrier v628
-                                    v616 = optbarrier v629
-                                    v619 = fmul v403, v536
-                                    v618 = optbarrier v619
-                                    v624 = fmul v403, v588
-                                    v623 = optbarrier v624
-                                    v627 = fmul v403, v589
-                                    v626 = optbarrier v627
-                                    v630 = optbarrier v621
-                                    v635 = fmul v403, v597
-                                    v634 = optbarrier v635
-                                    v636 = optbarrier v611
+                                    v349 = phi [v3, block13], [v231, block19]
+                                    v558 = phi [v3, block13], [v555, block19]
+                                    v559 = phi [v3, block13], [v533, block19]
+                                    v560 = phi [v3, block13], [v549, block19]
+                                    v351 = optbarrier v515
+                                    v352 = optbarrier v466
+                                    v368 = optbarrier v132
+                                    v396 = optbarrier v381
+                                    v592 = fmul v397, v129
+                                    v399 = optbarrier v592
+                                    v593 = fmul v397, v121
+                                    v400 = optbarrier v593
+                                    v401 = fneg v129
+                                    v561 = fneg v465
+                                    v562 = fneg v519
+                                    v402 = fneg v121
+                                    v563 = fneg v514
+                                    v564 = fneg v515
+                                    v405 = fadd v401, v339
+                                    v565 = fadd v561, v529
+                                    v406 = fneg v339
+                                    v568 = fneg v529
+                                    v569 = fneg v530
+                                    v596 = fmul v397, v349
+                                    v407 = optbarrier v596
+                                    v606 = fmul v397, v465
+                                    v570 = optbarrier v606
+                                    v607 = fmul v397, v514
+                                    v571 = optbarrier v607
+                                    v604 = fmul v397, v519
+                                    v574 = optbarrier v604
+                                    v605 = fmul v397, v515
+                                    v575 = optbarrier v605
+                                    v614 = fmul v397, v568
+                                    v576 = optbarrier v614
+                                    v615 = fmul v397, v569
+                                    v578 = optbarrier v615
+                                    v619 = fmul v397, v558
+                                    v579 = optbarrier v619
+                                    v580 = fneg v559
+                                    v616 = fmul v397, v559
+                                    v581 = optbarrier v616
+                                    v582 = fneg v560
+                                    v583 = fadd v580, v560
+                                    v626 = fmul v397, v565
+                                    v584 = optbarrier v626
+                                    v627 = fmul v397, v563
+                                    v585 = optbarrier v627
+                                    v622 = fmul v397, v562
+                                    v588 = optbarrier v622
+                                    v623 = fmul v397, v564
+                                    v589 = optbarrier v623
+                                    v591 = fadd v519, v530
+                                    v595 = fmul v397, v406
+                                    v594 = optbarrier v595
+                                    v598 = fmul v397, v405
+                                    v597 = optbarrier v598
+                                    v600 = fmul v397, v402
+                                    v599 = optbarrier v600
+                                    v601 = optbarrier v397
+                                    v602 = optbarrier v398
+                                    v603 = optbarrier v404
+                                    v608 = optbarrier v622
+                                    v610 = optbarrier v623
+                                    v613 = fmul v397, v530
+                                    v612 = optbarrier v613
+                                    v618 = fmul v397, v582
+                                    v617 = optbarrier v618
+                                    v621 = fmul v397, v583
+                                    v620 = optbarrier v621
+                                    v624 = optbarrier v615
+                                    v629 = fmul v397, v591
+                                    v628 = optbarrier v629
+                                    v630 = optbarrier v605
 }

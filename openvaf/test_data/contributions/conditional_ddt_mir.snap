@@ -3,7 +3,7 @@ function %(v16, v17, v19, v22, v25, v39, v83) {
     v3 = fconst 0.0
 
                                 block17:
-@000d                               v21 = flt v17, v3
+@000d                               v21 = flt v16, v3
                                     br v21, block2, block3
 
                                 block2:
@@ -15,28 +15,28 @@ function %(v16, v17, v19, v22, v25, v39, v83) {
                                     br v27, block8, block9
 
                                 block8:
-                                    v34 = fadd v17, v83
+                                    v34 = fadd v16, v83
                                     jmp block10
 
                                 block9:
                                     jmp block10
 
                                 block10:
-                                    v47 = phi [v34, block8], [v17, block9]
+                                    v47 = phi [v34, block8], [v16, block9]
                                     jmp block7
 
                                 block6:
                                     jmp block7
 
                                 block7:
-                                    v45 = phi [v17, block6], [v47, block10]
+                                    v45 = phi [v16, block6], [v47, block10]
                                     jmp block4
 
                                 block3:
                                     jmp block4
 
                                 block4:
-                                    v43 = phi [v17, block3], [v45, block7]
+                                    v43 = phi [v16, block3], [v45, block7]
 @001a                               v36 = flt v22, v3
                                     br v36, block11, block12
 
@@ -64,6 +64,6 @@ function %(v16, v17, v19, v22, v25, v39, v83) {
                                     v82 = phi [v3, block12], [v81, block16]
                                     v80 = optbarrier v76
                                     v99 = fneg v83
-                                    v115 = optbarrier v17
+                                    v115 = optbarrier v16
                                     v116 = optbarrier v82
 }

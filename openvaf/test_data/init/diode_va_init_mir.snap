@@ -25,7 +25,7 @@ function %_init(v17, v18, v25, v28, v30, v44, v37, v33, v39, v53) {
 @00ac                               br v16, block16, block15
 
                                 block15:
-                                    call inst1()
+@00c7                               call inst1()
 @00cc                               jmp block16
 
                                 block16:

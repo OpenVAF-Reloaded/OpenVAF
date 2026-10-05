@@ -244,52 +244,85 @@ fn bus_port_classification() {
 }
 
 #[test]
-fn tmp_explore() {
-    let a = "analog begin V(out) <+ 0.0; end";
+fn bus_port_forms() {
+    // Terminal order and port/internal classification for the supported ANSI and
+    // non-ANSI vector port forms. Bits are always listed from the lowest to the highest
+    // index, contiguously at the position of the port in the module head.
+    let analog = "analog V(out) <+ 0.0;";
     let cases = [
-        ("ansi1 bus first", format!("module m(input electrical [0:3] d, output electrical out); {a} endmodule")),
-        ("ansi2 bus last", format!("module m(output electrical out, input electrical [0:3] d); {a} endmodule")),
-        ("ansi3 bus middle", format!("module m(output electrical out, input electrical [0:1] d, inout electrical y); {a} endmodule")),
-        ("ansi4 desc range", format!("module m(input electrical [3:0] d, output electrical out); {a} endmodule")),
-        ("ansi5 two names one decl", format!("module m(input electrical [0:1] a, b, output electrical out); {a} endmodule")),
-        ("ansi6 dir only, discipline in body", format!("module m(input [0:3] d, output out); electrical [0:3] d; electrical out; {a} endmodule")),
-        ("ansi7 single bit [0:0]", format!("module m(input electrical [0:0] d, output electrical out); {a} endmodule")),
-        ("ansi8 negative range", format!("module m(input electrical [-1:1] d, output electrical out); {a} endmodule")),
-        ("ansi9 two adjacent buses", format!("module m(input electrical [0:1] a, input electrical [2:0] b, output electrical out); {a} endmodule")),
-        ("ansi10 param width", format!("module m(input electrical [W-1:0] d, output electrical out); parameter integer W = 3; {a} endmodule")),
-        ("ansi11 localparam width", format!("module m(input electrical [3:0] d, output electrical out); localparam integer W = 3; {a} endmodule")),
-        ("nonansi1 bus last", format!("module m(out, d); output out; input [0:3] d; electrical out; electrical [0:3] d; {a} endmodule")),
-        ("nonansi2 two names one decl", format!("module m(a, out, b); input [0:1] a, b; output out; electrical [0:1] a, b; electrical out; {a} endmodule")),
-        ("nonansi3 combined dir+discipline", format!("module m(d, out); input electrical [0:3] d; output electrical out; {a} endmodule")),
-        ("nonansi4 single bit", format!("module m(d, out); input [0:0] d; output out; electrical [0:0] d; electrical out; {a} endmodule")),
-        ("nonansi5 negative", format!("module m(d, out); input [-1:1] d; output out; electrical [-1:1] d; electrical out; {a} endmodule")),
-        ("nonansi6 width mismatch", format!("module m(d, out); input [0:3] d; output out; electrical [0:1] d; electrical out; {a} endmodule")),
-        ("nonansi7 discipline scalar", format!("module m(d, out); input [0:3] d; output out; electrical d; electrical out; {a} endmodule")),
-        ("nonansi8 dir scalar discipline bus", format!("module m(d, out); input d; output out; electrical [0:3] d; electrical out; {a} endmodule")),
-        ("nonansi9 output bus driven", "module m(d, q); input d; output [1:0] q; electrical d; electrical [1:0] q; analog begin V(q[0]) <+ V(d); V(q[1]) <+ 2*V(d); end endmodule".to_string()),
-        ("nonansi10 bus port + internal bus same width", format!("module m(d, out); input [0:1] d; output out; electrical [0:1] d, x; electrical out; {a} endmodule")),
-        ("nonansi11 param width", format!("module m(d, out); parameter integer W = 3; input [W-1:0] d; output out; electrical [W-1:0] d; electrical out; {a} endmodule")),
-        ("nonansi12 bus not in header", format!("module m(out); output out; input [0:1] d; electrical [0:1] d; electrical out; {a} endmodule")),
-        ("nonansi13 header bit-select", format!("module m(d[0], out); input [0:1] d; output out; electrical [0:1] d; electrical out; {a} endmodule")),
+        // ANSI
+        "module m(input electrical [0:3] d, output electrical out);",
+        "module m(output electrical out, input electrical [0:3] d);",
+        "module m(output electrical out, input electrical [0:1] d, inout electrical y);",
+        "module m(input electrical [3:0] d, output electrical out);",
+        "module m(input electrical [0:1] a, b, output electrical out);",
+        "module m(input electrical [0:1] a, input electrical [2:0] b, output electrical out);",
+        "module m(input electrical [0:0] d, output electrical out);",
+        "module m(input electrical [-1:1] d, output electrical out);",
+        "module m(input [0:3] d, output out); electrical [0:3] d; electrical out;",
+        // non-ANSI
+        "module m(d, out); input [0:3] d; output out; electrical [0:3] d; electrical out;",
+        "module m(out, d); output out; input [0:3] d; electrical out; electrical [0:3] d;",
+        "module m(a, out, b); input [0:1] a, b; output out; electrical [0:1] a, b; electrical out;",
+        "module m(d, out); input electrical [0:3] d; output electrical out;",
+        "module m(d, out); input [3:0] d; output out; electrical [3:0] d; electrical out;",
+        "module m(d, out); input [0:0] d; output out; electrical [0:0] d; electrical out;",
+        "module m(d, out); input [-1:1] d; output out; electrical [-1:1] d; electrical out;",
+        "module m(d, out); input [0:1] d; output out; electrical [0:1] d, x; electrical out;",
+        "module m(out, d); output out; inout [1:0] d; electrical out; electrical [1:0] d;",
     ];
-    for (name, body) in cases {
-        let src = format!("`include \"disciplines.vams\"\n{body}\n");
+    let mut res = String::new();
+    for head in cases {
+        let src = format!("`include \"disciplines.vams\"\n{head} {analog} endmodule\n");
         let db = CompilationDB::new_virtual(&src).unwrap();
-        let mut buf = Buffer::no_color();
-        let modules = {
-            let mut sink = ConsoleSink::buffer(&db, &mut buf);
-            sink.annonymize_paths();
-            super::collect_modules(&db, false, &mut sink)
+        let modules = super::collect_modules(&db, false, &mut ConsoleSink::new(&db)).unwrap();
+        let module = modules[0].module;
+        let names = |nodes: Vec<hir::Node>| {
+            nodes.into_iter().map(|node| node.name(&db).to_string()).collect::<Vec<_>>().join(" ")
         };
-        let diag = String::from_utf8_lossy(buf.as_slice()).lines().filter(|l| l.starts_with("error") || l.starts_with("warning")).collect::<Vec<_>>().join(" | ");
-        match modules {
-            Some(modules) => {
-                let m = modules[0].module;
-                let p: Vec<_> = m.ports(&db).into_iter().map(|n| format!("{}{}", n.name(&db), if n.is_port(&db) {""} else {"(!)"})).collect();
-                let i: Vec<_> = m.internal_nodes(&db).into_iter().map(|n| format!("{}{}", n.name(&db), if n.is_port(&db) {"(!)"} else {""})).collect();
-                println!("{name}: ports={} internal={} {diag}", p.join(" "), i.join(" "));
-            }
-            None => println!("{name}: ERROR {diag}"),
-        }
+        res += &format!(
+            "{head}\n    ports: {}; internal: {}\n",
+            names(module.ports(&db)),
+            names(module.internal_nodes(&db))
+        );
     }
+    expect_test::expect![[r#"
+        module m(input electrical [0:3] d, output electrical out);
+            ports: d[0] d[1] d[2] d[3] out; internal: 
+        module m(output electrical out, input electrical [0:3] d);
+            ports: out d[0] d[1] d[2] d[3]; internal: 
+        module m(output electrical out, input electrical [0:1] d, inout electrical y);
+            ports: out d[0] d[1] y; internal: 
+        module m(input electrical [3:0] d, output electrical out);
+            ports: d[0] d[1] d[2] d[3] out; internal: 
+        module m(input electrical [0:1] a, b, output electrical out);
+            ports: a[0] a[1] b[0] b[1] out; internal: 
+        module m(input electrical [0:1] a, input electrical [2:0] b, output electrical out);
+            ports: a[0] a[1] b[0] b[1] b[2] out; internal: 
+        module m(input electrical [0:0] d, output electrical out);
+            ports: d[0] out; internal: 
+        module m(input electrical [-1:1] d, output electrical out);
+            ports: d[-1] d[0] d[1] out; internal: 
+        module m(input [0:3] d, output out); electrical [0:3] d; electrical out;
+            ports: d[0] d[1] d[2] d[3] out; internal: 
+        module m(d, out); input [0:3] d; output out; electrical [0:3] d; electrical out;
+            ports: d[0] d[1] d[2] d[3] out; internal: 
+        module m(out, d); output out; input [0:3] d; electrical out; electrical [0:3] d;
+            ports: out d[0] d[1] d[2] d[3]; internal: 
+        module m(a, out, b); input [0:1] a, b; output out; electrical [0:1] a, b; electrical out;
+            ports: a[0] a[1] out b[0] b[1]; internal: 
+        module m(d, out); input electrical [0:3] d; output electrical out;
+            ports: d[0] d[1] d[2] d[3] out; internal: 
+        module m(d, out); input [3:0] d; output out; electrical [3:0] d; electrical out;
+            ports: d[0] d[1] d[2] d[3] out; internal: 
+        module m(d, out); input [0:0] d; output out; electrical [0:0] d; electrical out;
+            ports: d[0] out; internal: 
+        module m(d, out); input [-1:1] d; output out; electrical [-1:1] d; electrical out;
+            ports: d[-1] d[0] d[1] out; internal: 
+        module m(d, out); input [0:1] d; output out; electrical [0:1] d, x; electrical out;
+            ports: d[0] d[1] out; internal: x[0] x[1]
+        module m(out, d); output out; inout [1:0] d; electrical out; electrical [1:0] d;
+            ports: out d[0] d[1]; internal: 
+    "#]]
+    .assert_eq(&res);
 }

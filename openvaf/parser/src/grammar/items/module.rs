@@ -37,14 +37,30 @@ pub(crate) fn module(p: &mut Parser, m: Marker) {
 const MODULE_PORTS_RECOVERY: TokenSet = TokenSet::new(&[T![;], T![')'], ENDMODULE_KW, EOF]);
 
 fn module_ports(p: &mut Parser) {
+    const PORT_END: TokenSet = MODULE_PORTS_RECOVERY.union(TokenSet::unique(T![,]));
     while !p.at_ts(MODULE_PORTS_RECOVERY) {
-        let m = p.start();
-        if !eat_name(p) {
+        let expected = if p.at(IDENT) || p.at_ts(DIRECTION_TS) || p.at(T!["(*"]) {
             let m = p.start();
-            attrs(p, MODULE_PORTS_RECOVERY.union(DIRECTION_TS));
-            port_decl::<true>(p, m)
+            if !eat_name(p) {
+                let m = p.start();
+                attrs(p, MODULE_PORTS_RECOVERY.union(DIRECTION_TS));
+                port_decl::<true>(p, m)
+            }
+            m.complete(p, MODULE_PORT);
+            vec![T![,], T![')']]
+        } else {
+            vec![IDENT, T![input], T![output], T![inout]]
+        };
+        // Anything else (e.g. a bit-select `d[0]` or a literal) is not a port: report it
+        // once and skip to the next port instead of parsing it as a port declaration.
+        if !p.at_ts(PORT_END) {
+            let m = p.start();
+            p.error(p.unexpected_tokens_msg(expected));
+            while !p.at_ts(PORT_END) {
+                p.bump_any();
+            }
+            m.complete(p, ERROR);
         }
-        m.complete(p, MODULE_PORT);
         if !p.at(T![')']) {
             p.expect_with(T![,], &[T![,], T![')']]);
         }

@@ -1,0 +1,18 @@
+error: no discipline for net 'd[2]'
+  --> /bus_port_width_mismatch.va:4:5
+  |
+4 |     input [0:3] d;
+  |     ^^^^^^^^^^^^^ 'd[2]' is missing a discipline
+  |
+  = info: disciplineless nets are digital and therefore not supported in Verilog-A
+  = help: add a discipline with 'electrical d[2]'
+
+error: no discipline for net 'd[3]'
+  --> /bus_port_width_mismatch.va:4:5
+  |
+4 |     input [0:3] d;
+  |     ^^^^^^^^^^^^^ 'd[3]' is missing a discipline
+  |
+  = info: disciplineless nets are digital and therefore not supported in Verilog-A
+  = help: add a discipline with 'electrical d[3]'
+

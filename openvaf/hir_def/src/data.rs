@@ -249,14 +249,43 @@ impl ModuleData {
         // count was captured, so a positional cutoff would misclassify them as internal
         // nodes. `is_port` is authoritative for every node regardless of when/where it
         // was declared or expanded.
-        let ports = item_tree[loc.id]
-            .nodes
-            .iter_enumerated()
-            .filter(|(_, node)| node.is_port)
-            .map(|(id, _)| NodeLoc { module, id }.intern(db))
-            .collect();
-        let internal_nodes = item_tree[loc.id]
-            .nodes
+        //
+        // For the same reason node order alone does not give the port order: in
+        // `module m(d, out); input [0:3] d;` the header placeholder `d` becomes `d[0]`
+        // (before `out`) while `d[1]`..`d[3]` are appended after `out`. Emit all bits of
+        // a bus port contiguously at the position of its first (lowest) bit, so the
+        // terminal order is `d[0], d[1], d[2], d[3], out`.
+        let module_tree = &item_tree[loc.id];
+        let nodes = &module_tree.nodes;
+        let mut emitted = vec![false; nodes.len()];
+        let mut ports = Vec::new();
+        for (id, node) in nodes.iter_enumerated() {
+            if !node.is_port || emitted[usize::from(id)] {
+                continue;
+            }
+            let bus =
+                module_tree.buses.iter().find(|bus| bus.bit_name(bus.min_max().0) == node.name);
+            let bits: Vec<_> = match bus {
+                Some(bus) => {
+                    let (lo, hi) = bus.min_max();
+                    (lo..=hi)
+                        .filter_map(|bit| {
+                            let name = bus.bit_name(bit);
+                            nodes.iter_enumerated().find(|(_, n)| n.is_port && n.name == name)
+                        })
+                        .map(|(id, _)| id)
+                        .collect()
+                }
+                None => vec![id],
+            };
+            for id in bits {
+                if !emitted[usize::from(id)] {
+                    emitted[usize::from(id)] = true;
+                    ports.push(NodeLoc { module, id }.intern(db));
+                }
+            }
+        }
+        let internal_nodes = nodes
             .iter_enumerated()
             .filter(|(_, node)| !node.is_port)
             .map(|(id, _)| NodeLoc { module, id }.intern(db))

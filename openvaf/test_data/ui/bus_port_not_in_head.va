@@ -1,0 +1,9 @@
+`include "disciplines.vams"
+
+module bus_port_not_in_head(out);
+    output out;
+    input [0:1] d;
+    electrical [0:1] d;
+    electrical out;
+    analog V(out) <+ V(d[0]);
+endmodule

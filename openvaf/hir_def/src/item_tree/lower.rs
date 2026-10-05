@@ -294,6 +294,24 @@ impl Ctx {
         let num_ports = nodes.len() as u32;
         self.lower_module_items(decl.module_items(), &mut nodes, &mut items, &mut buses);
 
+        // A bus declared in the body for a bare module-head port (`module m(d); electrical
+        // [0:3] d; input [0:3] d;`) only merges its first bit into the header placeholder.
+        // The remaining bits are created by whichever declaration comes first, so a net
+        // declaration preceding the direction would leave them as internal nodes. Mark
+        // every bit of a bus whose first bit is a port as a port.
+        for bus in &buses {
+            let (lo, hi) = bus.min_max();
+            let first = bus.bit_name(lo);
+            if nodes.iter().any(|node| node.is_port && node.name == first) {
+                for bit in lo + 1..=hi {
+                    let name = bus.bit_name(bit);
+                    if let Some(node) = nodes.iter_mut().find(|node| node.name == name) {
+                        node.is_port = true;
+                    }
+                }
+            }
+        }
+
         self.check_branch_bus_refs(&items, &buses);
 
         let res = Module { name, nodes, items, ast_id, num_ports, buses };

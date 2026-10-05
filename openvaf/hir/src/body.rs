@@ -204,7 +204,9 @@ impl<'a> BodyRef<'a> {
                             constraint_lhs,
                             constraint_rhs,
                         },
-                        _ => unreachable!("invalid HIR: indirect branch dst must be a branch access"),
+                        _ => {
+                            unreachable!("invalid HIR: indirect branch dst must be a branch access")
+                        }
                     };
                     return Some(stmt);
                 }
@@ -263,20 +265,47 @@ pub enum ContributeKind {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Stmt<'a> {
     Expr(ExprId),
-    EventControl { event: &'a Event, body: StmtId },
-    Contribute { kind: ContributeKind, branch: BranchWrite, rhs: ExprId },
+    EventControl {
+        event: &'a Event,
+        body: StmtId,
+    },
+    Contribute {
+        kind: ContributeKind,
+        branch: BranchWrite,
+        rhs: ExprId,
+    },
     IndirectContribute {
         kind: ContributeKind,
         branch: BranchWrite,
         constraint_lhs: ExprId,
         constraint_rhs: ExprId,
     },
-    Assignment { lhs: AssignmentLhs, rhs: ExprId },
-    Block { body: &'a [StmtId] },
-    If { cond: ExprId, then_branch: StmtId, else_branch: StmtId },
-    ForLoop { init: StmtId, cond: ExprId, incr: StmtId, body: StmtId },
-    WhileLoop { cond: ExprId, body: StmtId },
-    Case { discr: ExprId, case_arms: &'a [Case] }, // TODO lint on unreachable
+    Assignment {
+        lhs: AssignmentLhs,
+        rhs: ExprId,
+    },
+    Block {
+        body: &'a [StmtId],
+    },
+    If {
+        cond: ExprId,
+        then_branch: StmtId,
+        else_branch: StmtId,
+    },
+    ForLoop {
+        init: StmtId,
+        cond: ExprId,
+        incr: StmtId,
+        body: StmtId,
+    },
+    WhileLoop {
+        cond: ExprId,
+        body: StmtId,
+    },
+    Case {
+        discr: ExprId,
+        case_arms: &'a [Case],
+    }, // TODO lint on unreachable
 }
 impl Stmt<'_> {
     #[inline]

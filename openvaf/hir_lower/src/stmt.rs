@@ -28,14 +28,13 @@ impl BodyLoweringCtx<'_, '_, '_> {
             Stmt::Contribute { kind, branch, rhs } => {
                 self.contribute(kind == ContributeKind::Potential, branch, rhs)
             }
-            Stmt::IndirectContribute { kind, branch, constraint_lhs, constraint_rhs } => {
-                self.indirect_contribute(
+            Stmt::IndirectContribute { kind, branch, constraint_lhs, constraint_rhs } => self
+                .indirect_contribute(
                     kind == ContributeKind::Potential,
                     branch,
                     constraint_lhs,
                     constraint_rhs,
-                )
-            }
+                ),
 
             Stmt::Block { body } => {
                 for stmt in body {
@@ -218,8 +217,7 @@ impl BodyLoweringCtx<'_, '_, '_> {
         constraint_rhs: ExprId,
     ) {
         let idx = self.ctx.intern.indirect_branch_equations.len() as u32;
-        let (eq, u) =
-            self.ctx.implicit_equation(crate::ImplicitEquationKind::IndirectBranch(idx));
+        let (eq, u) = self.ctx.implicit_equation(crate::ImplicitEquationKind::IndirectBranch(idx));
         self.ctx.intern.indirect_branch_equations.push(eq);
 
         self.contribute_value(voltage_src, branch, u, false);

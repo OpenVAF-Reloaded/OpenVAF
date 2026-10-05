@@ -37,9 +37,7 @@ impl Diagnostic for ItemTreeDiagnosticWrapped<'_> {
                 let range = self.ast_id_map.get_syntax(*ast_id).range();
                 let span = self.parse.to_file_span(range, self.sm);
                 Report::error()
-                    .with_message(format!(
-                        "bus '{bus_name}' requires a bit-select [i]"
-                    ))
+                    .with_message(format!("bus '{bus_name}' requires a bit-select [i]"))
                     .with_labels(vec![Label {
                         style: LabelStyle::Primary,
                         file_id: span.file,
@@ -80,9 +78,7 @@ impl Diagnostic for ItemTreeDiagnosticWrapped<'_> {
                         style: LabelStyle::Primary,
                         file_id: span.file,
                         range: span.range.into(),
-                        message: format!(
-                            "'{bus_name}' was declared with range [{msb}:{lsb}]"
-                        ),
+                        message: format!("'{bus_name}' was declared with range [{msb}:{lsb}]"),
                     }])
                     .with_notes(vec![format!(
                         "help: valid bit-select indices for '{bus_name}' are between {} and {}",

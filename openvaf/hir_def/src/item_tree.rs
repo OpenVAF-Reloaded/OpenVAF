@@ -62,7 +62,13 @@ pub enum ItemTreeDiagnostic {
     NonConstantBranchBitSelect { ast_id: ErasedAstId },
     /// A `branch` declaration used a bit-select index that is out of the
     /// bus's declared `[msb:lsb]` range.
-    BranchBitSelectOutOfRange { ast_id: ErasedAstId, bus_name: Name, index: i32, msb: i32, lsb: i32 },
+    BranchBitSelectOutOfRange {
+        ast_id: ErasedAstId,
+        bus_name: Name,
+        index: i32,
+        msb: i32,
+        lsb: i32,
+    },
 }
 
 impl Default for ItemTree {

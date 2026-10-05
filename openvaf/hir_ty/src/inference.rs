@@ -363,45 +363,47 @@ impl Ctx<'_> {
                     }
                 }
                 match self.resolve_path(stmt, expr, path)? {
-                ScopeDefItem::BlockId(_) | ScopeDefItem::ModuleId(_) => Ty::Scope,
-                ScopeDefItem::NatureId(nature) => Ty::Nature(nature),
-                ScopeDefItem::DisciplineId(discipline) => Ty::Discipline(discipline),
-                ScopeDefItem::NodeId(node) => Ty::Node(node),
-                ScopeDefItem::VarId(var) => Ty::Var(self.db.var_data(var).ty.clone(), var),
-                ScopeDefItem::ParamId(param) => Ty::Param(self.db.param_ty(param), param),
-                ScopeDefItem::AliasParamId(param) => match self.db.resolve_alias(param)? {
-                    Alias::Cycel => return None,
-                    Alias::Param(param) => Ty::Param(self.db.param_ty(param), param),
-                    Alias::ParamSysFun(param) => {
-                        self.result.resolved_calls.insert(expr, ResolvedFun::Param(param));
-                        Ty::Val(Type::Real)
-                    }
-                },
-                ScopeDefItem::BranchId(branch) => Ty::Branch(branch),
-                ScopeDefItem::BuiltIn(_) | ScopeDefItem::NatureAccess(_) => Ty::BuiltInFunction,
+                    ScopeDefItem::BlockId(_) | ScopeDefItem::ModuleId(_) => Ty::Scope,
+                    ScopeDefItem::NatureId(nature) => Ty::Nature(nature),
+                    ScopeDefItem::DisciplineId(discipline) => Ty::Discipline(discipline),
+                    ScopeDefItem::NodeId(node) => Ty::Node(node),
+                    ScopeDefItem::VarId(var) => Ty::Var(self.db.var_data(var).ty.clone(), var),
+                    ScopeDefItem::ParamId(param) => Ty::Param(self.db.param_ty(param), param),
+                    ScopeDefItem::AliasParamId(param) => match self.db.resolve_alias(param)? {
+                        Alias::Cycel => return None,
+                        Alias::Param(param) => Ty::Param(self.db.param_ty(param), param),
+                        Alias::ParamSysFun(param) => {
+                            self.result.resolved_calls.insert(expr, ResolvedFun::Param(param));
+                            Ty::Val(Type::Real)
+                        }
+                    },
+                    ScopeDefItem::BranchId(branch) => Ty::Branch(branch),
+                    ScopeDefItem::BuiltIn(_) | ScopeDefItem::NatureAccess(_) => Ty::BuiltInFunction,
 
-                ScopeDefItem::FunctionId(fun) => Ty::UserFunction(fun),
-                ScopeDefItem::FunctionReturn(fun) => Ty::FunctionVar {
-                    fun,
-                    ty: self.db.function_data(fun).return_ty.clone(),
-                    arg: None,
-                },
-                ScopeDefItem::FunctionArgId(arg) => {
-                    let FunctionArgLoc { fun, id } = arg.lookup(self.db.upcast());
-                    Ty::FunctionVar {
+                    ScopeDefItem::FunctionId(fun) => Ty::UserFunction(fun),
+                    ScopeDefItem::FunctionReturn(fun) => Ty::FunctionVar {
                         fun,
-                        ty: self.db.function_data(fun).args[id].ty.clone(),
-                        arg: Some(id),
+                        ty: self.db.function_data(fun).return_ty.clone(),
+                        arg: None,
+                    },
+                    ScopeDefItem::FunctionArgId(arg) => {
+                        let FunctionArgLoc { fun, id } = arg.lookup(self.db.upcast());
+                        Ty::FunctionVar {
+                            fun,
+                            ty: self.db.function_data(fun).args[id].ty.clone(),
+                            arg: Some(id),
+                        }
                     }
-                }
-                ScopeDefItem::NatureAttrId(attr) => {
-                    Ty::NatureAttr(self.db.nature_attr_ty(attr)?, attr)
-                }
-                ScopeDefItem::ParamSysFun(_) => Ty::Val(Type::Real),
+                    ScopeDefItem::NatureAttrId(attr) => {
+                        Ty::NatureAttr(self.db.nature_attr_ty(attr)?, attr)
+                    }
+                    ScopeDefItem::ParamSysFun(_) => Ty::Val(Type::Real),
                 }
             }
 
-            Expr::BitSelect { ref base, index } => self.infere_bit_select(stmt, expr, base, index)?,
+            Expr::BitSelect { ref base, index } => {
+                self.infere_bit_select(stmt, expr, base, index)?
+            }
 
             Expr::BinaryOp { op: None, lhs, rhs } => {
                 self.infere_expr(stmt, lhs);
@@ -1305,7 +1307,9 @@ impl Ctx<'_> {
                 }
             },
             _ => {
-                self.result.diagnostics.push(InferenceDiagnostic::NonConstantBitSelectIndex { expr });
+                self.result
+                    .diagnostics
+                    .push(InferenceDiagnostic::NonConstantBitSelectIndex { expr });
                 return None;
             }
         };

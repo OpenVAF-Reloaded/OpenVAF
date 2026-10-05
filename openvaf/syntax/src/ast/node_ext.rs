@@ -281,9 +281,10 @@ impl ast::BranchDecl {
         let node2 = nodes.args().nth(1);
 
         let kind = match node2 {
-            Some(node2) => {
-                BranchKind::Nodes(BranchEndpoint::from_expr(&node1)?, BranchEndpoint::from_expr(&node2)?)
-            }
+            Some(node2) => BranchKind::Nodes(
+                BranchEndpoint::from_expr(&node1)?,
+                BranchEndpoint::from_expr(&node2)?,
+            ),
             None => {
                 if let Some(node) = BranchEndpoint::from_expr(&node1) {
                     BranchKind::NodeGnd(node)

@@ -1,0 +1,16 @@
+error: invalid indirect branch assignment
+  --> /indirect_requires_equality.va:7:18
+  |
+7 |         V(out) : V(pin, nin);
+  |                  ^^^^^^^^^^^ expected an equality constraint
+  |
+  = help: indirect branch assignment requires a constraint of the form `<access> == <expr>`
+
+error: invalid indirect branch assignment
+  --> /indirect_requires_equality.va:8:18
+  |
+8 |         V(out) : V(pin, nin) > 0;
+  |                  ^^^^^^^^^^^^^^^ expected an equality constraint
+  |
+  = help: indirect branch assignment requires a constraint of the form `<access> == <expr>`
+

@@ -126,8 +126,7 @@ impl Ctx<'_> {
                 self.infere_assignment(stmt, expr, self.expr_stmt_ty.clone());
             }
             Stmt::Assignment { dst, val, assignment_kind: ast::AssignOp::IndirectBranch } => {
-                let dst_ty =
-                    self.infere_assignment_dst(stmt, dst, ast::AssignOp::IndirectBranch);
+                let dst_ty = self.infere_assignment_dst(stmt, dst, ast::AssignOp::IndirectBranch);
                 self.infere_indirect_branch_constraint(stmt, val, dst_ty);
             }
             Stmt::Assignment { dst, val, assignment_kind } => {

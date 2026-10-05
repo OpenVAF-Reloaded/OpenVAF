@@ -330,8 +330,9 @@ fn validate_branch_decl(decl: ast::BranchDecl, errors: &mut Vec<SyntaxError>) {
 
                 let mut illegal_nodes = Vec::new();
 
-                let is_valid_endpoint =
-                    |e: &ast::Expr| e.as_path().is_some() || matches!(e, ast::Expr::BitSelectExpr(_));
+                let is_valid_endpoint = |e: &ast::Expr| {
+                    e.as_path().is_some() || matches!(e, ast::Expr::BitSelectExpr(_))
+                };
 
                 if !is_valid_endpoint(&arg1) {
                     illegal_nodes.push(arg1.syntax().text_range())

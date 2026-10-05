@@ -567,9 +567,7 @@ impl Ctx {
                     }
                 }
                 None => {
-                    self.tree
-                        .diagnostics
-                        .push(ItemTreeDiagnostic::NonConstantBusWidth { ast_id });
+                    self.tree.diagnostics.push(ItemTreeDiagnostic::NonConstantBusWidth { ast_id });
                     // fall back to a scalar declaration so compilation proceeds
                     res.push((base_name, name_idx, None));
                 }

@@ -336,9 +336,10 @@ impl Diagnostic for InferenceDiagnosticWrapped<'_> {
                     ])
             }
             InferenceDiagnostic::InvalidBusReference { expr } => {
-                let src = self
-                    .parse
-                    .to_file_span(self.body_sm.expr_map_back[expr].as_ref().unwrap().range(), self.sm);
+                let src = self.parse.to_file_span(
+                    self.body_sm.expr_map_back[expr].as_ref().unwrap().range(),
+                    self.sm,
+                );
 
                 Report::error()
                     .with_labels(vec![Label {
@@ -354,9 +355,10 @@ impl Diagnostic for InferenceDiagnosticWrapped<'_> {
                     ])
             }
             InferenceDiagnostic::NonConstantBitSelectIndex { expr } => {
-                let src = self
-                    .parse
-                    .to_file_span(self.body_sm.expr_map_back[expr].as_ref().unwrap().range(), self.sm);
+                let src = self.parse.to_file_span(
+                    self.body_sm.expr_map_back[expr].as_ref().unwrap().range(),
+                    self.sm,
+                );
 
                 Report::error()
                     .with_labels(vec![Label {
@@ -372,9 +374,10 @@ impl Diagnostic for InferenceDiagnosticWrapped<'_> {
                     ])
             }
             InferenceDiagnostic::BitSelectOutOfRange { expr, index, msb, lsb } => {
-                let src = self
-                    .parse
-                    .to_file_span(self.body_sm.expr_map_back[expr].as_ref().unwrap().range(), self.sm);
+                let src = self.parse.to_file_span(
+                    self.body_sm.expr_map_back[expr].as_ref().unwrap().range(),
+                    self.sm,
+                );
 
                 Report::error()
                     .with_labels(vec![Label {
@@ -384,12 +387,15 @@ impl Diagnostic for InferenceDiagnosticWrapped<'_> {
                         message: format!("index {index} out of range"),
                     }])
                     .with_message("bus bit-select index out of range")
-                    .with_notes(vec![format!("help: this bus was declared with width [{msb}:{lsb}]")])
+                    .with_notes(vec![format!(
+                        "help: this bus was declared with width [{msb}:{lsb}]"
+                    )])
             }
             InferenceDiagnostic::BareBusReference { expr, ref name } => {
-                let src = self
-                    .parse
-                    .to_file_span(self.body_sm.expr_map_back[expr].as_ref().unwrap().range(), self.sm);
+                let src = self.parse.to_file_span(
+                    self.body_sm.expr_map_back[expr].as_ref().unwrap().range(),
+                    self.sm,
+                );
 
                 Report::error()
                     .with_labels(vec![Label {

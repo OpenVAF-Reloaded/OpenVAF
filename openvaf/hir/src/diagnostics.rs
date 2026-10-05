@@ -28,7 +28,8 @@ pub(crate) fn collect(db: &CompilationDB, root_file: FileId, sink: &mut impl Dia
     let item_tree = db.item_tree(root_file);
 
     for diag in &item_tree.diagnostics {
-        let diag = ItemTreeDiagnosticWrapped { diag, parse: &parse, sm: &sm, ast_id_map: &ast_id_map };
+        let diag =
+            ItemTreeDiagnosticWrapped { diag, parse: &parse, sm: &sm, ast_id_map: &ast_id_map };
         sink.add_diagnostic(&diag, root_file, db);
     }
 

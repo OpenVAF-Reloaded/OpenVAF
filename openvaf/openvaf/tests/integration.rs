@@ -300,6 +300,62 @@ fn test_noise() -> Result<()> {
     Ok(())
 }
 
+// Enhancement-2: indirect branch assignment `V(out) : V(pin,nin) == 0` (ideal op-amp).
+// The implicit equation must be `V(pin,nin) = 0`, independent of V(out), and V(out) must
+// follow the implicit unknown through the voltage branch.
+fn indirect_opamp_test() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    const SRC: &str = r#"`include "disciplines.vams"
+module indirect_opamp(out, pin, nin);
+    inout out, pin, nin;
+    electrical out, pin, nin;
+    analog
+        V(out) : V(pin,nin) == 0;
+endmodule
+"#;
+    let root_file: Utf8PathBuf =
+        Utf8PathBuf::try_from(std::env::temp_dir())?.join("openvaf_indirect_opamp_test.va");
+    std::fs::write(&root_file, SRC)?;
+    let desc = compile_and_load(&root_file);
+    let model = desc.new_model();
+    model.process_params()?;
+    let mut instance = model.new_instance();
+    let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+    const V_OUT: f64 = 0.7;
+    const V_PIN: f64 = 1.3;
+    const V_NIN: f64 = 0.2;
+    const I_OUT: f64 = 2e-3;
+    const V_IMPLICIT: f64 = 0.5;
+    sim.set_voltage("out", V_OUT);
+    sim.set_voltage("pin", V_PIN);
+    sim.set_voltage("nin", V_NIN);
+    sim.set_voltage("flow(out)", I_OUT);
+    sim.set_voltage("implicit_equation_0", V_IMPLICIT);
+    instance.eval(&model, &mut sim, EvalFlags::empty());
+    instance.load_dae(&model, &mut sim);
+
+    // KCL at out: the branch current flows out of the node
+    assert_eq!(sim.read_residual("out"), (I_OUT, 0.0));
+    assert_eq!(sim.read_residual("pin"), (0.0, 0.0));
+    assert_eq!(sim.read_residual("nin"), (0.0, 0.0));
+    // branch equation: V(out) follows the implicit unknown
+    assert_approx_eq!(sim.read_residual("flow(out)").0, V_IMPLICIT - V_OUT);
+    // implicit equation: V(pin,nin) - 0, independent of V(out)
+    assert_approx_eq!(sim.read_residual("implicit_equation_0").0, V_PIN - V_NIN);
+
+    assert_eq!(sim.read_jacobian("out", "flow(out)"), (1.0, 0.0));
+    assert_eq!(sim.read_jacobian("flow(out)", "out"), (-1.0, 0.0));
+    assert_eq!(sim.read_jacobian("flow(out)", "implicit_equation_0"), (1.0, 0.0));
+    assert_eq!(sim.read_jacobian("implicit_equation_0", "pin"), (1.0, 0.0));
+    assert_eq!(sim.read_jacobian("implicit_equation_0", "nin"), (-1.0, 0.0));
+    // exactly the five entries above (index 0 is the ground placeholder)
+    assert_eq!(sim.jacobian_info.len(), 6);
+    Ok(())
+}
+
 harness! {
     // TODO: run this in CI, somehow this test is flakey tough regarding the linker invocation (and really slow)
     Test::from_dir("integration", &integration_test, &ignore_dev_tests, &project_root().join("integration_tests")),
@@ -309,5 +365,5 @@ harness! {
     Test::from_dir_filtered("vacask_spice", &vacask_spice_test, &is_va_file, &ignore_dev_tests, &vacask_devices().join("spice")),
     // VACASK simplified SPICE models
     Test::from_dir_filtered("vacask_spice_sn", &vacask_spice_sn_test, &is_va_file, &ignore_dev_tests, &vacask_devices().join("spice/sn")),
-    [Test::new("$limit", &test_limit),Test::new("noise", &test_noise),Test::new("absdelay_maxdelay_offset", &absdelay_maxdelay_offset_test)]
+    [Test::new("$limit", &test_limit),Test::new("noise", &test_noise),Test::new("absdelay_maxdelay_offset", &absdelay_maxdelay_offset_test),Test::new("indirect_opamp", &indirect_opamp_test)]
 }

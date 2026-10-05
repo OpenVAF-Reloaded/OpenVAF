@@ -1,0 +1,18 @@
+error: no discipline for net 'd[0]'
+  --> /bus_port_scalar_discipline.va:3:35
+  |
+3 | module bus_port_scalar_discipline(d, out);
+  |                                   ^ 'd[0]' is missing a discipline
+  |
+  = info: disciplineless nets are digital and therefore not supported in Verilog-A
+  = help: add a discipline with 'electrical d[0]'
+
+error: no discipline for net 'd[1]'
+  --> /bus_port_scalar_discipline.va:4:5
+  |
+4 |     input [0:1] d;
+  |     ^^^^^^^^^^^^^ 'd[1]' is missing a discipline
+  |
+  = info: disciplineless nets are digital and therefore not supported in Verilog-A
+  = help: add a discipline with 'electrical d[1]'
+

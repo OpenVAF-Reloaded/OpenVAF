@@ -1,0 +1,9 @@
+error: port 'd' was not declared in the module head
+  --> /bus_port_not_in_head.va:5:17
+  |
+3 | module bus_port_not_in_head(out);
+  |                            ----- help: add d here
+4 |     output out;
+5 |     input [0:1] d;
+  |                 ^ port not declared in module head
+

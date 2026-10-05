@@ -1,0 +1,9 @@
+`include "disciplines.vams"
+
+module bus_port_scalar_discipline(d, out);
+    input [0:1] d;
+    output out;
+    electrical d;
+    electrical out;
+    analog V(out) <+ V(d[0]);
+endmodule

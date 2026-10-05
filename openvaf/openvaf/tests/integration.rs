@@ -356,6 +356,69 @@ endmodule
     Ok(())
 }
 
+// Enhancement-3: vector ports. A 4-bit DAC with a bus port followed by a scalar port, in
+// non-ANSI and ANSI style. The OSDI terminals must be `d[0] d[1] d[2] d[3] out` (simulators
+// bind instance terminals by position) and the output must be computed from the right bits.
+fn bus_port_dac_test() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    const NON_ANSI: &str = r#"`include "disciplines.vams"
+module dac4(d, out);
+    input [0:3] d;
+    output out;
+    electrical [0:3] d;
+    electrical out;
+    parameter real vref = 1.0;
+    analog V(out) <+ vref * (V(d[0]) + 2*V(d[1]) + 4*V(d[2]) + 8*V(d[3])) / 16;
+endmodule
+"#;
+    const ANSI: &str = r#"`include "disciplines.vams"
+module dac4(input electrical [0:3] d, output electrical out);
+    parameter real vref = 1.0;
+    analog V(out) <+ vref * (V(d[0]) + 2*V(d[1]) + 4*V(d[2]) + 8*V(d[3])) / 16;
+endmodule
+"#;
+    for (style, src) in [("non_ansi", NON_ANSI), ("ansi", ANSI)] {
+        let root_file: Utf8PathBuf = Utf8PathBuf::try_from(std::env::temp_dir())?
+            .join(format!("openvaf_bus_port_dac_{style}_test.va"));
+        std::fs::write(&root_file, src)?;
+        let desc = compile_and_load(&root_file);
+        assert_eq!(desc.num_terminals, 5, "{style}");
+        let model = desc.new_model();
+        model.process_params()?;
+        let mut instance = model.new_instance();
+        let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+        // terminals in port order followed by the internal unknown of the voltage source
+        let nodes: Vec<_> = sim.nodes.iter().copied().collect();
+        assert_eq!(nodes, ["gnd", "d[0]", "d[1]", "d[2]", "d[3]", "out", "flow(out)"], "{style}");
+
+        // code = 1 + 4 + 8 = 13
+        const V_OUT: f64 = 0.25;
+        for (bit, v) in ["d[0]", "d[1]", "d[2]", "d[3]"].into_iter().zip([1.0, 0.0, 1.0, 1.0]) {
+            sim.set_voltage(bit, v);
+        }
+        sim.set_voltage("out", V_OUT);
+        instance.eval(&model, &mut sim, EvalFlags::empty());
+        instance.load_dae(&model, &mut sim);
+
+        assert_approx_eq!(sim.read_residual("flow(out)").0, 13.0 / 16.0 - V_OUT);
+        // each bit is read from its own terminal with weight 2^i / 16
+        for (i, bit) in ["d[0]", "d[1]", "d[2]", "d[3]"].into_iter().enumerate() {
+            assert_eq!(sim.read_residual(bit), (0.0, 0.0), "{style}");
+            assert_eq!(
+                sim.read_jacobian("flow(out)", bit),
+                ((1 << i) as f64 / 16.0, 0.0),
+                "{style}: {bit}"
+            );
+        }
+        assert_eq!(sim.read_jacobian("flow(out)", "out"), (-1.0, 0.0), "{style}");
+        assert_eq!(sim.read_jacobian("out", "flow(out)"), (1.0, 0.0), "{style}");
+    }
+    Ok(())
+}
+
 harness! {
     // TODO: run this in CI, somehow this test is flakey tough regarding the linker invocation (and really slow)
     Test::from_dir("integration", &integration_test, &ignore_dev_tests, &project_root().join("integration_tests")),
@@ -365,5 +428,5 @@ harness! {
     Test::from_dir_filtered("vacask_spice", &vacask_spice_test, &is_va_file, &ignore_dev_tests, &vacask_devices().join("spice")),
     // VACASK simplified SPICE models
     Test::from_dir_filtered("vacask_spice_sn", &vacask_spice_sn_test, &is_va_file, &ignore_dev_tests, &vacask_devices().join("spice/sn")),
-    [Test::new("$limit", &test_limit),Test::new("noise", &test_noise),Test::new("absdelay_maxdelay_offset", &absdelay_maxdelay_offset_test),Test::new("indirect_opamp", &indirect_opamp_test)]
+    [Test::new("$limit", &test_limit),Test::new("noise", &test_noise),Test::new("absdelay_maxdelay_offset", &absdelay_maxdelay_offset_test),Test::new("indirect_opamp", &indirect_opamp_test),Test::new("bus_port_dac", &bus_port_dac_test)]
 }

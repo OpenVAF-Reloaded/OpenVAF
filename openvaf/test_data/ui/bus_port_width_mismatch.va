@@ -1,0 +1,9 @@
+`include "disciplines.vams"
+
+module bus_port_width_mismatch(d, out);
+    input [0:3] d;
+    output out;
+    electrical [0:1] d;
+    electrical out;
+    analog V(out) <+ V(d[0]);
+endmodule

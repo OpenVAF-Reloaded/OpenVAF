@@ -1,0 +1,8 @@
+`include "disciplines.va"
+
+module indirect_lhs(out, pin, nin);
+    inout out, pin, nin;
+    electrical out, pin, nin;
+    analog
+        V(out) : 2*V(pin,nin) + 1 == 1;
+endmodule

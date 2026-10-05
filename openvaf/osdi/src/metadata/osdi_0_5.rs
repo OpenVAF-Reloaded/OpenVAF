@@ -236,6 +236,36 @@ impl OsdiTyBuilder<'_, '_, '_> {
         self.osdi_jacobian_entry = Some(ty);
     }
 }
+pub struct OsdiJacobianValue {
+    pub resist_flags: u32,
+    pub react_flags: u32,
+    pub resist_off: u32,
+    pub react_off: u32,
+}
+impl OsdiJacobianValue {
+    pub fn to_ll_val<'ll>(
+        &self,
+        ctx: &CodegenCx<'_, 'll>,
+        tys: &'ll OsdiTys,
+    ) -> &'ll llvm_sys::LLVMValue {
+        let fields = [
+            ctx.const_unsigned_int(self.resist_flags),
+            ctx.const_unsigned_int(self.react_flags),
+            ctx.const_unsigned_int(self.resist_off),
+            ctx.const_unsigned_int(self.react_off),
+        ];
+        let ty = tys.osdi_jacobian_value;
+        ctx.const_struct(ty, &fields)
+    }
+}
+impl OsdiTyBuilder<'_, '_, '_> {
+    fn osdi_jacobian_value(&mut self) {
+        let ctx = self.ctx;
+        let fields = [ctx.ty_int(), ctx.ty_int(), ctx.ty_int(), ctx.ty_int()];
+        let ty = ctx.ty_struct("OsdiJacobianValue", &fields);
+        self.osdi_jacobian_value = Some(ty);
+    }
+}
 pub struct OsdiNode {
     pub name: String,
     pub units: String,
@@ -449,6 +479,7 @@ pub struct OsdiDescriptor<'ll> {
     pub module_flags: u32,
     pub absdelay_count: u32,
     pub absdelays: Vec<OsdiAbsDelay>,
+    pub jacobian_values: Vec<OsdiJacobianValue>,
 }
 impl<'ll> OsdiDescriptor<'ll> {
     pub fn to_ll_val(
@@ -467,6 +498,7 @@ impl<'ll> OsdiDescriptor<'ll> {
         let arr_48: Vec<_> =
             self.noise_source_type.iter().map(|it| ctx.const_unsigned_int(*it)).collect();
         let arr_52: Vec<_> = self.absdelays.iter().map(|it| it.to_ll_val(ctx, tys)).collect();
+        let arr_53: Vec<_> = self.jacobian_values.iter().map(|it| it.to_ll_val(ctx, tys)).collect();
         let fields = [
             ctx.const_str_uninterned(&self.name),
             ctx.const_unsigned_int(self.num_nodes),
@@ -521,6 +553,7 @@ impl<'ll> OsdiDescriptor<'ll> {
             ctx.const_unsigned_int(self.module_flags),
             ctx.const_unsigned_int(self.absdelay_count),
             ctx.const_arr_ptr(tys.osdi_abs_delay, &arr_52),
+            ctx.const_arr_ptr(tys.osdi_jacobian_value, &arr_53),
         ];
         let ty = tys.osdi_descriptor;
         ctx.const_struct(ty, &fields)
@@ -582,6 +615,7 @@ impl OsdiTyBuilder<'_, '_, '_> {
             ctx.ty_ptr(),
             ctx.ty_int(),
             ctx.ty_int(),
+            ctx.ty_ptr(),
             ctx.ty_ptr(),
         ];
         let ty = ctx.ty_struct("OsdiDescriptor", &fields);
@@ -767,6 +801,7 @@ pub struct OsdiTys<'ll> {
     pub osdi_init_info: &'ll llvm_sys::LLVMType,
     pub osdi_node_pair: &'ll llvm_sys::LLVMType,
     pub osdi_jacobian_entry: &'ll llvm_sys::LLVMType,
+    pub osdi_jacobian_value: &'ll llvm_sys::LLVMType,
     pub osdi_node: &'ll llvm_sys::LLVMType,
     pub osdi_param_opvar: &'ll llvm_sys::LLVMType,
     pub osdi_noise_source: &'ll llvm_sys::LLVMType,
@@ -791,6 +826,7 @@ impl<'ll> OsdiTys<'ll> {
             osdi_init_info: None,
             osdi_node_pair: None,
             osdi_jacobian_entry: None,
+            osdi_jacobian_value: None,
             osdi_node: None,
             osdi_param_opvar: None,
             osdi_noise_source: None,
@@ -810,6 +846,7 @@ impl<'ll> OsdiTys<'ll> {
         builder.osdi_init_info();
         builder.osdi_node_pair();
         builder.osdi_jacobian_entry();
+        builder.osdi_jacobian_value();
         builder.osdi_node();
         builder.osdi_param_opvar();
         builder.osdi_noise_source();
@@ -834,6 +871,7 @@ struct OsdiTyBuilder<'a, 'b, 'll> {
     osdi_init_info: Option<&'ll llvm_sys::LLVMType>,
     osdi_node_pair: Option<&'ll llvm_sys::LLVMType>,
     osdi_jacobian_entry: Option<&'ll llvm_sys::LLVMType>,
+    osdi_jacobian_value: Option<&'ll llvm_sys::LLVMType>,
     osdi_node: Option<&'ll llvm_sys::LLVMType>,
     osdi_param_opvar: Option<&'ll llvm_sys::LLVMType>,
     osdi_noise_source: Option<&'ll llvm_sys::LLVMType>,
@@ -856,6 +894,7 @@ impl<'ll> OsdiTyBuilder<'_, '_, 'll> {
             osdi_init_info: self.osdi_init_info.unwrap(),
             osdi_node_pair: self.osdi_node_pair.unwrap(),
             osdi_jacobian_entry: self.osdi_jacobian_entry.unwrap(),
+            osdi_jacobian_value: self.osdi_jacobian_value.unwrap(),
             osdi_node: self.osdi_node.unwrap(),
             osdi_param_opvar: self.osdi_param_opvar.unwrap(),
             osdi_noise_source: self.osdi_noise_source.unwrap(),

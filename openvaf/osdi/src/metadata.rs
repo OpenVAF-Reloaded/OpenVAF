@@ -25,16 +25,17 @@ use stdx::iter::zip;
 
 use crate::compilation_unit::{OsdiCompilationUnit, OsdiModule};
 use crate::inst_data::{
-    OsdiInstanceParam, COLLAPSED, JACOBIAN_PTR_REACT, JACOBIAN_PTR_RESIST, NODE_MAPPING, STATE_IDX,
+    EvalOutput, OsdiInstanceParam, COLLAPSED, JACOBIAN_PTR_REACT, JACOBIAN_PTR_RESIST,
+    NODE_MAPPING, STATE_IDX, TEMPERATURE,
 };
 use crate::load::JacobianLoadType;
 use crate::metadata::osdi_0_5::{
-    OsdiAbsDelay, OsdiDescriptor, OsdiJacobianEntry, OsdiNatureRef, OsdiNode, OsdiNodePair,
-    OsdiNoiseSource, OsdiParamOpvar, OsdiTys, JACOBIAN_ENTRY_REACT, JACOBIAN_ENTRY_REACT_CONST,
-    JACOBIAN_ENTRY_RESIST, JACOBIAN_ENTRY_RESIST_CONST, MODULEFLAG_ABSTIME, NATREF_DISCIPLINE_FLOW,
-    NATREF_DISCIPLINE_POTENTIAL, NATREF_NONE, NOISE_TYPE_FLICKER, NOISE_TYPE_TABLE,
-    NOISE_TYPE_WHITE, PARA_KIND_INST, PARA_KIND_MODEL, PARA_KIND_OPVAR, PARA_TY_INT, PARA_TY_REAL,
-    PARA_TY_STR,
+    OsdiAbsDelay, OsdiDescriptor, OsdiJacobianEntry, OsdiJacobianValue, OsdiNatureRef, OsdiNode,
+    OsdiNodePair, OsdiNoiseSource, OsdiParamOpvar, OsdiTys, JACOBIAN_ENTRY_REACT,
+    JACOBIAN_ENTRY_REACT_CONST, JACOBIAN_ENTRY_RESIST, JACOBIAN_ENTRY_RESIST_CONST,
+    MODULEFLAG_ABSTIME, NATREF_DISCIPLINE_FLOW, NATREF_DISCIPLINE_POTENTIAL, NATREF_NONE,
+    NOISE_TYPE_FLICKER, NOISE_TYPE_TABLE, NOISE_TYPE_WHITE, PARA_KIND_INST, PARA_KIND_MODEL,
+    PARA_KIND_OPVAR, PARA_TY_INT, PARA_TY_REAL, PARA_TY_STR,
 };
 use crate::ty_len;
 
@@ -326,6 +327,58 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             .collect()
     }
 
+    // Flags (model/instance, real) and byte offset of a Jacobian entry value,
+    // offset is u32::MAX if there is no such value
+    fn jacobian_value_loc(
+        &self,
+        output: Option<EvalOutput>,
+        target_data: &LLVMTargetDataRef,
+    ) -> (u32, u32) {
+        let OsdiCompilationUnit { inst_data, model_data, module, .. } = self;
+        let Some(output) = output else {
+            return (0, u32::MAX);
+        };
+        let (from_model, elem) = match output {
+            EvalOutput::Calculated(slot) => (false, inst_data.eval_output_slot_elem(slot)),
+            EvalOutput::Cache(slot) => (false, inst_data.cache_slot_elem(slot)),
+            EvalOutput::Const(val, _) => {
+                (false, inst_data.const_slot_elem(inst_data.const_slot(val).unwrap()))
+            }
+            EvalOutput::Param(param) => match *module.intern.params.get_index(param).unwrap().0 {
+                ParamKind::Param(param) => {
+                    match inst_data.param_elem(OsdiInstanceParam::User(param)) {
+                        Some(elem) => (false, elem),
+                        None => (true, model_data.param_elem(param).unwrap()),
+                    }
+                }
+                ParamKind::ParamSysFun(func) => {
+                    (false, inst_data.param_elem(OsdiInstanceParam::Builtin(func)).unwrap())
+                }
+                ParamKind::Temperature => (false, TEMPERATURE),
+                _ => unreachable!(),
+            },
+        };
+        let (ty, kind) = if from_model {
+            (model_data.ty, PARA_KIND_MODEL)
+        } else {
+            (inst_data.ty, PARA_KIND_INST)
+        };
+        let off = unsafe { LLVMOffsetOfElement(*target_data, NonNull::from(ty).as_ptr(), elem) };
+        (kind | PARA_TY_REAL, off as u32)
+    }
+
+    pub fn jacobian_values(&self, target_data: &LLVMTargetDataRef) -> Vec<OsdiJacobianValue> {
+        self.inst_data
+            .jacobian
+            .iter()
+            .map(|entry| {
+                let (resist_flags, resist_off) = self.jacobian_value_loc(entry.resist, target_data);
+                let (react_flags, react_off) = self.jacobian_value_loc(entry.react, target_data);
+                OsdiJacobianValue { resist_flags, react_flags, resist_off, react_off }
+            })
+            .collect()
+    }
+
     pub fn absdelays(&self, target_data: &LLVMTargetDataRef) -> Vec<OsdiAbsDelay> {
         let OsdiCompilationUnit { inst_data, module, .. } = self;
         let find_node = |eq: ImplicitEquation| -> u32 {
@@ -491,6 +544,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                 module_flags,
                 absdelay_count: module.intern.absdelay_equations.len() as u32,
                 absdelays: self.absdelays(target_data),
+                jacobian_values: self.jacobian_values(target_data),
             }
         }
     }

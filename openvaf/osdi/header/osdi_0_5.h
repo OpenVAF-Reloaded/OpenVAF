@@ -130,6 +130,13 @@ typedef struct OsdiJacobianEntry {
   uint32_t flags;
 }OsdiJacobianEntry;
 
+typedef struct OsdiJacobianValue {
+  uint32_t resist_flags;
+  uint32_t react_flags;
+  uint32_t resist_off;
+  uint32_t react_off;
+}OsdiJacobianValue;
+
 typedef struct OsdiNode {
   char *name;
   char *units;
@@ -238,6 +245,7 @@ typedef struct OsdiDescriptor {
   uint32_t module_flags;
   uint32_t absdelay_count;
   OsdiAbsDelay *absdelays;
+  OsdiJacobianValue *jacobian_values;
 }OsdiDescriptor;
 
 typedef struct OsdiNature {

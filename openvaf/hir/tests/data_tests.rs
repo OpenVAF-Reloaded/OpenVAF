@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use basedb::lints::LintLevel;
 use basedb::AbsPathBuf;
 use expect_test::expect_file;
 use hir::CompilationDB;
@@ -18,9 +19,23 @@ fn integration_test(dir: &Path) -> Result {
     Ok(())
 }
 
+/// Lint levels a UI test sets the way the command line does (`--warn <lint>` etc.),
+/// for lints that are off by default.
+fn cli_lints(file: &Path) -> Vec<(String, LintLevel)> {
+    match file.file_stem().and_then(|stem| stem.to_str()) {
+        Some("reserved_module_name") => vec![("reserved_module_name".to_owned(), LintLevel::Warn)],
+        _ => Vec::new(),
+    }
+}
+
 fn ui_test(file: &Path) -> Result {
-    let db = CompilationDB::new_fs(AbsPathBuf::assert(file.canonicalize().unwrap()), &[], &[], &[])
-        .unwrap();
+    let db = CompilationDB::new_fs(
+        AbsPathBuf::assert(file.canonicalize().unwrap()),
+        &[],
+        &[],
+        &cli_lints(file),
+    )
+    .unwrap();
     let actual = db.compilation_unit().test_diagnostics(&db);
     expect_file![file.with_extension("log")].assert_eq(&actual);
     Ok(())

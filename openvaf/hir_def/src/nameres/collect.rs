@@ -352,7 +352,8 @@ impl DefCollector<'_> {
         (module_id, scope)
     }
 
-    /// Warns (via the `reserved_module_name` lint, on by default) when a
+    /// Warns (via the `reserved_module_name` lint, off by default, enabled
+    /// with `--warn reserved_module_name`) when a
     /// module's name collides case-insensitively with one of ngspice's
     /// built-in native SPICE device type names -- `.model <name>
     /// <this module>` in a netlist then silently binds to ngspice's

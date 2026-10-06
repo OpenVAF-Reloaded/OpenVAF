@@ -106,7 +106,8 @@ pub enum DefDiagnostic {
     /// built-in device instead of the OSDI one -- a real, easy-to-hit
     /// footgun once a module is meant to be `.model`-able directly (rather
     /// than only reached through `instantiate`), so it's a lint
-    /// (`reserved_module_name`, warn by default) rather than a hard error:
+    /// (`reserved_module_name`, allowed by default and enabled with
+    /// `--warn reserved_module_name`) rather than a hard error:
     /// nothing is actually wrong with the Verilog-A itself.
     ReservedModuleName {
         ast_id: ErasedAstId,

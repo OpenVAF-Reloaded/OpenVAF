@@ -102,7 +102,15 @@ pub(crate) fn elaborate_instantiations(db: &mut CompilationDB) -> anyhow::Result
         out.push('\n');
     }
 
-    let synth_name = format!("{}__elaborated.va", db.vfs().read().file_path(root_file));
+    // Enhancement-58: name the synthetic file by BASENAME only. The VFS holds
+    // the canonicalized absolute root path, and this name is embedded in the
+    // compiled .osdi as source-file provenance -- an absolute path would leak
+    // the build machine's layout into the artifact (repo examples must stay
+    // machine-portable). Diagnostics still render fine against the short name.
+    let root_path = db.vfs().read().file_path(root_file).to_string();
+    let base_name = root_path.rsplit(['/', '\\']).next().unwrap_or(root_path.as_str()).to_owned();
+    // virtual paths must start with '/' (VfsPath::new_virtual_path)
+    let synth_name = format!("/{}__elaborated.va", base_name);
     let file_id = db.vfs().write().add_virt_file(&synth_name, out.into());
 
     let include_dirs = db.include_dirs(root_file);

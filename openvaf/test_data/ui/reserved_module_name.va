@@ -1,7 +1,8 @@
 `include "disciplines.vams"
 
 // Collides (case-insensitively) with ngspice's built-in "Resistor" device --
-// should trigger the `reserved_module_name` lint (warn by default).
+// should trigger the `reserved_module_name` lint (off by default, this test
+// enables it like `--warn reserved_module_name` does, see hir/tests/data_tests.rs).
 module resistor(p, n);
     inout p, n;
     electrical p, n;

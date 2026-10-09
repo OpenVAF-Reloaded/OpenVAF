@@ -342,11 +342,11 @@ fn port_conn(p: &mut Parser) {
         name_r(p, TokenSet::unique(T!['(']));
         p.expect(T!['(']);
         if !p.at(T![')']) {
-            expr(p);
+            super::super::expressions::port_expr(p);
         }
         p.expect(T![')']);
     } else {
-        expr(p);
+        super::super::expressions::port_expr(p);
     }
     m.complete(p, PORT_CONN);
 }

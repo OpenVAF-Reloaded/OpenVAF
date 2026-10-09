@@ -104,6 +104,10 @@ impl LowerCtx<'_> {
                 }
             }
 
+            // Part-selects are only parsed in instance port connections and
+            // are expanded to scalar nodes by hierarchy elaboration.
+            ast::Expr::PartSelectExpr(_) => return self.missing_expr(),
+
             ast::Expr::Literal(lit) => Expr::Literal(Literal::new(lit.kind())),
         };
         self.alloc_expr(e, AstPtr::new(&expr))

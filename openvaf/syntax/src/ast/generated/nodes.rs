@@ -279,6 +279,14 @@ impl BitSelectExpr {
     pub fn r_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![']']) }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PartSelectExpr {
+    pub(crate) syntax: SyntaxNode,
+}
+impl PartSelectExpr {
+    pub fn base(&self) -> Option<Path> { support::child(&self.syntax) }
+    pub fn range(&self) -> Option<Range> { support::child(&self.syntax) }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PathExpr {
     pub(crate) syntax: SyntaxNode,
 }
@@ -293,6 +301,17 @@ impl PortFlow {
     pub fn l_angle_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![<]) }
     pub fn port(&self) -> Option<Path> { support::child(&self.syntax) }
     pub fn r_angle_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![>]) }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Range {
+    pub(crate) syntax: SyntaxNode,
+}
+impl Range {
+    pub fn l_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['(']) }
+    pub fn l_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['[']) }
+    pub fn colon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![:]) }
+    pub fn r_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![')']) }
+    pub fn r_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![']']) }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ArgList {
@@ -501,17 +520,6 @@ impl PortDecl {
     pub fn names(&self) -> AstChildren<Name> { support::children(&self.syntax) }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Range {
-    pub(crate) syntax: SyntaxNode,
-}
-impl Range {
-    pub fn l_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['(']) }
-    pub fn l_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['[']) }
-    pub fn colon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![:]) }
-    pub fn r_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![')']) }
-    pub fn r_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![']']) }
-}
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Var {
     pub(crate) syntax: SyntaxNode,
 }
@@ -618,6 +626,7 @@ pub enum Expr {
     Call(Call),
     SelectExpr(SelectExpr),
     BitSelectExpr(BitSelectExpr),
+    PartSelectExpr(PartSelectExpr),
     PathExpr(PathExpr),
     PortFlow(PortFlow),
     Literal(Literal),
@@ -992,6 +1001,17 @@ impl AstNode for BitSelectExpr {
     }
     fn syntax(&self) -> &SyntaxNode { &self.syntax }
 }
+impl AstNode for PartSelectExpr {
+    fn can_cast(kind: SyntaxKind) -> bool { kind == PART_SELECT_EXPR }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode { &self.syntax }
+}
 impl AstNode for PathExpr {
     fn can_cast(kind: SyntaxKind) -> bool { kind == PATH_EXPR }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
@@ -1005,6 +1025,17 @@ impl AstNode for PathExpr {
 }
 impl AstNode for PortFlow {
     fn can_cast(kind: SyntaxKind) -> bool { kind == PORT_FLOW }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode { &self.syntax }
+}
+impl AstNode for Range {
+    fn can_cast(kind: SyntaxKind) -> bool { kind == RANGE }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
             Some(Self { syntax })
@@ -1212,17 +1243,6 @@ impl AstNode for PortDecl {
     }
     fn syntax(&self) -> &SyntaxNode { &self.syntax }
 }
-impl AstNode for Range {
-    fn can_cast(kind: SyntaxKind) -> bool { kind == RANGE }
-    fn cast(syntax: SyntaxNode) -> Option<Self> {
-        if Self::can_cast(syntax.kind()) {
-            Some(Self { syntax })
-        } else {
-            None
-        }
-    }
-    fn syntax(&self) -> &SyntaxNode { &self.syntax }
-}
 impl AstNode for Var {
     fn can_cast(kind: SyntaxKind) -> bool { kind == VAR }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
@@ -1354,6 +1374,9 @@ impl From<SelectExpr> for Expr {
 impl From<BitSelectExpr> for Expr {
     fn from(node: BitSelectExpr) -> Expr { Expr::BitSelectExpr(node) }
 }
+impl From<PartSelectExpr> for Expr {
+    fn from(node: PartSelectExpr) -> Expr { Expr::PartSelectExpr(node) }
+}
 impl From<PathExpr> for Expr {
     fn from(node: PathExpr) -> Expr { Expr::PathExpr(node) }
 }
@@ -1367,7 +1390,7 @@ impl AstNode for Expr {
     fn can_cast(kind: SyntaxKind) -> bool {
         match kind {
             PREFIX_EXPR | BIN_EXPR | PAREN_EXPR | ARRAY_EXPR | CALL | SELECT_EXPR
-            | BIT_SELECT_EXPR | PATH_EXPR | PORT_FLOW => true,
+            | BIT_SELECT_EXPR | PART_SELECT_EXPR | PATH_EXPR | PORT_FLOW => true,
             _ => Literal::can_cast(kind),
         }
     }
@@ -1380,6 +1403,7 @@ impl AstNode for Expr {
             CALL => Expr::Call(Call { syntax }),
             SELECT_EXPR => Expr::SelectExpr(SelectExpr { syntax }),
             BIT_SELECT_EXPR => Expr::BitSelectExpr(BitSelectExpr { syntax }),
+            PART_SELECT_EXPR => Expr::PartSelectExpr(PartSelectExpr { syntax }),
             PATH_EXPR => Expr::PathExpr(PathExpr { syntax }),
             PORT_FLOW => Expr::PortFlow(PortFlow { syntax }),
             _ => Expr::Literal(Literal::cast(syntax)?),
@@ -1395,6 +1419,7 @@ impl AstNode for Expr {
             Expr::Call(it) => &it.syntax,
             Expr::SelectExpr(it) => &it.syntax,
             Expr::BitSelectExpr(it) => &it.syntax,
+            Expr::PartSelectExpr(it) => &it.syntax,
             Expr::PathExpr(it) => &it.syntax,
             Expr::PortFlow(it) => &it.syntax,
             Expr::Literal(it) => it.syntax(),
@@ -1900,12 +1925,22 @@ impl std::fmt::Display for BitSelectExpr {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
+impl std::fmt::Display for PartSelectExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
 impl std::fmt::Display for PathExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
 impl std::fmt::Display for PortFlow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for Range {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }
@@ -1996,11 +2031,6 @@ impl std::fmt::Display for ModulePort {
     }
 }
 impl std::fmt::Display for PortDecl {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(self.syntax(), f)
-    }
-}
-impl std::fmt::Display for Range {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }

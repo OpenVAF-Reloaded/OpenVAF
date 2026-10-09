@@ -111,12 +111,14 @@ Expr =
 | Call
 | SelectExpr
 | BitSelectExpr
+| PartSelectExpr
 | PathExpr
 | PortFlow
 
 
 PathExpr = Path // Required to allow
 BitSelectExpr = base: Path '[' index: Expr ']'
+PartSelectExpr = base: Path range: Range
 PortFlow = '<' port: Path '>'
 
 SelectExpr =

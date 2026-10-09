@@ -63,6 +63,12 @@ endmodule
 }
 
 fn compile_and_load(root_file: &Utf8Path) -> &'static OsdiDescriptor {
+    let libs = compile_and_load_modules(root_file);
+    assert_eq!(libs.len(), 1);
+    &libs[0]
+}
+
+fn compile_and_load_modules(root_file: &Utf8Path) -> &'static [OsdiDescriptor] {
     let openvaf_opts = openvaf::Opts {
         defines: Vec::new(),
         codegen_opts: Vec::new(),
@@ -90,9 +96,7 @@ fn compile_and_load(root_file: &Utf8Path) -> &'static OsdiDescriptor {
             panic!("openvaf: compilation of {root_file} failed");
         }
     };
-    let libs = unsafe { load_osdi_lib(&lib_file).unwrap() };
-    assert_eq!(libs.len(), 1);
-    &libs[0]
+    unsafe { load_osdi_lib(&lib_file).unwrap() }
 }
 
 // fn integration_test(dir: &str) -> Result {
@@ -420,6 +424,114 @@ endmodule
     Ok(())
 }
 
+// Hierarchical slices must preserve individual bit identities all the way
+// through OSDI code generation, not merely produce syntactically valid text.
+fn hierarchy_bus_slices_test() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+    const SRC: &str = r#"`include "disciplines.vams"
+module weighted(p, out);
+    input [0:1] p;
+    output out;
+    electrical [0:1] p;
+    electrical out;
+    analog V(out) <+ V(p[0]) + 10 * V(p[1]);
+endmodule
+module wrapper(a, forward, backward, reverse);
+    input [0:3] a;
+    output forward, backward, reverse;
+    electrical [0:3] a;
+    electrical forward, backward, reverse;
+    weighted f(a[0:1], forward);
+    weighted b(.p(a[2:3]), .out(backward));
+    weighted r(a[3:2], reverse);
+endmodule
+module top(a, forward, backward, reverse);
+    input [0:3] a;
+    output forward, backward, reverse;
+    electrical [0:3] a;
+    electrical forward, backward, reverse;
+    wrapper w(a, forward, backward, reverse);
+endmodule
+"#;
+    let root_file = Utf8PathBuf::try_from(std::env::temp_dir())?
+        .join("openvaf_hierarchy_bus_slices_test.va");
+    std::fs::write(&root_file, SRC)?;
+    let libs = compile_and_load_modules(&root_file);
+    let desc = libs.iter().find(|desc| unsafe { load::osdi_str(desc.name) } == "top").unwrap();
+    assert_eq!(desc.num_terminals, 7);
+    let model = desc.new_model();
+    model.process_params()?;
+    let mut instance = model.new_instance();
+    let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+    for (i, value) in [1.0, 2.0, 3.0, 4.0].into_iter().enumerate() {
+        sim.set_voltage(&format!("a[{i}]"), value);
+    }
+    instance.eval(&model, &mut sim, EvalFlags::empty());
+    instance.load_dae(&model, &mut sim);
+    for (out, expected, bit0, bit1) in [
+        ("forward", 21.0, "a[0]", "a[1]"),
+        ("backward", 43.0, "a[2]", "a[3]"),
+        ("reverse", 34.0, "a[3]", "a[2]"),
+    ] {
+        let row = format!("flow({out})");
+        assert_approx_eq!(sim.read_residual(&row).0, expected);
+        assert_eq!(sim.read_jacobian(&row, bit0), (1.0, 0.0));
+        assert_eq!(sim.read_jacobian(&row, bit1), (10.0, 0.0));
+    }
+    Ok(())
+}
+
+fn hierarchy_variable_width_slices_test() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+    for width in [1, 3, 7, 17] {
+        let terms: Vec<_> = (0..width)
+            .map(|i| format!("{} * V(p[{}])", i + 1, 8 + i))
+            .collect();
+        let src = format!(r#"`include "disciplines.vams"
+module weighted(p, out);
+    input [8:{}] p;
+    output out;
+    electrical [8:{}] p;
+    electrical out;
+    analog V(out) <+ {};
+endmodule
+module top(a, out);
+    input [0:31] a;
+    output out;
+    electrical [0:31] a;
+    electrical out;
+    weighted w(.p(a[4:{}]), .out(out));
+endmodule
+"#, 8 + width - 1, 8 + width - 1, terms.join(" + "), 4 + width - 1);
+        let root_file = Utf8PathBuf::try_from(std::env::temp_dir())?
+            .join(format!("openvaf_hierarchy_slice_width_{width}_test.va"));
+        std::fs::write(&root_file, src)?;
+        let libs = compile_and_load_modules(&root_file);
+        let desc = libs.iter().find(|desc| unsafe { load::osdi_str(desc.name) } == "top").unwrap();
+        assert_eq!(desc.num_terminals, 33);
+        let model = desc.new_model();
+        model.process_params()?;
+        let mut instance = model.new_instance();
+        let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+        for i in 0..32 {
+            sim.set_voltage(&format!("a[{i}]"), (i + 1) as f64);
+        }
+        instance.eval(&model, &mut sim, EvalFlags::empty());
+        instance.load_dae(&model, &mut sim);
+        // Child p[8+i] must read parent a[4+i], whose voltage is 5+i.
+        let expected: f64 = (0..width).map(|i| ((i + 1) * (i + 5)) as f64).sum();
+        assert_approx_eq!(sim.read_residual("flow(out)").0, expected);
+        for i in 0..width {
+            assert_eq!(sim.read_jacobian("flow(out)", &format!("a[{}]", 4 + i)), ((i + 1) as f64, 0.0));
+        }
+    }
+    Ok(())
+}
+
 harness! {
     // TODO: run this in CI, somehow this test is flakey tough regarding the linker invocation (and really slow)
     Test::from_dir("integration", &integration_test, &ignore_dev_tests, &project_root().join("integration_tests")),
@@ -435,6 +547,8 @@ harness! {
         Test::new("absdelay_maxdelay_offset", &absdelay_maxdelay_offset_test),
         Test::new("indirect_opamp", &indirect_opamp_test),
         Test::new("bus_port_dac", &bus_port_dac_test),
+        Test::new("hierarchy_bus_slices", &hierarchy_bus_slices_test),
+        Test::new("hierarchy_variable_width_slices", &hierarchy_variable_width_slices_test),
         Test::new("laplace_nd", &laplace::nd),
         Test::new("laplace_nd_array_vars", &laplace::nd_array_vars)
         // Disabled until the enhancement in brackets fixes the bug they expose:

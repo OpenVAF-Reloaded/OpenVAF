@@ -67,12 +67,13 @@ pub(crate) fn elaborate_instantiations(db: &mut CompilationDB) -> anyhow::Result
         return Ok(());
     }
 
-    // A cyclic-instantiation diagnostic means the instantiation graph can't
-    // be flattened at all (would recurse forever); skip elaboration and let
-    // the normal diagnostic-printing path surface the cycle as a compile
-    // error against the original file instead.
+    // Cycles cannot be flattened, and unresolved child modules must not be
+    // silently dropped. Keep the original file so the normal diagnostic
+    // path reports these errors against their source instantiations.
     let def_map = db.def_map(root_file);
-    if def_map.diagnostics.iter().any(|d| matches!(d, DefDiagnostic::CyclicInstantiation { .. })) {
+    if def_map.diagnostics.iter().any(|d| {
+        matches!(d, DefDiagnostic::CyclicInstantiation { .. } | DefDiagnostic::UnknownInstantiatedModule { .. })
+    }) {
         return Ok(());
     }
 
@@ -923,6 +924,23 @@ endmodule
         let db = CompilationDB::new_virtual(source).unwrap();
         assert_eq!(db.compilation_unit().test_diagnostics(&db), "");
         db.parse(db.compilation_unit().root_file()).tree().syntax().text().to_string()
+    }
+
+    #[test]
+    fn unresolved_child_module_keeps_its_diagnostic() {
+        let source = r#"
+`include "disciplines.vams"
+module top(a);
+    inout [0:3] a;
+    electrical [0:3] a;
+    missing child(a[0:1]);
+endmodule
+"#;
+        let db = CompilationDB::new_virtual(source).unwrap();
+        let diagnostics = db.compilation_unit().test_diagnostics(&db);
+        assert!(diagnostics.contains("unknown module 'missing'"), "{diagnostics}");
+        let text = db.parse(db.compilation_unit().root_file()).tree().syntax().text().to_string();
+        assert!(text.contains("missing child(a[0:1]);"), "{text}");
     }
 
     #[test]

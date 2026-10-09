@@ -21,16 +21,10 @@
 //! `preprocessor::sourcemap`, which this pass deliberately does not hook
 //! into -- see `Enhancement-5.md` for the rationale).
 //!
-//! Bus-typed ports and per-element instance-array port slicing (e.g.
-//! `resistor rarr[0:3](p, gnd);` where `p` is itself a matching-width bus,
-//! wiring element `i` to `p[i]`) are supported via a single heuristic
-//! (`find_matching_caller_bus`): a port actual is sliced only when it is a
-//! *bare identifier* naming a bus, in the instantiating module's own
-//! scope, whose bit width exactly matches what needs slicing (the target
-//! bus port's width, or the instance array's element count); anything else
-//! (a non-bus net, a mismatched width, a non-trivial expression) is
-//! bound/broadcast verbatim instead, matching ordinary (non-sliced)
-//! connection semantics.
+//! Bus port actuals may be whole buses or constant part-selects. Bindings
+//! are built in declaration order, retaining the direction of both ranges.
+//! Explicit slices are width/bounds checked rather than broadcast as text.
+//! Scalar instance-array ports retain the matching-width bus heuristic.
 //!
 //! A bus *port* needs a different substitution mechanism than everything
 //! else in this pass: an ordinary rename (`p` -> `prefix__p`) is a single
@@ -73,12 +67,13 @@ pub(crate) fn elaborate_instantiations(db: &mut CompilationDB) -> anyhow::Result
         return Ok(());
     }
 
-    // A cyclic-instantiation diagnostic means the instantiation graph can't
-    // be flattened at all (would recurse forever); skip elaboration and let
-    // the normal diagnostic-printing path surface the cycle as a compile
-    // error against the original file instead.
+    // Cycles cannot be flattened, and unresolved child modules must not be
+    // silently dropped. Keep the original file so the normal diagnostic
+    // path reports these errors against their source instantiations.
     let def_map = db.def_map(root_file);
-    if def_map.diagnostics.iter().any(|d| matches!(d, DefDiagnostic::CyclicInstantiation { .. })) {
+    if def_map.diagnostics.iter().any(|d| {
+        matches!(d, DefDiagnostic::CyclicInstantiation { .. } | DefDiagnostic::UnknownInstantiatedModule { .. })
+    }) {
         return Ok(());
     }
 
@@ -87,7 +82,13 @@ pub(crate) fn elaborate_instantiations(db: &mut CompilationDB) -> anyhow::Result
     let by_name: HashMap<Name, ItemTreeId<TreeModule>> =
         tree.data.modules.iter_enumerated().map(|(id, m)| (m.name.clone(), id)).collect();
 
-    let mut ctx = ElabCtx { tree: &tree, ast_id_map: &ast_id_map, parse: &parse, by_name };
+    let mut ctx = ElabCtx {
+        tree: &tree,
+        ast_id_map: &ast_id_map,
+        parse: &parse,
+        by_name,
+        errors: Vec::new(),
+    };
 
     let mut out = String::new();
     for item in parse.tree().items() {
@@ -100,6 +101,10 @@ pub(crate) fn elaborate_instantiations(db: &mut CompilationDB) -> anyhow::Result
             other => out.push_str(&other.syntax().text().to_string()),
         }
         out.push('\n');
+    }
+
+    if !ctx.errors.is_empty() {
+        anyhow::bail!("{}", ctx.errors.join("\n"));
     }
 
     // Enhancement-58: name the synthetic file by BASENAME only. The VFS holds
@@ -129,6 +134,7 @@ struct ElabCtx<'a> {
     ast_id_map: &'a AstIdMap,
     parse: &'a Parse<SourceFile>,
     by_name: HashMap<Name, ItemTreeId<TreeModule>>,
+    errors: Vec<String>,
 }
 
 /// A binding for one syntactic port: either a single resolved net
@@ -316,42 +322,118 @@ fn find_matching_caller_bus<'a>(
     })
 }
 
-/// Binds one syntactic port (`port_name`, in `target`) to `net_text` (raw,
-/// as written in the instantiating module `caller`), producing either a
-/// single scalar binding, or -- if `port_name` names a bus in `target` --
-/// one binding per bit, sliced from a same-width bus named `net_text` in
-/// `caller` if one exists (see `find_matching_caller_bus`), else
-/// `net_text` broadcast verbatim to every bit as a best-effort fallback.
+/// Evaluate integer-only slice bounds without invoking model-body lowering.
+/// Named parameter bounds are not yet resolved by this text-level elaborator.
+fn fold_slice_bound(expr: &ast::Expr) -> Option<i32> {
+    use ast::{BinaryOp, UnaryOp};
+    if let Some(ConstExprValue::Int(value)) = expr.as_constexprval() {
+        return Some(value);
+    }
+    match expr {
+        ast::Expr::ParenExpr(expr) => fold_slice_bound(&expr.expr()?),
+        ast::Expr::PrefixExpr(expr) => {
+            let value = fold_slice_bound(&expr.expr()?)?;
+            match expr.op_kind()? {
+                UnaryOp::Neg => value.checked_neg(),
+                UnaryOp::Identity => Some(value),
+                UnaryOp::BitNegate => Some(!value),
+                UnaryOp::Not => Some(i32::from(value == 0)),
+            }
+        }
+        ast::Expr::BinExpr(expr) => {
+            let lhs = fold_slice_bound(&expr.lhs()?)?;
+            let rhs = fold_slice_bound(&expr.rhs()?)?;
+            match expr.op_kind()? {
+                BinaryOp::Addition => lhs.checked_add(rhs),
+                BinaryOp::Subtraction => lhs.checked_sub(rhs),
+                BinaryOp::Multiplication => lhs.checked_mul(rhs),
+                BinaryOp::Division => lhs.checked_div(rhs),
+                BinaryOp::Remainder => lhs.checked_rem(rhs),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Enumerate a range in its declared order, including descending ranges.
+fn ordered_bits(first: i32, last: i32) -> impl Iterator<Item = i32> {
+    let step = if first <= last { 1 } else { -1 };
+    (0..=i64::from(first).abs_diff(i64::from(last)))
+        .map(move |offset| (i64::from(first) + offset as i64 * step) as i32)
+}
+
+/// Bind bus ports to scalar identities before applying the caller's scope.
+/// In particular `bus[2:3]` is two nodes, never a scalar string to broadcast.
 fn bind_port(
     result: &mut HashMap<Name, PortBinding>,
     target: &TreeModule,
     caller: &TreeModule,
     port_name: &Name,
-    net_text: &str,
-) {
-    let bus =
-        target.buses.iter().chain(target.var_arrays.iter()).find(|b| &b.base_name == port_name);
-    let Some(bus) = bus else {
-        result.insert(port_name.clone(), PortBinding::Scalar(net_text.to_string()));
-        return;
-    };
-
-    let (lo, hi) = bus.min_max();
-    let width = (hi - lo + 1) as usize;
-    let caller_bus = find_matching_caller_bus(caller, net_text, width);
-
-    let mut bits = BTreeMap::new();
-    for bit in lo..=hi {
-        let text = match caller_bus {
-            Some(caller_bus) => {
-                let (caller_lo, _) = caller_bus.min_max();
-                format!("{net_text}[{}]", caller_lo + (bit - lo))
+    net: &ast::Expr,
+) -> anyhow::Result<()> {
+    let text = net.syntax().text().to_string();
+    let target_bus = target.buses.iter().find(|b| &b.base_name == port_name);
+    let selected = match net {
+        ast::Expr::PartSelectExpr(slice) => {
+            let base = slice
+                .base()
+                .map(|p| p.syntax().text().to_string())
+                .ok_or_else(|| anyhow::anyhow!("invalid bus slice '{text}'"))?;
+            let range = slice
+                .range()
+                .and_then(|r| Some((fold_slice_bound(&r.start()?)?, fold_slice_bound(&r.end()?)?)))
+                .ok_or_else(|| anyhow::anyhow!("bus slice '{text}' requires constant integer bounds"))?;
+            let bus = caller
+                .buses
+                .iter()
+                .find(|b| b.base_name == Name::resolve(&base))
+                .ok_or_else(|| anyhow::anyhow!("bus slice '{text}' does not name a bus"))?;
+            if !bus.contains_bit(range.0) || !bus.contains_bit(range.1) {
+                anyhow::bail!("bus slice '{text}' is outside the declared range of '{base}'");
             }
-            None => net_text.to_string(),
-        };
-        bits.insert(bit, text);
+            Some((base, range.0, range.1))
+        }
+        ast::Expr::PathExpr(_) => caller
+            .buses
+            .iter()
+            .find(|b| b.base_name == Name::resolve(text.trim()))
+            .map(|b| (text.clone(), b.msb, b.lsb)),
+        _ => None,
+    };
+    let Some(bus) = target_bus else {
+        if selected.is_some() {
+            // Whole-bus scalar actuals are handled per instance-array element
+            // by expand_instantiation. An explicit multi-bit slice is not scalar.
+            if let ast::Expr::PartSelectExpr(_) = net {
+                let (base, first, last) = selected.unwrap();
+                if first != last {
+                    anyhow::bail!("bus slice '{text}' cannot connect to scalar port '{port_name}'");
+                }
+                result.insert(port_name.clone(), PortBinding::Scalar(format!("{base}[{first}]")));
+                return Ok(());
+            }
+        }
+        result.insert(port_name.clone(), PortBinding::Scalar(text));
+        return Ok(());
+    };
+    let Some((base, first, last)) = selected else {
+        // Preserve the existing scalar-to-bus broadcast behavior.
+        result.insert(
+            port_name.clone(),
+            PortBinding::Bus(ordered_bits(bus.msb, bus.lsb).map(|bit| (bit, text.clone())).collect()),
+        );
+        return Ok(());
+    };
+    if i64::from(bus.msb).abs_diff(i64::from(bus.lsb)) != i64::from(first).abs_diff(i64::from(last)) {
+        anyhow::bail!("width mismatch connecting '{text}' to bus port '{port_name}'");
     }
+    let bits = ordered_bits(bus.msb, bus.lsb)
+        .zip(ordered_bits(first, last))
+        .map(|(formal, actual)| (formal, format!("{base}[{actual}]")))
+        .collect();
     result.insert(port_name.clone(), PortBinding::Bus(bits));
+    Ok(())
 }
 
 /// The module's syntactic port list, in true header-declaration order
@@ -403,7 +485,7 @@ impl ElabCtx<'_> {
     /// (the caller is responsible for running it through its own `Scope`
     /// before handing it further down -- see `resolve_port_bindings`).
     fn raw_port_bindings(
-        &self,
+        &mut self,
         caller: &TreeModule,
         target: &TreeModule,
         target_ast: &ast::ModuleDecl,
@@ -417,19 +499,17 @@ impl ElabCtx<'_> {
         if conns.iter().all(|c| c.name().is_none()) {
             for (name, conn) in port_names.iter().zip(conns.iter()) {
                 if let Some(net) = conn.net() {
-                    bind_port(&mut result, target, caller, name, &net.syntax().text().to_string());
+                    if let Err(error) = bind_port(&mut result, target, caller, name, &net) {
+                        self.errors.push(error.to_string());
+                    }
                 }
             }
         } else {
             for conn in &conns {
                 if let (Some(name), Some(net)) = (conn.name(), conn.net()) {
-                    bind_port(
-                        &mut result,
-                        target,
-                        caller,
-                        &name.as_name(),
-                        &net.syntax().text().to_string(),
-                    );
+                    if let Err(error) = bind_port(&mut result, target, caller, &name.as_name(), &net) {
+                        self.errors.push(error.to_string());
+                    }
                 }
             }
         }
@@ -814,5 +894,167 @@ impl ElabCtx<'_> {
             "",
         );
         format!("{}{}{}", &full[..rel_start], body, &full[rel_end..])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn source(actual: &str, formal: &str) -> String {
+        format!(r#"
+`include "disciplines.vams"
+module pair(p);
+    inout [{formal}] p;
+    electrical [{formal}] p;
+    analog begin
+        I(p[0]) <+ V(p[0]);
+        I(p[1]) <+ 2 * V(p[1]);
+    end
+endmodule
+module top(a);
+    inout [0:3] a;
+    electrical [0:3] a;
+    pair child({actual});
+endmodule
+"#)
+    }
+
+    fn flattened(source: &str) -> String {
+        let db = CompilationDB::new_virtual(source).unwrap();
+        assert_eq!(db.compilation_unit().test_diagnostics(&db), "");
+        db.parse(db.compilation_unit().root_file()).tree().syntax().text().to_string()
+    }
+
+    #[test]
+    fn unresolved_child_module_keeps_its_diagnostic() {
+        let source = r#"
+`include "disciplines.vams"
+module top(a);
+    inout [0:3] a;
+    electrical [0:3] a;
+    missing child(a[0:1]);
+endmodule
+"#;
+        let db = CompilationDB::new_virtual(source).unwrap();
+        let diagnostics = db.compilation_unit().test_diagnostics(&db);
+        assert!(diagnostics.contains("unknown module 'missing'"), "{diagnostics}");
+        let text = db.parse(db.compilation_unit().root_file()).tree().syntax().text().to_string();
+        assert!(text.contains("missing child(a[0:1]);"), "{text}");
+    }
+
+    #[test]
+    fn positional_and_named_slices_preserve_bit_identity() {
+        for actual in ["a[2:3]", ".p(a[2:3])", "a[1+1:3]"] {
+            let out = flattened(&source(actual, "0:1"));
+            assert!(out.contains("I(a[2]) <+ V(a[2])"), "{out}");
+            assert!(out.contains("I(a[3]) <+ 2 * V(a[3])"), "{out}");
+        }
+    }
+
+    #[test]
+    fn opposite_range_directions_map_in_declaration_order() {
+        let out = flattened(&source("a[3:2]", "0:1"));
+        assert!(out.contains("I(a[3]) <+ V(a[3])"), "{out}");
+        assert!(out.contains("I(a[2]) <+ 2 * V(a[2])"), "{out}");
+        let out = flattened(&source("a[2:3]", "1:0"));
+        assert!(out.contains("I(a[3]) <+ V(a[3])"), "{out}");
+        assert!(out.contains("I(a[2]) <+ 2 * V(a[2])"), "{out}");
+    }
+
+    #[test]
+    fn nested_slices_resolve_through_parent_bus_bindings() {
+        let source = source("a[2:3]", "0:1").replace(
+            "pair child(a[2:3]);",
+            "wrapper child(a);",
+        ) + r#"
+module wrapper(b);
+    inout [0:3] b;
+    electrical [0:3] b;
+    pair inner(.p(b[2:3]));
+endmodule
+"#;
+        let out = flattened(&source);
+        assert!(out.contains("I(a[2]) <+ V(a[2])"), "{out}");
+        assert!(out.contains("I(a[3]) <+ 2 * V(a[3])"), "{out}");
+    }
+
+    #[test]
+    fn single_bit_slice_connects_to_scalar_port() {
+        let source = r#"
+`include "disciplines.vams"
+module scalar(p);
+    inout p;
+    electrical p;
+    analog I(p) <+ V(p);
+endmodule
+module top(a);
+    inout [0:3] a;
+    electrical [0:3] a;
+    scalar child(a[2:2]);
+endmodule
+"#;
+        let out = flattened(source);
+        assert!(out.contains("I(a[2]) <+ V(a[2])"), "{out}");
+        assert!(CompilationDB::new_virtual(&source.replace("a[2:2]", "a[2:3]")).is_err());
+    }
+
+    #[test]
+    fn whole_buses_follow_declaration_order() {
+        let out = flattened(&source("a", "0:1").replace("[0:3] a", "[3:2] a"));
+        assert!(out.contains("I(a[3]) <+ V(a[3])"), "{out}");
+        assert!(out.contains("I(a[2]) <+ 2 * V(a[2])"), "{out}");
+    }
+
+    #[test]
+    fn slices_support_arbitrary_widths_and_nonzero_formal_indices() {
+        for width in [1, 3, 7, 17, 64] {
+            for descending in [false, true] {
+                let last = 100 + width - 1;
+                let actual = if descending { format!("{last}:100") } else { format!("100:{last}") };
+                let contributions: String = (0..width)
+                    .map(|i| format!("I(p[{}]) <+ {} * V(p[{}]);\n", 8 + i, i + 1, 8 + i))
+                    .collect();
+                let source = format!(r#"
+`include "disciplines.vams"
+module child(p);
+    inout [8:{}] p;
+    electrical [8:{}] p;
+    analog begin
+        {contributions}
+    end
+endmodule
+module top(a);
+    inout [100:200] a;
+    electrical [100:200] a;
+    child c(.p(a[{actual}]));
+endmodule
+"#, 8 + width - 1, 8 + width - 1);
+                let out = flattened(&source);
+                for i in 0..width {
+                    let actual_bit = if descending { last - i } else { 100 + i };
+                    let expected = format!("I(a[{actual_bit}]) <+ {} * V(a[{actual_bit}])", i + 1);
+                    assert!(out.contains(&expected), "width={width}, descending={descending}: {out}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_slices_report_errors_instead_of_broadcasting() {
+        for (actual, message) in [
+            ("a[0:2]", "width mismatch"),
+            ("a[3:4]", "outside the declared range"),
+            ("a[0:x]", "constant integer bounds"),
+            ("a[0:1/0]", "constant integer bounds"),
+            ("missing[0:1]", "does not name a bus"),
+            ("a", "width mismatch"),
+        ] {
+            let error = match CompilationDB::new_virtual(&source(actual, "0:1")) {
+                Ok(_) => panic!("accepted invalid slice {actual}"),
+                Err(error) => error.to_string(),
+            };
+            assert!(error.contains(message), "{error}");
+        }
     }
 }

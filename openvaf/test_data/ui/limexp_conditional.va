@@ -1,0 +1,16 @@
+`include "disciplines.vams"
+
+module limexp_conditional(a, c);
+    inout a, c;
+    electrical a, c;
+    parameter real vh = 0.5;
+    parameter real n = 1.0;
+    analog begin
+        // limexp is a plain builtin (not an analog operator), so it must be
+        // accepted inside conditional behaviour.
+        if (V(a, c) >= 0.0)
+            I(a, c) <+ limexp((V(a, c) - vh) / n);
+        else
+            I(a, c) <+ -limexp((-V(a, c) - vh) / n);
+    end
+endmodule

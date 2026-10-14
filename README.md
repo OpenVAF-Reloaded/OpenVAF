@@ -56,6 +56,7 @@ Some internals of the OpenVAF compiler are documented in the [internals.md](inte
 - $bound_step() fixed. 
 - Initalization of instance parameters from model defaults now works. 
 - Access to noise source type and parameters (white and flicker noise). 
+- limexp() is now a stateless builtin (not an operator) so it can be used in conditionals that depend on OP. 
 
 
 # What about binaries? 

@@ -72,7 +72,11 @@ pub(crate) fn elaborate_instantiations(db: &mut CompilationDB) -> anyhow::Result
     // path reports these errors against their source instantiations.
     let def_map = db.def_map(root_file);
     if def_map.diagnostics.iter().any(|d| {
-        matches!(d, DefDiagnostic::CyclicInstantiation { .. } | DefDiagnostic::UnknownInstantiatedModule { .. })
+        matches!(
+            d,
+            DefDiagnostic::CyclicInstantiation { .. }
+                | DefDiagnostic::UnknownInstantiatedModule { .. }
+        )
     }) {
         return Ok(());
     }
@@ -383,7 +387,9 @@ fn bind_port(
             let range = slice
                 .range()
                 .and_then(|r| Some((fold_slice_bound(&r.start()?)?, fold_slice_bound(&r.end()?)?)))
-                .ok_or_else(|| anyhow::anyhow!("bus slice '{text}' requires constant integer bounds"))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("bus slice '{text}' requires constant integer bounds")
+                })?;
             let bus = caller
                 .buses
                 .iter()
@@ -421,11 +427,14 @@ fn bind_port(
         // Preserve the existing scalar-to-bus broadcast behavior.
         result.insert(
             port_name.clone(),
-            PortBinding::Bus(ordered_bits(bus.msb, bus.lsb).map(|bit| (bit, text.clone())).collect()),
+            PortBinding::Bus(
+                ordered_bits(bus.msb, bus.lsb).map(|bit| (bit, text.clone())).collect(),
+            ),
         );
         return Ok(());
     };
-    if i64::from(bus.msb).abs_diff(i64::from(bus.lsb)) != i64::from(first).abs_diff(i64::from(last)) {
+    if i64::from(bus.msb).abs_diff(i64::from(bus.lsb)) != i64::from(first).abs_diff(i64::from(last))
+    {
         anyhow::bail!("width mismatch connecting '{text}' to bus port '{port_name}'");
     }
     let bits = ordered_bits(bus.msb, bus.lsb)
@@ -507,7 +516,9 @@ impl ElabCtx<'_> {
         } else {
             for conn in &conns {
                 if let (Some(name), Some(net)) = (conn.name(), conn.net()) {
-                    if let Err(error) = bind_port(&mut result, target, caller, &name.as_name(), &net) {
+                    if let Err(error) =
+                        bind_port(&mut result, target, caller, &name.as_name(), &net)
+                    {
                         self.errors.push(error.to_string());
                     }
                 }
@@ -902,7 +913,8 @@ mod tests {
     use super::*;
 
     fn source(actual: &str, formal: &str) -> String {
-        format!(r#"
+        format!(
+            r#"
 `include "disciplines.vams"
 module pair(p);
     inout [{formal}] p;
@@ -917,7 +929,8 @@ module top(a);
     electrical [0:3] a;
     pair child({actual});
 endmodule
-"#)
+"#
+        )
     }
 
     fn flattened(source: &str) -> String {
@@ -964,10 +977,8 @@ endmodule
 
     #[test]
     fn nested_slices_resolve_through_parent_bus_bindings() {
-        let source = source("a[2:3]", "0:1").replace(
-            "pair child(a[2:3]);",
-            "wrapper child(a);",
-        ) + r#"
+        let source = source("a[2:3]", "0:1").replace("pair child(a[2:3]);", "wrapper child(a);")
+            + r#"
 module wrapper(b);
     inout [0:3] b;
     electrical [0:3] b;
@@ -1015,7 +1026,8 @@ endmodule
                 let contributions: String = (0..width)
                     .map(|i| format!("I(p[{}]) <+ {} * V(p[{}]);\n", 8 + i, i + 1, 8 + i))
                     .collect();
-                let source = format!(r#"
+                let source = format!(
+                    r#"
 `include "disciplines.vams"
 module child(p);
     inout [8:{}] p;
@@ -1029,12 +1041,18 @@ module top(a);
     electrical [100:200] a;
     child c(.p(a[{actual}]));
 endmodule
-"#, 8 + width - 1, 8 + width - 1);
+"#,
+                    8 + width - 1,
+                    8 + width - 1
+                );
                 let out = flattened(&source);
                 for i in 0..width {
                     let actual_bit = if descending { last - i } else { 100 + i };
                     let expected = format!("I(a[{actual_bit}]) <+ {} * V(a[{actual_bit}])", i + 1);
-                    assert!(out.contains(&expected), "width={width}, descending={descending}: {out}");
+                    assert!(
+                        out.contains(&expected),
+                        "width={width}, descending={descending}: {out}"
+                    );
                 }
             }
         }

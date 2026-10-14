@@ -455,8 +455,8 @@ module top(a, forward, backward, reverse);
     wrapper w(a, forward, backward, reverse);
 endmodule
 "#;
-    let root_file = Utf8PathBuf::try_from(std::env::temp_dir())?
-        .join("openvaf_hierarchy_bus_slices_test.va");
+    let root_file =
+        Utf8PathBuf::try_from(std::env::temp_dir())?.join("openvaf_hierarchy_bus_slices_test.va");
     std::fs::write(&root_file, SRC)?;
     let libs = compile_and_load_modules(&root_file);
     let desc = libs.iter().find(|desc| unsafe { load::osdi_str(desc.name) } == "top").unwrap();
@@ -488,10 +488,9 @@ fn hierarchy_variable_width_slices_test() -> Result<()> {
         return Ok(());
     }
     for width in [1, 3, 7, 17] {
-        let terms: Vec<_> = (0..width)
-            .map(|i| format!("{} * V(p[{}])", i + 1, 8 + i))
-            .collect();
-        let src = format!(r#"`include "disciplines.vams"
+        let terms: Vec<_> = (0..width).map(|i| format!("{} * V(p[{}])", i + 1, 8 + i)).collect();
+        let src = format!(
+            r#"`include "disciplines.vams"
 module weighted(p, out);
     input [8:{}] p;
     output out;
@@ -506,7 +505,12 @@ module top(a, out);
     electrical out;
     weighted w(.p(a[4:{}]), .out(out));
 endmodule
-"#, 8 + width - 1, 8 + width - 1, terms.join(" + "), 4 + width - 1);
+"#,
+            8 + width - 1,
+            8 + width - 1,
+            terms.join(" + "),
+            4 + width - 1
+        );
         let root_file = Utf8PathBuf::try_from(std::env::temp_dir())?
             .join(format!("openvaf_hierarchy_slice_width_{width}_test.va"));
         std::fs::write(&root_file, src)?;
@@ -526,7 +530,10 @@ endmodule
         let expected: f64 = (0..width).map(|i| ((i + 1) * (i + 5)) as f64).sum();
         assert_approx_eq!(sim.read_residual("flow(out)").0, expected);
         for i in 0..width {
-            assert_eq!(sim.read_jacobian("flow(out)", &format!("a[{}]", 4 + i)), ((i + 1) as f64, 0.0));
+            assert_eq!(
+                sim.read_jacobian("flow(out)", &format!("a[{}]", 4 + i)),
+                ((i + 1) as f64, 0.0)
+            );
         }
     }
     Ok(())

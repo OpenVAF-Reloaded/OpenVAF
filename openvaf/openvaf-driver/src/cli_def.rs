@@ -30,6 +30,8 @@ pub fn main_command() -> Command {
             dump_unopt_mir(),
             dump_ir(),
             dump_unopt_ir(),
+            hidden_state(),
+            dump_hs(),
             cache_dir(),
             opt_lvl(),
             target(),
@@ -52,6 +54,8 @@ pub const DUMPMIR: &str = "dump-mir";
 pub const DUMPUNOPTMIR: &str = "dump-unopt-mir";
 pub const DUMPIR: &str = "dump-ir";
 pub const DUMPUNOPTIR: &str = "dump-unopt-ir";
+pub const HIDDENSTATE: &str = "hidden-state";
+pub const DUMPHS: &str = "dump-hs";
 pub const TARGET: &str = "target";
 pub const SUPPORTED_TARGETS: &str = "supported-targets";
 pub const LINTS: &str = "lints";
@@ -115,6 +119,19 @@ fn dump_unopt_ir() -> Arg {
     flag(DUMPUNOPTIR, "dump-unopt-ir")
         .help("Dump unoptimized LLVM IR during compilation.")
         .long_help("Dump unoptimized LLVM IR during compilation.\nUsed for debugging.")
+}
+
+fn hidden_state() -> Arg {
+    flag(HIDDENSTATE, "hidden-state")
+        .short('s')
+        .help("Enable hidden state detection.")
+        .long_help("Enable hidden state detection.\nFinds the variables whose value must be kept from one evaluation to the next.\nAlso enabled by --dump-hs.")
+}
+
+fn dump_hs() -> Arg {
+    flag(DUMPHS, "dump-hs")
+        .help("Print the hidden state of each compiled module (implies -s).")
+        .long_help("Print the hidden state of each compiled module.\nImplies -s/--hidden-state.")
 }
 
 fn target() -> Arg {

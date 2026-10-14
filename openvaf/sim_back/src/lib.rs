@@ -1,4 +1,4 @@
-use hir::{BranchWrite, CompilationDB, Node};
+use hir::{BranchWrite, CompilationDB, Node, Variable};
 use hir_lower::{CurrentKind, HirInterner, ImplicitEquation, ParamKind};
 use lasso::Rodeo;
 use mir::Function;
@@ -49,6 +49,9 @@ pub struct CompiledModule<'a> {
     pub model_param_setup: Function,
     pub model_param_intern: HirInterner,
     pub node_collapse: NodeCollapse,
+    /// Variables whose value must be kept between evaluations
+    /// (empty unless hidden state detection is enabled)
+    pub hidden_state: Vec<Variable>,
 }
 
 pub fn print_module(
@@ -159,7 +162,21 @@ impl<'a> CompiledModule<'a> {
         literals: &mut Rodeo,
         dump_unopt_mir: bool,
         dump_mir: bool,
+        hidden_state: bool,
+        dump_hs: bool,
     ) -> CompiledModule<'a> {
+        let hidden_state = if hidden_state {
+            Context::detect_hidden_state(db, literals, module)
+        } else {
+            Vec::new()
+        };
+        if dump_hs {
+            println!("Hidden state of {}", module.module.name(db));
+            for var in &hidden_state {
+                println!("  {}", var.name(db));
+            }
+        }
+
         // Build MIR for the module
         let mut cx = Context::new(db, literals, module);
 
@@ -252,6 +269,7 @@ impl<'a> CompiledModule<'a> {
             model_param_intern,
             model_param_setup,
             node_collapse,
+            hidden_state,
         }
     }
 }

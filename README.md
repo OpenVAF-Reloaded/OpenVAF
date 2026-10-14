@@ -63,6 +63,7 @@ Some internals of the OpenVAF compiler are documented in the [internals.md](inte
 - indirect contribution support
 - vector port support
 - laplace_* operators
+- hierarchy support via flattening
 
 
 # What about binaries? 

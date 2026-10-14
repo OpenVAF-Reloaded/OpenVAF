@@ -17,9 +17,10 @@ verilogae = { version = "1.0.0", path = "../verilogae", optional = true, default
 
 [features]
 default = ["static"]
-# No default LLVM - user must specify --features llvm18/llvm19/llvm20/llvm21
+# No default LLVM - user must specify --features llvm18/llvm19/llvm20/llvm21/llvm22
 static = ["verilogae"]
 llvm18 = ["verilogae?/llvm18"]
 llvm19 = ["verilogae?/llvm19"]
 llvm20 = ["verilogae?/llvm20"]
 llvm21 = ["verilogae?/llvm21"]
+llvm22 = ["verilogae?/llvm22"]

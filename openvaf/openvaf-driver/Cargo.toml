@@ -12,11 +12,12 @@ doctest = false
 test = false
 
 [features]
-# No default - user must specify --features llvm18/llvm19/llvm20/llvm21
+# No default - user must specify --features llvm18/llvm19/llvm20/llvm21/llvm22
 llvm18 = ["openvaf/llvm18"]
 llvm19 = ["openvaf/llvm19"]
 llvm20 = ["openvaf/llvm20"]
 llvm21 = ["openvaf/llvm21"]
+llvm22 = ["openvaf/llvm22"]
 
 [dependencies]
 

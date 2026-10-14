@@ -37,7 +37,6 @@ fn expected_hidden_state(module: &str) -> &'static [&'static str] {
             "s_inner",
             "s_lag",
             "s_loopv",
-            "s_opvar",
             "s_str",
             "s_sticky",
             "s_swap1",

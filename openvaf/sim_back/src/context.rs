@@ -93,6 +93,9 @@ impl<'a> Context<'a> {
     /// of constant variables does not change. If all variables in the set hold their
     /// initial value on entry, they also hold it on exit, so by induction they hold it
     /// in every evaluation.
+    ///
+    /// Output variables (op vars) are never hidden state. They start from their
+    /// initializer in every evaluation, so they stay in the set of constant variables.
     pub fn detect_hidden_state(
         db: &CompilationDB,
         literals: &mut Rodeo,
@@ -157,9 +160,13 @@ impl<'a> Context<'a> {
             gvn.solve(&mut func);
             gvn.remove_unnecessary_insts(&mut func, &dom_tree);
 
-            // Variables whose final value differs from their initial value are not constant
+            // Variables whose final value differs from their initial value are not constant.
+            // Output variables always start from their initializer and stay constant.
             let mut changed = false;
             for (var, init_val) in init {
+                if module.op_vars.contains_key(&var) {
+                    continue;
+                }
                 let Some(out) = intern.outputs.get(&PlaceKind::Var(var)).and_then(|v| v.expand())
                 else {
                     continue;

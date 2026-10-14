@@ -22,7 +22,9 @@
 //
 // Rules for using this file:
 //   - Compile WITHOUT the option that turns all variables into output
-//     variables; only s_opvar is an output variable.
+//     variables; only the n_opvar_* variables are output variables.
+//   - Output variables are never hidden state. Reading one before it is
+//     written gives its initializer.
 //   - Cases are independent unless a comment says otherwise.
 //   - Event cases (@(initial_step), @(final_step), analog initial) state the
 //     expected result assuming the event bodies are gated on the simulator's
@@ -95,9 +97,8 @@ module hidden_state(a, b);
     string s_str = "neg";       // S12 string state, conditionally overwritten
     real [0:1] s_arr;           // S13 array elements forming a chain:
                                 //     s_arr[0] <- s_arr[1] <- V(a,b)
-    (* desc = "output variable, conditionally written" *)
-    real s_opvar;               // S14 observable only as an output variable;
-                                //     keeps its old value when not written
+                                // S14 (removed: output variables are never
+                                //     state, see N14-N16)
     real s_istep_v0;            // S15 @(initial_step) capture of V(a,b).
                                 //     Current lowering: written every eval -> n
     real s_istep_acc;           // S16 reset in @(initial_step), accumulated
@@ -123,6 +124,13 @@ module hidden_state(a, b);
     integer n_i;                // N11 loop counters, written before read
     integer n_j;
     integer n_k;
+    (* desc = "output variable, conditionally written" *)
+    real n_opvar_cond;          // N14 output variable written only under an
+                                //     op-dependent condition
+    (* desc = "output variable, read before written" *)
+    real n_opvar_lag;           // N15 output variable read before written
+    (* units = "A" *)
+    real n_opvar_always;        // N16 output variable always written
 
     // ------------------------------------------------------------------ POLICY
     real p_case_par;            // P1  case without default on a PARAMETER: per
@@ -309,10 +317,6 @@ module hidden_state(a, b);
         s_arr[0] = s_arr[1];
         s_arr[1] = V(a, b);
 
-        // S14
-        if (V(a, b) > 1.0)
-            s_opvar = V(a, b);
-
         // S15
         @(initial_step)
             s_istep_v0 = V(a, b);
@@ -368,6 +372,17 @@ module hidden_state(a, b);
         n_unused_sink = n_unusedread;
         n_unusedread = V(a, b);
         I(a, b) <+ 1e-15 * n_unusedread;
+
+        // N14
+        if (V(a, b) > 1.0)
+            n_opvar_cond = V(a, b);
+
+        // N15
+        I(a, b) <+ 1e-15 * n_opvar_lag;
+        n_opvar_lag = V(a, b);
+
+        // N16
+        n_opvar_always = V(a, b) / r;
 
         // N13 named-block local written before read
         begin : n_blk

@@ -56,6 +56,8 @@ pub struct Opts {
     pub dump_unopt_mir: bool,
     pub dump_ir: bool,
     pub dump_unopt_ir: bool,
+    pub hidden_state: bool,
+    pub dump_hs: bool,
 }
 // pub fn dump_json(opts: &Opts) -> Result<CompilationTermination> {
 //     let input =
@@ -208,6 +210,8 @@ pub fn compile(opts: &Opts) -> Result<CompilationTermination> {
         opts.dump_unopt_mir,
         opts.dump_ir,
         opts.dump_unopt_ir,
+        opts.hidden_state,
+        opts.dump_hs,
     );
 
     // Dump natures, disciplines, and their attributes

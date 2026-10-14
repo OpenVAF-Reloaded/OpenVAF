@@ -158,6 +158,7 @@ impl<'a> OsdiModule<'a> {
             model_param_setup,
             model_param_intern,
             node_collapse,
+            ..
         } = module;
         OsdiModule {
             sym,

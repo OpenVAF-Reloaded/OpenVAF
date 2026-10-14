@@ -9,10 +9,23 @@ pub fn aggressive_dead_code_elimination(
     is_live: &dyn Fn(Value, &Function) -> bool,
     pdom_frontiers: &PostDominanceFrontiers,
 ) {
+    aggressive_dead_code_elimination_with_param_edges(func, cfg, is_live, &|_| None, pdom_frontiers)
+}
+
+/// Like `aggressive_dead_code_elimination`, but when a parameter becomes live,
+/// `param_edge` may name another value that must then be kept alive as well.
+pub fn aggressive_dead_code_elimination_with_param_edges(
+    func: &mut Function,
+    cfg: &mut ControlFlowGraph,
+    is_live: &dyn Fn(Value, &Function) -> bool,
+    param_edge: &dyn Fn(Value) -> Option<Value>,
+    pdom_frontiers: &PostDominanceFrontiers,
+) {
     let mut live_blocks = BitSet::new_empty(func.layout.num_blocks());
     live_blocks.insert(func.layout.entry_block().unwrap());
     let mut adce = AggressiveDeadCode {
         pdom_frontiers,
+        param_edge,
         live_insts: BitSet::new_empty(func.dfg.num_insts()),
         live_blocks,
         live_predecessors: BitSet::new_empty(func.layout.num_blocks()),
@@ -63,6 +76,7 @@ pub fn aggressive_dead_code_elimination(
 
 struct AggressiveDeadCode<'a> {
     pdom_frontiers: &'a PostDominanceFrontiers,
+    param_edge: &'a dyn Fn(Value) -> Option<Value>,
     live_insts: BitSet<Inst>,
     live_blocks: BitSet<Block>,
     live_predecessors: BitSet<Block>,
@@ -78,8 +92,18 @@ impl AggressiveDeadCode<'_> {
         loop {
             while let Some(inst) = self.inst_work_list.pop() {
                 for arg in self.func.dfg.instr_args(inst) {
-                    if let ValueDef::Result(def, _) = self.func.dfg.value_def(*arg) {
-                        self.mark_inst_live(def);
+                    match self.func.dfg.value_def(*arg) {
+                        ValueDef::Result(def, _) => {
+                            self.mark_inst_live(def);
+                        }
+                        ValueDef::Param(_) => {
+                            if let Some(next) = (self.param_edge)(*arg) {
+                                if let ValueDef::Result(def, _) = self.func.dfg.value_def(next) {
+                                    self.mark_inst_live(def);
+                                }
+                            }
+                        }
+                        _ => (),
                     }
                 }
             }

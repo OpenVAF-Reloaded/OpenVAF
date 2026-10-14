@@ -1,0 +1,501 @@
+// Hidden-state detection testing ground.
+//
+// Every module-level variable encodes its expected classification in its
+// name prefix:
+//
+//   c_*  CONSTANT   Never observably changes between evaluations. Its value
+//                   is always the initializer, so re-initializing it on every
+//                   evaluation is exact. No state slot.
+//   s_*  STATE      Its value can change AND the value it enters an
+//                   evaluation with is observable on some path (read before
+//                   written). Needs a state slot.
+//   n_*  NOT STATE  Either written before every read, or its entry value can
+//                   never reach anything observable. No state slot; the
+//                   initializer is irrelevant.
+//   p_*  POLICY     The expected result depends on a semantic decision or on
+//                   how strong the analysis is. The comment gives the ideal
+//                   and the acceptable (conservative) result.
+//
+// Observable = reaches a contribution, an output variable (desc/units
+// attribute), or a side effect ($strobe), directly or through the entry
+// value of another state variable in a later evaluation.
+//
+// Rules for using this file:
+//   - Compile WITHOUT the option that turns all variables into output
+//     variables; only s_opvar is an output variable.
+//   - Cases are independent unless a comment says otherwise.
+//   - Event cases (@(initial_step), @(final_step), analog initial) state the
+//     expected result assuming the event bodies are gated on the simulator's
+//     initial/final-step flag. With the current unconditional lowering they
+//     classify differently; this is noted per case.
+//   - $strobe calls are guarded by V(a,b) > 1e30 so they never print but
+//     remain observable side effects the optimizer cannot remove.
+//   - After the main module follow small modules (hs_m1 ... hs_m6), each
+//     isolating one case that a detection without the optimistic
+//     initializer assumption gets wrong. Variable and parameter names are
+//     unique across the whole file.
+
+`include "disciplines.vams"
+
+module hidden_state(a, b);
+    inout a, b;
+    electrical a, b;
+
+    parameter real r = 1k from (0:inf);
+    parameter integer mode = 0 from [0:2];
+    parameter integer n_iter = 1 from [0:10];
+
+    // ---------------------------------------------------------------- CONSTANT
+    real c_ro = 3.0;            // C1  read only, constant initializer
+    real c_par = 2.0 * r;       // C2  read only, parameter-dependent initializer
+                                //     (per-instance constant, hoisted to setup)
+    real c_noinit;              // C3  read only, no initializer (implicit 0.0)
+    integer c_int = 7;          // C4  integer, read only
+    string c_str = "const";     // C5  string, read only (observed via $strobe)
+    integer c_selfguard = 0;    // C6  write guarded by a test that is false
+                                //     under the variable's own initial value;
+                                //     needs the optimistic assumption
+    real c_rewrite = 5.0;       // C7  read, then rewritten with the same constant
+    real c_rewrite_par = 2.0 * r; // C8  read, then rewritten with an identical
+                                //     parameter expression (needs GVN)
+    real c_deadw = 1.0;         // C9  only write is under if (0)
+    real c_deadw_via_c = 1.0;   // C10 only write is under a test on c_ro that
+                                //     folds to false (needs C1 folded first)
+    integer c_mut_a = 0;        // C11 c_mut_a and c_mut_b guard each other's
+    integer c_mut_b = 0;        //     writes; constant only under the JOINT
+                                //     assumption (simultaneous induction)
+    real c_selfassign = 4.0;    // C12 x = x
+    real c_restore = 7.0;       // C13 saved, overwritten, used, restored: exit
+                                //     value equals entry value
+    real c_loop0 = 1.0;         // C14 only write is in a loop with zero trips
+                                //     known at compile time
+
+    // ------------------------------------------------------------------- STATE
+    real s_lag;                 // S1  read, then written with V(a,b)
+    integer s_first = 1;        // S2  once-flag; observable only through
+                                //     control dependence (guards a $strobe)
+    real s_acc;                 // S3  accumulator x = x + V(a,b)
+    integer s_cnt;              // S4  counter observable only through $strobe
+    real s_sticky = 5.0;        // S5  conditionally overwritten (op-dependent
+                                //     condition), value sticks
+    real s_chain_y;             // S6  y is observed; x feeds only y's next value,
+    real s_chain_x;             //     so x is observable only across evaluations
+    real s_c3;                  // S6b three-step chain s_c3 <- s_c2 <- s_c1 <- V:
+    real s_c2;                  //     s_c2 and s_c1 are observable only one and
+    real s_c1;                  //     two evaluations later
+    real s_swap1;               // S7  two variables feeding each other in a
+    real s_swap2;               //     cycle that is observed via s_swap1
+    integer s_trig = 0;         // S8  s_trig is state; s_dep becomes state only
+    real s_dep;                 //     after s_trig is removed from the constant
+                                //     set (second fixpoint iteration)
+    real s_loopv = 1.0;         // S9  written in a loop whose trip count
+                                //     depends on the operating point (may be 0)
+    real s_case_op = 1.0;       // S10 case without default, op-dependent selector
+    real s_inner;               // S11 read before write only inside a branch
+    string s_str = "neg";       // S12 string state, conditionally overwritten
+    real [0:1] s_arr;           // S13 array elements forming a chain:
+                                //     s_arr[0] <- s_arr[1] <- V(a,b)
+    (* desc = "output variable, conditionally written" *)
+    real s_opvar;               // S14 observable only as an output variable;
+                                //     keeps its old value when not written
+    real s_istep_v0;            // S15 @(initial_step) capture of V(a,b).
+                                //     Current lowering: written every eval -> n
+    real s_istep_acc;           // S16 reset in @(initial_step), accumulated
+                                //     every eval (crashed Meisam's E7, case 1)
+    real s_fstep;               // S17 written only in @(final_step), read always.
+                                //     Current lowering: written every eval -> n
+
+    // --------------------------------------------------------------- NOT STATE
+    real n_wbr;                 // N1  written before read
+    real n_ifelse;              // N2  written on both branches before read
+    real n_unobs_cond = 1.0;    // N3  conditionally written, never read
+    real n_selfinc;             // N4  x = x + V(a,b), never read otherwise:
+                                //     only a self-sustaining cycle, unobservable
+    real n_chain_y;             // N5  like S6 but y is never read, so neither
+    real n_chain_x;             //     variable is observable
+    real n_deadread;            // N6  read only under if (0), then written and used
+    real n_deadread_via_c;      // N7  read only under a test on c_ro that folds
+                                //     to false
+    real n_unusedread;          // N8  read into a sink that is never used,
+    real n_unused_sink;         //     then written and used
+    real n_restore_tmp;         // N9  temporary for C13, written before read
+    real n_swap_tmp;            // N10 temporary for S7, written before read
+    integer n_i;                // N11 loop counters, written before read
+    integer n_j;
+    integer n_k;
+
+    // ------------------------------------------------------------------ POLICY
+    real p_case_par;            // P1  case without default on a PARAMETER: per
+                                //     instance either always written before read
+                                //     or never written. Ideal: no slot (needs
+                                //     path-sensitive reasoning).
+                                //     Acceptable: state.
+    real p_loop_par = 1.0;      // P2  loop trip count is a parameter (may be 0);
+                                //     same situation as P1.
+    real p_ident = 3.0;         // P3  x = x * 1.0. Ideal: constant if the
+                                //     optimizer folds the identity.
+                                //     Acceptable: state.
+    integer p_max = 0;          // P4  x = max(x, 0). Ideal: constant if max
+                                //     folds. Acceptable: state.
+    real p_ainit;               // P5  assigned only in analog initial (1/r).
+                                //     Ideal: per-instance constant hoisted to
+                                //     setup. With gating, the plain fixpoint
+                                //     says state. Current lowering: written
+                                //     every eval -> n.
+    real p_istep_marker;        // P6  @(initial_step) x = 100; read always
+                                //     (crashed Meisam's E7, case 2). Every
+                                //     observed value is 100, so ideal: constant;
+                                //     the plain fixpoint says state.
+
+    // P7  analog-function local read before written. LRM-static semantics:
+    //     state (a single slot shared by all calls). Per-call semantics
+    //     (Meisam's E646): not state, the local restarts on every call.
+    //     Called twice per evaluation, so the two semantics also differ
+    //     within one evaluation.
+    analog function real p_fn_count;
+        input x;
+        real x;
+        integer p_fcnt;
+        begin
+            p_fcnt = p_fcnt + 1;
+            p_fn_count = x * p_fcnt;
+        end
+    endfunction
+
+    // N12 analog-function local written before read: never state.
+    analog function real n_fn_local;
+        input x;
+        real x;
+        real n_floc;
+        begin
+            n_floc = 2.0 * x;
+            n_fn_local = n_floc + 1.0;
+        end
+    endfunction
+
+    analog initial begin
+        // P5
+        p_ainit = 1.0 / r;
+    end
+
+    analog begin
+        I(a, b) <+ V(a, b) / r;
+
+        // ------------------------------------------------------------ CONSTANT
+        // C1, C2, C3, C4
+        I(a, b) <+ 1e-15 * (c_ro + c_par + c_noinit + c_int);
+
+        // C5
+        if (V(a, b) > 1e30) $strobe("c_str=%s", c_str);
+
+        // C6
+        if (c_selfguard == 1)
+            c_selfguard = 2;
+        I(a, b) <+ 1e-15 * c_selfguard;
+
+        // C7
+        I(a, b) <+ 1e-15 * c_rewrite;
+        c_rewrite = 5.0;
+
+        // C8
+        I(a, b) <+ 1e-15 * c_rewrite_par;
+        c_rewrite_par = 2.0 * r;
+
+        // C9
+        I(a, b) <+ 1e-15 * c_deadw;
+        if (0)
+            c_deadw = V(a, b);
+
+        // C10
+        I(a, b) <+ 1e-15 * c_deadw_via_c;
+        if (c_ro > 10.0)
+            c_deadw_via_c = V(a, b);
+
+        // C11
+        if (c_mut_a != 0)
+            c_mut_b = 1;
+        if (c_mut_b != 0)
+            c_mut_a = 1;
+        I(a, b) <+ 1e-15 * (c_mut_a + c_mut_b);
+
+        // C12
+        c_selfassign = c_selfassign;
+        I(a, b) <+ 1e-15 * c_selfassign;
+
+        // C13 (uses N9)
+        I(a, b) <+ 1e-15 * c_restore;
+        n_restore_tmp = c_restore;
+        c_restore = 8.0;
+        I(a, b) <+ 1e-15 * c_restore;
+        c_restore = n_restore_tmp;
+
+        // C14 (uses N11)
+        for (n_i = 0; n_i < 0; n_i = n_i + 1)
+            c_loop0 = V(a, b);
+        I(a, b) <+ 1e-15 * c_loop0;
+
+        // --------------------------------------------------------------- STATE
+        // S1
+        I(a, b) <+ 1e-15 * s_lag;
+        s_lag = V(a, b);
+
+        // S2
+        if (s_first != 0) begin
+            if (V(a, b) > 1e30) $strobe("first evaluation");
+            s_first = 0;
+        end
+
+        // S3
+        s_acc = s_acc + V(a, b);
+        I(a, b) <+ 1e-15 * s_acc;
+
+        // S4
+        s_cnt = s_cnt + 1;
+        if (V(a, b) > 1e30) $strobe("s_cnt=%d", s_cnt);
+
+        // S5
+        if (V(a, b) > 1.0)
+            s_sticky = 6.0;
+        I(a, b) <+ 1e-15 * s_sticky;
+
+        // S6
+        I(a, b) <+ 1e-15 * s_chain_y;
+        s_chain_y = s_chain_x;
+        s_chain_x = V(a, b);
+
+        // S6b
+        I(a, b) <+ 1e-15 * s_c3;
+        s_c3 = s_c2;
+        s_c2 = s_c1;
+        s_c1 = V(a, b);
+
+        // S7 (uses N10)
+        n_swap_tmp = s_swap1;
+        s_swap1 = s_swap2;
+        s_swap2 = n_swap_tmp + V(a, b);
+        I(a, b) <+ 1e-15 * s_swap1;
+
+        // S8
+        if (V(a, b) > 1.0)
+            s_trig = 1;
+        if (s_trig != 0)
+            s_dep = 1.0;
+        I(a, b) <+ 1e-15 * s_dep;
+
+        // S9 (uses N11)
+        for (n_j = 0; n_j < 2 && V(a, b) > 0.5; n_j = n_j + 1)
+            s_loopv = V(a, b);
+        I(a, b) <+ 1e-15 * s_loopv;
+
+        // S10
+        case (V(a, b) > 0.0)
+            1: s_case_op = 2.0;
+        endcase
+        I(a, b) <+ 1e-15 * s_case_op;
+
+        // S11
+        if (V(a, b) > 0.5) begin
+            I(a, b) <+ 1e-15 * s_inner;
+            s_inner = V(a, b);
+        end
+
+        // S12
+        if (V(a, b) > 0.0)
+            s_str = "pos";
+        if (V(a, b) > 1e30) $strobe("s_str=%s", s_str);
+
+        // S13
+        I(a, b) <+ 1e-15 * s_arr[0];
+        s_arr[0] = s_arr[1];
+        s_arr[1] = V(a, b);
+
+        // S14
+        if (V(a, b) > 1.0)
+            s_opvar = V(a, b);
+
+        // S15
+        @(initial_step)
+            s_istep_v0 = V(a, b);
+        I(a, b) <+ 1e-15 * s_istep_v0;
+
+        // S16
+        @(initial_step)
+            s_istep_acc = 0.0;
+        s_istep_acc = s_istep_acc + 1.0;
+        I(a, b) <+ 1e-15 * s_istep_acc;
+
+        // S17
+        @(final_step)
+            s_fstep = V(a, b);
+        I(a, b) <+ 1e-15 * s_fstep;
+
+        // ----------------------------------------------------------- NOT STATE
+        // N1
+        n_wbr = V(a, b);
+        I(a, b) <+ 1e-15 * n_wbr;
+
+        // N2
+        if (V(a, b) > 0.0)
+            n_ifelse = 1.0;
+        else
+            n_ifelse = 2.0;
+        I(a, b) <+ 1e-15 * n_ifelse;
+
+        // N3
+        if (V(a, b) > 0.0)
+            n_unobs_cond = V(a, b);
+
+        // N4
+        n_selfinc = n_selfinc + V(a, b);
+
+        // N5
+        n_chain_y = n_chain_x;
+        n_chain_x = V(a, b);
+
+        // N6
+        if (0)
+            $strobe("n_deadread=%g", n_deadread);
+        n_deadread = V(a, b);
+        I(a, b) <+ 1e-15 * n_deadread;
+
+        // N7
+        if (c_ro > 10.0)
+            $strobe("n_deadread_via_c=%g", n_deadread_via_c);
+        n_deadread_via_c = V(a, b);
+        I(a, b) <+ 1e-15 * n_deadread_via_c;
+
+        // N8
+        n_unused_sink = n_unusedread;
+        n_unusedread = V(a, b);
+        I(a, b) <+ 1e-15 * n_unusedread;
+
+        // N13 named-block local written before read
+        begin : n_blk
+            real n_blkloc;
+            n_blkloc = 3.0 * V(a, b);
+            I(a, b) <+ 1e-15 * n_blkloc;
+        end
+
+        // N12 analog-function local written before read
+        I(a, b) <+ 1e-15 * n_fn_local(V(a, b));
+
+        // S18 named-block local read before written. Named-block variables
+        //     are static per the LRM, so this is state.
+        begin : s_blk
+            real s_blkloc;
+            s_blkloc = s_blkloc + 1.0;
+            I(a, b) <+ 1e-15 * s_blkloc;
+        end
+
+        // -------------------------------------------------------------- POLICY
+        // P1
+        case (mode)
+            0: p_case_par = 1.0;
+            1: p_case_par = 2.0;
+        endcase
+        I(a, b) <+ 1e-15 * p_case_par;
+
+        // P2 (uses N11)
+        for (n_k = 0; n_k < n_iter; n_k = n_k + 1)
+            p_loop_par = 2.0;
+        I(a, b) <+ 1e-15 * p_loop_par;
+
+        // P3
+        p_ident = p_ident * 1.0;
+        I(a, b) <+ 1e-15 * p_ident;
+
+        // P4
+        p_max = max(p_max, 0);
+        I(a, b) <+ 1e-15 * p_max;
+
+        // P5
+        I(a, b) <+ 1e-15 * p_ainit;
+
+        // P6
+        @(initial_step)
+            p_istep_marker = 100.0;
+        I(a, b) <+ 1e-15 * p_istep_marker;
+
+        // P7
+        I(a, b) <+ 1e-15 * (p_fn_count(V(a, b)) + p_fn_count(2.0 * V(a, b)));
+    end
+endmodule
+
+// M1 (like C6): the write's guard is false under the initializer.
+module hs_m1(a, b);
+    inout a, b;
+    electrical a, b;
+    integer c_m1_k = 0;
+    analog begin
+        if (c_m1_k == 1)
+            c_m1_k = 2;
+        I(a, b) <+ c_m1_k;
+    end
+endmodule
+
+// M2 (like C11): each variable guards the other's write; constant only
+// under the joint assumption.
+module hs_m2(a, b);
+    inout a, b;
+    electrical a, b;
+    integer c_m2_x = 0, c_m2_y = 0;
+    analog begin
+        if (c_m2_x != 0)
+            c_m2_y = 1;
+        if (c_m2_y != 0)
+            c_m2_x = 1;
+        I(a, b) <+ c_m2_x + c_m2_y;
+    end
+endmodule
+
+// M3 (like C7): rewritten with its initializer value.
+module hs_m3(a, b);
+    inout a, b;
+    electrical a, b;
+    real c_m3_x = 5.0;
+    analog begin
+        I(a, b) <+ c_m3_x;
+        c_m3_x = 5.0;
+    end
+endmodule
+
+// M4 (like C8): rewritten with its parameter-dependent initializer
+// expression.
+module hs_m4(a, b);
+    inout a, b;
+    electrical a, b;
+    parameter real r_m4 = 1k;
+    real c_m4_x = 2.0 * r_m4;
+    analog begin
+        I(a, b) <+ c_m4_x;
+        c_m4_x = 2.0 * r_m4;
+    end
+endmodule
+
+// M5 (like C10): the only write is guarded by a test on another constant.
+module hs_m5(a, b);
+    inout a, b;
+    electrical a, b;
+    real c_m5_c = 3.0;
+    real c_m5_x = 1.0;
+    analog begin
+        I(a, b) <+ c_m5_x;
+        if (c_m5_c > 10.0)
+            c_m5_x = V(a, b);
+    end
+endmodule
+
+// M6 (like N7): the only read before the write is guarded by a test on
+// another constant.
+module hs_m6(a, b);
+    inout a, b;
+    electrical a, b;
+    real c_m6_c = 3.0;
+    real n_m6_x;
+    analog begin
+        if (c_m6_c > 10.0)
+            $strobe("%g", n_m6_x);
+        n_m6_x = V(a, b);
+        I(a, b) <+ n_m6_x;
+    end
+endmodule

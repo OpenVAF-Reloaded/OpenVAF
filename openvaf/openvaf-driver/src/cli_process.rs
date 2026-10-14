@@ -10,9 +10,9 @@ use openvaf::{
 use termcolor::{Color, ColorChoice, ColorSpec, WriteColor};
 
 use crate::cli_def::{
-    ALLOW, BATCHMODE, CACHE_DIR, CODEGEN, DEFINE, DENY, DRYRUN, DUMPIR, DUMPMIR, DUMPUNOPTIR,
-    DUMPUNOPTMIR, INCLUDE, INPUT, LINTS, OPT_LVL, OUTPUT, SUPPORTED_TARGETS, TARGET, TARGET_CPU,
-    WARN,
+    ALLOW, BATCHMODE, CACHE_DIR, CODEGEN, DEFINE, DENY, DRYRUN, DUMPHS, DUMPIR, DUMPMIR,
+    DUMPUNOPTIR, DUMPUNOPTMIR, HIDDENSTATE, INCLUDE, INPUT, LINTS, OPT_LVL, OUTPUT,
+    SUPPORTED_TARGETS, TARGET, TARGET_CPU, WARN,
 };
 use crate::{CompilationDestination, Opts};
 
@@ -121,6 +121,8 @@ pub fn matches_to_opts(matches: ArgMatches) -> Result<Opts> {
         dump_unopt_mir: matches.get_flag(DUMPUNOPTMIR),
         dump_ir: matches.get_flag(DUMPIR),
         dump_unopt_ir: matches.get_flag(DUMPUNOPTIR),
+        hidden_state: matches.get_flag(HIDDENSTATE) || matches.get_flag(DUMPHS),
+        dump_hs: matches.get_flag(DUMPHS),
         dry_run: matches.get_flag(DRYRUN),
     })
 }

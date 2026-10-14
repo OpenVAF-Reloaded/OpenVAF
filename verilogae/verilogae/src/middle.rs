@@ -92,7 +92,7 @@ pub fn build_module_mir(
     let mut output_values = BitSet::new_empty(func.dfg.num_values());
     output_values.extend(intern.outputs.values().filter_map(|it| it.expand()));
 
-    intern.insert_var_init(db, &mut func, &mut literals);
+    intern.insert_var_init(db, &mut func, &mut literals, |_| true);
 
     let mut cfg = ControlFlowGraph::new();
     cfg.compute(&func);

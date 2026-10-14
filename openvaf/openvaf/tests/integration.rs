@@ -87,6 +87,8 @@ fn compile_and_load_modules(root_file: &Utf8Path) -> &'static [OsdiDescriptor] {
         dump_unopt_mir: false,
         dump_ir: false,
         dump_unopt_ir: false,
+        hidden_state: false,
+        dump_hs: false,
     };
 
     let res = openvaf::compile(&openvaf_opts).unwrap();

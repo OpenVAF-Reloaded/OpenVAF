@@ -81,6 +81,7 @@
 #define NOISE_TYPE_TABLE 2
 
 #define MODULEFLAG_ABSTIME 1
+#define MODULEFLAG_HIDDEN_STATE 2
 
 typedef struct OsdiLimFunction {
   char *name;
@@ -246,6 +247,7 @@ typedef struct OsdiDescriptor {
   uint32_t absdelay_count;
   OsdiAbsDelay *absdelays;
   OsdiJacobianValue *jacobian_values;
+  void (*accept)(void *inst, void *model);
 }OsdiDescriptor;
 
 typedef struct OsdiNature {

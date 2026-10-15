@@ -178,7 +178,7 @@ impl<'a> CompiledModule<'a> {
         }
 
         // Build MIR for the module
-        let mut cx = Context::new(db, literals, module);
+        let mut cx = Context::new(db, literals, module, &hidden_state);
 
         if dump_unopt_mir {
             println!("Unoptimized MIR (no DAE) of {}", module.module.name(db));

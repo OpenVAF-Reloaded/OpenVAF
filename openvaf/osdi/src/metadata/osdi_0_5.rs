@@ -92,6 +92,7 @@ pub const NOISE_TYPE_WHITE: u32 = 0;
 pub const NOISE_TYPE_FLICKER: u32 = 1;
 pub const NOISE_TYPE_TABLE: u32 = 2;
 pub const MODULEFLAG_ABSTIME: u32 = 1;
+pub const MODULEFLAG_HIDDEN_STATE: u32 = 2;
 
 pub struct OsdiLimFunction<'ll> {
     pub name: String,
@@ -480,6 +481,7 @@ pub struct OsdiDescriptor<'ll> {
     pub absdelay_count: u32,
     pub absdelays: Vec<OsdiAbsDelay>,
     pub jacobian_values: Vec<OsdiJacobianValue>,
+    pub accept: &'ll llvm_sys::LLVMValue,
 }
 impl<'ll> OsdiDescriptor<'ll> {
     pub fn to_ll_val(
@@ -554,6 +556,7 @@ impl<'ll> OsdiDescriptor<'ll> {
             ctx.const_unsigned_int(self.absdelay_count),
             ctx.const_arr_ptr(tys.osdi_abs_delay, &arr_52),
             ctx.const_arr_ptr(tys.osdi_jacobian_value, &arr_53),
+            self.accept,
         ];
         let ty = tys.osdi_descriptor;
         ctx.const_struct(ty, &fields)
@@ -615,6 +618,7 @@ impl OsdiTyBuilder<'_, '_, '_> {
             ctx.ty_ptr(),
             ctx.ty_int(),
             ctx.ty_int(),
+            ctx.ty_ptr(),
             ctx.ty_ptr(),
             ctx.ty_ptr(),
         ];

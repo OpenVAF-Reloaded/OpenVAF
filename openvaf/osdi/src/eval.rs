@@ -4,8 +4,8 @@ use hir_lower::{CallBackKind, CurrentKind, LimitState, ParamKind};
 use llvm_sys::core::{
     LLVMAppendBasicBlockInContext, LLVMBuildAlloca, LLVMBuildAnd, LLVMBuildBr, LLVMBuildCall2,
     LLVMBuildCondBr, LLVMBuildICmp, LLVMBuildInBoundsGEP2, LLVMBuildIntCast2, LLVMBuildLoad2,
-    LLVMBuildOr, LLVMBuildRet, LLVMBuildStore, LLVMCreateBuilderInContext, LLVMDisposeBuilder,
-    LLVMGetParam, LLVMPositionBuilderAtEnd,
+    LLVMBuildOr, LLVMBuildRet, LLVMBuildRetVoid, LLVMBuildStore, LLVMCreateBuilderInContext,
+    LLVMDisposeBuilder, LLVMGetParam, LLVMPositionBuilderAtEnd,
 };
 use llvm_sys::LLVMIntPredicate::{LLVMIntNE, LLVMIntULT};
 use log::info;
@@ -247,7 +247,10 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                                 builder.llbuilder,
                             )
                             .unwrap(),
-                        ParamKind::HiddenState(_) => unreachable!(), // TODO  hidden state
+                        // Value from the previous evaluation
+                        ParamKind::HiddenState(var) => {
+                            return inst_data.hidden_state_loc(cx, var, false, instance).into()
+                        }
                         ParamKind::EnableIntegration => {
                             let flags = flags.read(builder.llbuilder);
                             let is_not_dc =
@@ -432,8 +435,46 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             inst_data.store_bound_step(instance, &builder);
             inst_data.store_delay_times(instance, &builder);
             inst_data.store_delay_maxes(instance, &builder);
+            inst_data.store_hidden_state(module, instance, &builder);
 
             builder.ret();
+        }
+
+        llfunc
+    }
+
+    /// Builds `accept(inst, model)` which copies the pending slots of the hidden
+    /// state variables to their accepted slots. May only be called after eval.
+    pub fn accept(&self) -> &'ll llvm_sys::LLVMValue {
+        let OsdiCompilationUnit { inst_data, cx, module, .. } = self;
+        let fun_ty = cx.ty_func(&[cx.ty_ptr(), cx.ty_ptr()], cx.ty_void());
+        let name = &format!("accept_{}", module.sym);
+        let llfunc = cx.declare_int_c_fn(name, fun_ty);
+
+        unsafe {
+            let entry = LLVMAppendBasicBlockInContext(
+                NonNull::from(cx.llcx).as_ptr(),
+                NonNull::from(llfunc).as_ptr(),
+                UNNAMED,
+            );
+            let llbuilder = LLVMCreateBuilderInContext(NonNull::from(cx.llcx).as_ptr());
+            LLVMPositionBuilderAtEnd(llbuilder, entry);
+            let inst = &*LLVMGetParam(NonNull::from(llfunc).as_ptr(), 0);
+
+            for &var in inst_data.hidden_state.keys() {
+                let (pending, ty) = inst_data.hidden_state_ptr(&*llbuilder, var, true, inst);
+                let (accepted, _) = inst_data.hidden_state_ptr(&*llbuilder, var, false, inst);
+                let val = LLVMBuildLoad2(
+                    llbuilder,
+                    NonNull::from(ty).as_ptr(),
+                    NonNull::from(pending).as_ptr(),
+                    UNNAMED,
+                );
+                LLVMBuildStore(llbuilder, val, NonNull::from(accepted).as_ptr());
+            }
+
+            LLVMBuildRetVoid(llbuilder);
+            LLVMDisposeBuilder(llbuilder);
         }
 
         llfunc

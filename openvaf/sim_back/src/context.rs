@@ -31,6 +31,10 @@ pub(crate) struct Context<'a> {
     pub(crate) output_values: BitSet<Value>,
     pub(crate) op_dependent_insts: BitSet<Inst>,
     pub(crate) op_dependent_vals: Vec<Value>,
+    /// Variables whose value is carried from one evaluation to the next.
+    /// Their `HiddenState` parameter is the value from the previous evaluation
+    /// and their final value is an output.
+    pub(crate) hidden_state: AHashSet<Variable>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -41,7 +45,13 @@ pub enum OptimiziationStage {
 }
 
 impl<'a> Context<'a> {
-    pub fn new(db: &'a CompilationDB, literals: &mut Rodeo, module: &'a ModuleInfo) -> Self {
+    pub fn new(
+        db: &'a CompilationDB,
+        literals: &mut Rodeo,
+        module: &'a ModuleInfo,
+        hidden_state: &[Variable],
+    ) -> Self {
+        let hidden_state: AHashSet<Variable> = hidden_state.iter().copied().collect();
         let (mut func, mut intern) = MirBuilder::new(
             db,
             module.module,
@@ -53,17 +63,22 @@ impl<'a> Context<'a> {
                 | PlaceKind::BoundStep
                 | PlaceKind::AbsDelayTime(_)
                 | PlaceKind::AbsDelayMax(_) => true,
-                PlaceKind::Var(var) => module.op_vars.contains_key(&var),
+                PlaceKind::Var(var) => {
+                    module.op_vars.contains_key(&var) || hidden_state.contains(&var)
+                }
                 _ => false,
             },
-            &mut module.op_vars.keys().copied(),
+            &mut module.op_vars.keys().copied().chain(hidden_state.iter().copied()),
         )
         .with_equations()
         .with_tagged_writes()
         .build(literals);
-        intern.insert_var_init(db, &mut func, literals, |_| true);
+        // The HiddenState parameters of hidden state variables are kept. They are
+        // read from the accepted state slot.
+        intern.insert_var_init(db, &mut func, literals, |var| !hidden_state.contains(&var));
 
         Context {
+            hidden_state,
             output_values: BitSet::new_empty(func.dfg.num_values()),
             func,
             cfg: ControlFlowGraph::new(),
@@ -275,7 +290,8 @@ impl<'a> Context<'a> {
                 .extend(self.intern.outputs.values().copied().filter_map(PackedOption::expand));
         } else {
             for (kind, val) in self.intern.outputs.iter() {
-                if matches!(kind, PlaceKind::Var(var) if self.module.op_vars.contains_key(var))
+                if matches!(kind, PlaceKind::Var(var) if self.module.op_vars.contains_key(var)
+                    || self.hidden_state.contains(var))
                     || matches!(
                         kind,
                         PlaceKind::CollapseImplicitEquation(_)

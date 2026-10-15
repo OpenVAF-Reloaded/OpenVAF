@@ -63,6 +63,7 @@ pub const NOISE_TYPE_WHITE: u32 = 0;
 pub const NOISE_TYPE_FLICKER: u32 = 1;
 pub const NOISE_TYPE_TABLE: u32 = 2;
 pub const MODULEFLAG_ABSTIME: u32 = 1;
+pub const MODULEFLAG_HIDDEN_STATE: u32 = 2;
 
 #[repr(C)]
 pub struct OsdiLimFunction {
@@ -214,6 +215,7 @@ pub struct OsdiDescriptor {
     pub absdelay_count: u32,
     pub absdelays: *mut OsdiAbsDelay,
     pub jacobian_values: *mut OsdiJacobianValue,
+    pub accept: fn(*mut c_void, *mut c_void),
 }
 impl OsdiDescriptor {
     pub fn access(
@@ -351,6 +353,7 @@ impl OsdiDescriptor {
     ) {
         (self.load_noise_params)(inst, model, power, exponent)
     }
+    pub fn accept(&self, inst: *mut c_void, model: *mut c_void) { (self.accept)(inst, model) }
 }
 #[repr(C)]
 pub struct OsdiNature {

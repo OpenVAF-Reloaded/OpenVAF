@@ -1,7 +1,7 @@
 use std::iter;
 use std::ptr::NonNull;
 
-use hir::CompilationDB;
+use hir::{CompilationDB, Variable};
 use hir_lower::fmt::{DisplayKind, FmtArg, FmtArgKind};
 use hir_lower::{CallBackKind, HirInterner, RetFlag};
 use lasso::Rodeo;
@@ -139,6 +139,8 @@ pub struct OsdiModule<'a> {
     pub model_param_intern: &'a HirInterner,
     pub lim_table: &'a TiSet<OsdiLimId, OsdiLimFunction>,
     pub node_collapse: &'a NodeCollapse,
+    /// Variables whose value is carried from one evaluation to the next
+    pub hidden_state: &'a [Variable],
     pub sym: String,
 }
 
@@ -158,6 +160,7 @@ impl<'a> OsdiModule<'a> {
             model_param_setup,
             model_param_intern,
             node_collapse,
+            hidden_state,
             ..
         } = module;
         OsdiModule {
@@ -171,6 +174,7 @@ impl<'a> OsdiModule<'a> {
             model_param_setup,
             model_param_intern,
             node_collapse,
+            hidden_state,
         }
     }
 }

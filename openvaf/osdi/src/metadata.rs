@@ -33,9 +33,10 @@ use crate::metadata::osdi_0_5::{
     OsdiAbsDelay, OsdiDescriptor, OsdiJacobianEntry, OsdiJacobianValue, OsdiNatureRef, OsdiNode,
     OsdiNodePair, OsdiNoiseSource, OsdiParamOpvar, OsdiTys, JACOBIAN_ENTRY_REACT,
     JACOBIAN_ENTRY_REACT_CONST, JACOBIAN_ENTRY_RESIST, JACOBIAN_ENTRY_RESIST_CONST,
-    MODULEFLAG_ABSTIME, NATREF_DISCIPLINE_FLOW, NATREF_DISCIPLINE_POTENTIAL, NATREF_NONE,
-    NOISE_TYPE_FLICKER, NOISE_TYPE_TABLE, NOISE_TYPE_WHITE, PARA_KIND_INST, PARA_KIND_MODEL,
-    PARA_KIND_OPVAR, PARA_TY_INT, PARA_TY_REAL, PARA_TY_STR,
+    MODULEFLAG_ABSTIME, MODULEFLAG_HIDDEN_STATE, NATREF_DISCIPLINE_FLOW,
+    NATREF_DISCIPLINE_POTENTIAL, NATREF_NONE, NOISE_TYPE_FLICKER, NOISE_TYPE_TABLE,
+    NOISE_TYPE_WHITE, PARA_KIND_INST, PARA_KIND_MODEL, PARA_KIND_OPVAR, PARA_TY_INT, PARA_TY_REAL,
+    PARA_TY_STR,
 };
 use crate::ty_len;
 
@@ -484,6 +485,9 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                     module_flags |= MODULEFLAG_ABSTIME;
                 }
             });
+            if !module.hidden_state.is_empty() {
+                module_flags |= MODULEFLAG_HIDDEN_STATE;
+            }
 
             OsdiDescriptor {
                 name: module.info.module.name(db),
@@ -545,6 +549,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                 absdelay_count: module.intern.absdelay_equations.len() as u32,
                 absdelays: self.absdelays(target_data),
                 jacobian_values: self.jacobian_values(target_data),
+                accept: self.accept(),
             }
         }
     }

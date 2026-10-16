@@ -22,6 +22,7 @@ fn expected_hidden_state(module: &str) -> &'static [&'static str] {
             "p_fcnt",
             "p_loop_par",
             "s_acc",
+            "s_ainit",
             "s_arr[0]",
             "s_arr[1]",
             "s_blkloc",
@@ -44,6 +45,7 @@ fn expected_hidden_state(module: &str) -> &'static [&'static str] {
             "s_trig",
         ],
         "hs_m1" | "hs_m2" | "hs_m3" | "hs_m4" | "hs_m5" | "hs_m6" => &[],
+        "hs_ainit" => &["s_ainit_x"],
         _ => unreachable!("unknown module {module}"),
     }
 }
@@ -54,7 +56,7 @@ fn hidden_state() {
         fs::read_to_string(openvaf_test_data("hidden_state").join("hidden_state.va")).unwrap();
     let db = CompilationDB::new_virtual(&src).unwrap();
     let modules = crate::collect_modules(&db, false, &mut ConsoleSink::new(&db)).unwrap();
-    assert_eq!(modules.len(), 7);
+    assert_eq!(modules.len(), 8);
     let mut literals = Rodeo::new();
     for module in &modules {
         let name = module.module.name(&db);

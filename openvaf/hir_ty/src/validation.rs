@@ -356,6 +356,9 @@ impl Diagnostic for BodyValidationDiagnosticWrapped<'_> {
                         "analysis function '{}' is not allowed in constants",
                         name
                     )),
+                    IllegalCtxAccessKind::SystemTask { name } => {
+                        res.with_message(format!("'{}' is not allowed in {}", name, ctx))
+                    }
                     IllegalCtxAccessKind::Var(var) => {
                         let name = var.lookup(self.db.upcast()).name(self.db.upcast());
                         let def = var.lookup(self.db.upcast()).ast_ptr(self.db.upcast()).range();

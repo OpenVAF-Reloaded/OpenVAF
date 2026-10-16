@@ -25,6 +25,7 @@ pub enum IllegalCtxAccessKind {
     NatureAccess,
     AnalogOperator { name: Name, is_standard: bool, non_const_dominator: Box<[ExprId]> },
     AnalysisFun { name: Name },
+    SystemTask { name: Name },
     Var(VarId),
 }
 
@@ -170,6 +171,10 @@ impl BodyCtx {
 
     fn allow_analysis_fun(self) -> bool {
         !matches!(self, Self::Const)
+    }
+
+    fn allow_stop(self) -> bool {
+        !matches!(self, Self::AnalogInitialBlock)
     }
 
     fn allow_var_ref(self) -> bool {
@@ -598,6 +603,12 @@ impl ExprValidator<'_, '_> {
                     },
                     expr,
                 ),
+            BuiltIn::stop if !self.parent.ctx.allow_stop() => self.report_illegal_access(
+                IllegalCtxAccessKind::SystemTask {
+                    name: name.as_ref().and_then(|p| p.as_ident()).unwrap(),
+                },
+                expr,
+            ),
             _ => (),
         }
 

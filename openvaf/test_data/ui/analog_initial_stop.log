@@ -1,0 +1,6 @@
+error: '$stop' is not allowed in analog initial block
+  --> /analog_initial_stop.va:9:13
+  |
+9 |             $stop;
+  |             ^^^^^ not allowed here
+

@@ -1,0 +1,16 @@
+`include "disciplines.vams"
+
+module analog_initial_stop(a, b);
+    inout a, b;
+    electrical a, b;
+    parameter real r = 1.0;
+    analog initial begin
+        if (r <= 0)
+            $stop;
+    end
+    analog begin
+        if (r <= 0)
+            $stop;
+        I(a, b) <+ V(a, b) / r;
+    end
+endmodule

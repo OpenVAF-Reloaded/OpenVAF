@@ -216,6 +216,7 @@ pub struct OsdiDescriptor {
     pub absdelays: *mut OsdiAbsDelay,
     pub jacobian_values: *mut OsdiJacobianValue,
     pub accept: fn(*mut c_void, *mut c_void),
+    pub init_hidden: fn(*mut c_void, *mut c_void),
 }
 impl OsdiDescriptor {
     pub fn access(
@@ -354,6 +355,9 @@ impl OsdiDescriptor {
         (self.load_noise_params)(inst, model, power, exponent)
     }
     pub fn accept(&self, inst: *mut c_void, model: *mut c_void) { (self.accept)(inst, model) }
+    pub fn init_hidden(&self, inst: *mut c_void, model: *mut c_void) {
+        (self.init_hidden)(inst, model)
+    }
 }
 #[repr(C)]
 pub struct OsdiNature {

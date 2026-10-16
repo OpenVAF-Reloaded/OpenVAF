@@ -248,6 +248,7 @@ typedef struct OsdiDescriptor {
   OsdiAbsDelay *absdelays;
   OsdiJacobianValue *jacobian_values;
   void (*accept)(void *inst, void *model);
+  void (*init_hidden)(void *inst, void *model);
 }OsdiDescriptor;
 
 typedef struct OsdiNature {

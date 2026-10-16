@@ -90,6 +90,7 @@ pub enum ParamKind {
     Abstime,
     EnableIntegration,
     EnableLim,
+    InitialStep,
     PrevState(LimitState),
     NewState(LimitState),
     Voltage { hi: Node, lo: Option<Node> },
@@ -122,6 +123,7 @@ impl ParamKind {
                 | ParamKind::PrevState(_)
                 | ParamKind::NewState(_)
                 | ParamKind::EnableLim
+                | ParamKind::InitialStep
         )
     }
 }
@@ -458,6 +460,7 @@ pub struct MirBuilder<'a> {
     tag_writes: bool,
     ctx: Option<&'a mut FunctionBuilderContext>,
     lower_equations: bool,
+    events: bool,
 }
 
 impl<'a> MirBuilder<'a> {
@@ -478,6 +481,7 @@ impl<'a> MirBuilder<'a> {
             ctx: None,
             lower_equations: false,
             tag_writes: false,
+            events: false,
         }
     }
 
@@ -522,6 +526,14 @@ impl<'a> MirBuilder<'a> {
         self
     }
 
+    /// Full Verilog-A event semantics: `@(initial_step)` bodies run only when the
+    /// `InitialStep` parameter is set (and one of the phases is the current
+    /// analysis). Otherwise (compact-model Verilog-A) they run in every evaluation.
+    pub fn with_events(mut self, events: bool) -> Self {
+        self.events = events;
+        self
+    }
+
     pub fn with_ctx(mut self, ctx: &'a mut FunctionBuilderContext) -> Self {
         self.ctx = Some(ctx);
         self
@@ -552,6 +564,7 @@ impl<'a> MirBuilder<'a> {
 
         let mut ctx = LoweringCtx::new(self.db, builder, !self.lower_equations, &mut interner)
             .with_tagged_vars(self.tagged_reads);
+        ctx.events = self.events;
         let mut body_ctx =
             BodyLoweringCtx { ctx: &mut ctx, body: analog_initial_body.borrow(), path: &path };
 

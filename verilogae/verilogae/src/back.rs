@@ -382,6 +382,8 @@ impl CodegenCtx<'_, '_> {
                     ParamKind::EnableIntegration | ParamKind::EnableLim => {
                         codegen.builder.cx.const_bool(false)
                     }
+                    // A single evaluation behaves like the first step
+                    ParamKind::InitialStep => codegen.builder.cx.const_bool(true),
                 };
 
                 val.into()
@@ -728,6 +730,8 @@ impl CodegenCtx<'_, '_> {
                     ParamKind::EnableIntegration | ParamKind::EnableLim => {
                         builder.cx.const_bool(false)
                     }
+                    // A single evaluation behaves like the first step
+                    ParamKind::InitialStep => builder.cx.const_bool(true),
                 };
 
                 val.into()

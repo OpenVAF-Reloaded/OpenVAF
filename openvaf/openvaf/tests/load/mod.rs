@@ -535,6 +535,7 @@ bitflags! {
         const ANALYSIS_IC = ANALYSIS_IC;
         const ANALYSIS_STATIC = ANALYSIS_STATIC;
         const ANALYSIS_NODESET = ANALYSIS_NODESET;
+        const INITIAL_STEP = INITIAL_STEP;
     }
 }
 

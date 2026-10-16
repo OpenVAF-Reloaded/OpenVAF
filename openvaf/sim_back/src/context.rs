@@ -48,6 +48,7 @@ impl<'a> Context<'a> {
         literals: &mut Rodeo,
         module: &'a ModuleInfo,
         hidden_state_vars: &[Variable],
+        events: bool,
     ) -> Self {
         let hidden_state: AHashSet<Variable> = hidden_state_vars.iter().copied().collect();
         let (mut func, mut intern) = MirBuilder::new(
@@ -71,6 +72,7 @@ impl<'a> Context<'a> {
         .with_equations()
         .with_tagged_writes()
         .with_hidden_state(hidden_state_vars)
+        .with_events(events)
         .build(literals);
         // The HiddenState parameters of hidden state variables are kept. They are
         // read from the accepted state slot. Their initializers are lowered by the
@@ -138,6 +140,7 @@ impl<'a> Context<'a> {
         )
         .with_equations()
         .with_blocks(LoweredBlocks::Analog)
+        .with_events(true)
         .build(literals);
 
         let mut constant: AHashSet<Variable> = probe_intern

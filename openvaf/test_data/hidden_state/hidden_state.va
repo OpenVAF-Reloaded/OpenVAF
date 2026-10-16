@@ -28,8 +28,8 @@
 //   - Cases are independent unless a comment says otherwise.
 //   - Event cases (@(initial_step), @(final_step)) state the expected result
 //     assuming the event bodies are gated on the simulator's initial/final-step
-//     flag. With the current unconditional lowering they classify
-//     differently; this is noted per case.
+//     flag. @(initial_step) is gated on INITIAL_STEP; @(final_step) is still
+//     lowered unconditionally and classifies differently (noted per case).
 //   - analog initial runs once during initialization, before the first
 //     evaluation. Hidden state detection treats it this way.
 //   - $strobe calls are guarded by V(a,b) > 1e30 so they never print but
@@ -103,7 +103,7 @@ module hidden_state(a, b);
                                 // S14 (removed: output variables are never
                                 //     state, see N14-N16)
     real s_istep_v0;            // S15 @(initial_step) capture of V(a,b).
-                                //     Current lowering: written every eval -> n
+                                //     Written only when INITIAL_STEP is set
     real s_istep_acc;           // S16 reset in @(initial_step), accumulated
                                 //     every eval (crashed Meisam's E7, case 1)
     real s_fstep;               // S17 written only in @(final_step), read always.

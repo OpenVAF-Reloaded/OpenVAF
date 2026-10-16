@@ -63,12 +63,13 @@ endmodule
 }
 
 fn compile_and_load(root_file: &Utf8Path) -> &'static OsdiDescriptor {
-    let libs = compile_and_load_modules(root_file);
+    let libs = compile_and_load_modules(root_file, false);
     assert_eq!(libs.len(), 1);
     &libs[0]
 }
 
-fn compile_and_load_modules(root_file: &Utf8Path) -> &'static [OsdiDescriptor] {
+/// `hidden_state` enables full Verilog-A (`-s`)
+fn compile_and_load_modules(root_file: &Utf8Path, hidden_state: bool) -> &'static [OsdiDescriptor] {
     let openvaf_opts = openvaf::Opts {
         defines: Vec::new(),
         codegen_opts: Vec::new(),
@@ -87,7 +88,7 @@ fn compile_and_load_modules(root_file: &Utf8Path) -> &'static [OsdiDescriptor] {
         dump_unopt_mir: false,
         dump_ir: false,
         dump_unopt_ir: false,
-        hidden_state: false,
+        hidden_state,
         dump_hs: false,
     };
 
@@ -363,6 +364,84 @@ endmodule
     Ok(())
 }
 
+// With full Verilog-A (`-s`) `@(initial_step)` runs its body only when the INITIAL_STEP eval
+// flag is set, and with a phase list only when one of the phases is the current analysis.
+// With compact-model Verilog-A (no `-s`) the body runs in every evaluation.
+fn initial_step_test() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    const SRC: &str = r#"`include "disciplines.vams"
+module istep(a, b, c, d);
+    inout a, b, c, d;
+    electrical a, b, c, d;
+    real x_any, x_ph, x_keep;
+    analog begin
+        x_any = 1.0;
+        x_ph = 1.0;
+        @(initial_step)
+            x_any = 2.0;
+        @(initial_step("dc", "tran"))
+            x_ph = 3.0;
+        // hidden state with -s: set only in the initial step
+        @(initial_step)
+            x_keep = 5.0;
+        I(a, d) <+ x_any * V(a, d);
+        I(b, d) <+ x_ph * V(b, d);
+        I(c, d) <+ x_keep * V(c, d);
+    end
+endmodule
+"#;
+    // (flags, expected x_any, expected x_ph)
+    let cases = [
+        (EvalFlags::empty(), 1.0, 1.0),
+        (EvalFlags::ANALYSIS_TRAN, 1.0, 1.0),
+        (EvalFlags::INITIAL_STEP, 2.0, 1.0),
+        (EvalFlags::INITIAL_STEP | EvalFlags::ANALYSIS_DC, 2.0, 3.0),
+        (EvalFlags::INITIAL_STEP | EvalFlags::ANALYSIS_TRAN, 2.0, 3.0),
+        (EvalFlags::INITIAL_STEP | EvalFlags::ANALYSIS_NOISE, 2.0, 1.0),
+    ];
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+
+    for hidden_state in [true, false] {
+        let root_file = tmp_dir.join(format!("openvaf_initial_step_hs_{hidden_state}_test.va"));
+        std::fs::write(&root_file, SRC)?;
+        let libs = compile_and_load_modules(&root_file, hidden_state);
+        assert_eq!(libs.len(), 1);
+        let desc = &libs[0];
+        let model = desc.new_model();
+        model.process_params()?;
+        let mut instance = model.new_instance();
+        let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+        let mut eval = |flags: EvalFlags| {
+            sim.clear();
+            instance.eval(&model, &mut sim, flags);
+            instance.load_dae(&model, &mut sim);
+            [sim.read_jacobian("a", "a"), sim.read_jacobian("b", "b"), sim.read_jacobian("c", "c")]
+        };
+
+        if hidden_state {
+            // the accepted state starts at the initializer (0) and is never accepted here
+            for (flags, x_any, x_ph) in cases {
+                let x_keep = if flags.contains(EvalFlags::INITIAL_STEP) { 5.0 } else { 0.0 };
+                let expected = [(x_any, 0.0), (x_ph, 0.0), (x_keep, 0.0)];
+                assert_eq!(eval(flags), expected, "-s, {flags:?}");
+            }
+            // the value set in the initial step persists once it is accepted
+            eval(EvalFlags::INITIAL_STEP);
+            desc.accept(instance.data, model.data);
+            assert_eq!(eval(EvalFlags::ANALYSIS_TRAN)[2], (5.0, 0.0), "-s, x_keep accepted");
+        } else {
+            for (flags, _, _) in cases {
+                let expected = [(2.0, 0.0), (3.0, 0.0), (5.0, 0.0)];
+                assert_eq!(eval(flags), expected, "no -s, {flags:?}");
+            }
+        }
+    }
+    Ok(())
+}
+
 // Enhancement-3: vector ports. A 4-bit DAC with a bus port followed by a scalar port, in
 // non-ANSI and ANSI style. The OSDI terminals must be `d[0] d[1] d[2] d[3] out` (simulators
 // bind instance terminals by position) and the output must be computed from the right bits.
@@ -460,7 +539,7 @@ endmodule
     let root_file =
         Utf8PathBuf::try_from(std::env::temp_dir())?.join("openvaf_hierarchy_bus_slices_test.va");
     std::fs::write(&root_file, SRC)?;
-    let libs = compile_and_load_modules(&root_file);
+    let libs = compile_and_load_modules(&root_file, false);
     let desc = libs.iter().find(|desc| unsafe { load::osdi_str(desc.name) } == "top").unwrap();
     assert_eq!(desc.num_terminals, 7);
     let model = desc.new_model();
@@ -516,7 +595,7 @@ endmodule
         let root_file = Utf8PathBuf::try_from(std::env::temp_dir())?
             .join(format!("openvaf_hierarchy_slice_width_{width}_test.va"));
         std::fs::write(&root_file, src)?;
-        let libs = compile_and_load_modules(&root_file);
+        let libs = compile_and_load_modules(&root_file, false);
         let desc = libs.iter().find(|desc| unsafe { load::osdi_str(desc.name) } == "top").unwrap();
         assert_eq!(desc.num_terminals, 33);
         let model = desc.new_model();
@@ -555,6 +634,7 @@ harness! {
         Test::new("noise", &test_noise),
         Test::new("absdelay_maxdelay_offset", &absdelay_maxdelay_offset_test),
         Test::new("indirect_opamp", &indirect_opamp_test),
+        Test::new("initial_step", &initial_step_test),
         Test::new("bus_port_dac", &bus_port_dac_test),
         Test::new("hierarchy_bus_slices", &hierarchy_bus_slices_test),
         Test::new("hierarchy_variable_width_slices", &hierarchy_variable_width_slices_test),

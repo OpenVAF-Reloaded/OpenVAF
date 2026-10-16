@@ -65,6 +65,7 @@ pub const ANALYSIS_TRAN: u32 = 8192;
 pub const ANALYSIS_IC: u32 = 16384;
 pub const ANALYSIS_STATIC: u32 = 32768;
 pub const ANALYSIS_NODESET: u32 = 65536;
+pub const INITIAL_STEP: u32 = 131072;
 pub const EVAL_RET_FLAG_LIM: u32 = 1;
 pub const EVAL_RET_FLAG_FATAL: u32 = 2;
 pub const EVAL_RET_FLAG_FINISH: u32 = 4;

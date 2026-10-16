@@ -165,6 +165,8 @@ impl<'a> CompiledModule<'a> {
         hidden_state: bool,
         dump_hs: bool,
     ) -> CompiledModule<'a> {
+        // full Verilog-A event semantics only together with hidden state
+        let events = hidden_state;
         let hidden_state = if hidden_state {
             Context::detect_hidden_state(db, literals, module)
         } else {
@@ -178,7 +180,7 @@ impl<'a> CompiledModule<'a> {
         }
 
         // Build MIR for the module
-        let mut cx = Context::new(db, literals, module, &hidden_state);
+        let mut cx = Context::new(db, literals, module, &hidden_state, events);
 
         if dump_unopt_mir {
             println!("Unoptimized MIR (no DAE) of {}", module.module.name(db));

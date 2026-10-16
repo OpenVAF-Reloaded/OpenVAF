@@ -1,0 +1,23 @@
+`include "disciplines.vams"
+
+module analog_initial_analysis_state(a, b);
+    inout a, b;
+    electrical a, b;
+    parameter real r = 1.0;
+    real t, x;
+    analog initial begin
+        t = $abstime;
+        if (analysis("tran"))
+            x = 1.0;
+        else
+            x = 0.0;
+    end
+    analog begin
+        t = $abstime;
+        if (analysis("tran"))
+            x = 1.0;
+        else
+            x = 0.0;
+        I(a, b) <+ V(a, b) / r;
+    end
+endmodule

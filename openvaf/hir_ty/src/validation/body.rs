@@ -54,6 +54,10 @@ pub enum BodyValidationDiagnostic {
         stmt: StmtId,
         ctx: BodyCtx,
     },
+    IllegalEventControl {
+        stmt: StmtId,
+        ctx: BodyCtx,
+    },
 
     WriteToInputArg {
         expr: ExprId,
@@ -215,6 +219,15 @@ impl BodyValidator<'_> {
                 return;
             }
             Stmt::EventControl { body, .. } => {
+                // keep the analog initial context so that its body is still checked
+                if self.ctx == BodyCtx::AnalogInitialBlock {
+                    self.diagnostics.push(BodyValidationDiagnostic::IllegalEventControl {
+                        stmt,
+                        ctx: self.ctx,
+                    });
+                    self.validate_stmt(body);
+                    return;
+                }
                 let old = replace(&mut self.ctx, BodyCtx::EventControl);
                 self.validate_stmt(body);
                 self.ctx = old;

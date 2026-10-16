@@ -1,0 +1,14 @@
+`include "disciplines.vams"
+
+module analog_initial_event_control(a, b);
+    inout a, b;
+    electrical a, b;
+    real x;
+    analog initial begin
+        @(initial_step) x = 1.0;
+        @(initial_step) x = V(a);
+    end
+    analog begin
+        I(a, b) <+ x * V(a, b);
+    end
+endmodule

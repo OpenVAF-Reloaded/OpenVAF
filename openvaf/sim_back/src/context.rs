@@ -1,10 +1,8 @@
 use ahash::{AHashMap, AHashSet};
 use bitset::{BitSet, SparseBitMatrix};
 use hir::{CompilationDB, Variable};
-use hir_lower::{HirInterner, MirBuilder, ParamKind, PlaceKind};
+use hir_lower::{HirInterner, LoweredBlocks, MirBuilder, ParamKind, PlaceKind};
 use lasso::Rodeo;
-use mir::builder::InstBuilder;
-use mir::cursor::{Cursor, FuncCursor};
 use mir::{
     strip_optbarrier, Block, ControlFlowGraph, DominatorTree, Function, Inst, InstructionData,
     Value,
@@ -93,8 +91,10 @@ impl<'a> Context<'a> {
 
     /// Find variables whose value must be carried from one evaluation to the next.
     ///
-    /// Performs a mock build of the module in which the final value of every variable
-    /// is an output. A variable is hidden state if
+    /// Performs a mock build of the analog blocks of the module in which the final
+    /// value of every variable is an output. The analog initial blocks are not part
+    /// of an evaluation. They run once during initialization. A variable is hidden
+    /// state if
     /// - it is not constant, i.e. its final value can differ from its initial value, and
     /// - its `HiddenState` parameter still reaches a real output or a side effect
     ///   (the value from the previous evaluation is observable). The value may also
@@ -103,9 +103,10 @@ impl<'a> Context<'a> {
     ///
     /// The constant variables are found optimistically. Initially all variables are
     /// assumed to be constant and their `HiddenState` parameters are replaced by their
-    /// initializers. After optimization the variables whose final value is not their
-    /// initial value are no longer considered constant. This is repeated until the set
-    /// of constant variables does not change. If all variables in the set hold their
+    /// initial values, i.e. the values after the initializers and the analog initial
+    /// blocks. After optimization the variables whose final value is not their initial
+    /// value are no longer considered constant. This is repeated until the set of
+    /// constant variables does not change. If all variables in the set hold their
     /// initial value on entry, they also hold it on exit, so by induction they hold it
     /// in every evaluation.
     ///
@@ -134,6 +135,7 @@ impl<'a> Context<'a> {
             &mut module.op_vars.keys().copied(),
         )
         .with_equations()
+        .with_blocks(LoweredBlocks::Analog)
         .build(literals);
 
         let mut constant: AHashSet<Variable> = probe_intern
@@ -148,20 +150,16 @@ impl<'a> Context<'a> {
         let (mut func, intern, mut cfg, dom_tree, mut output_values) = loop {
             let mut func = probe.clone();
             let mut intern = probe_intern.clone();
-            let init =
-                intern.insert_var_init(db, &mut func, literals, |var| constant.contains(&var));
-
             // Optimization replaces values. To find the optimized initial values
             // they are passed through optbarriers that are kept alive.
-            let entry = func.layout.entry_block().unwrap();
-            let mut cursor = FuncCursor::new(&mut func).at_last_inst(entry);
-            let init: Vec<_> =
-                init.into_iter().map(|(var, val)| (var, cursor.ins().optbarrier(val))).collect();
+            let init = intern.insert_init_state(db, &mut func, literals, module.module, |var| {
+                constant.contains(&var)
+            });
 
             // Simplify with the final and the initial values of all variables kept alive
             let mut output_values = BitSet::new_empty(func.dfg.num_values() + 1);
             output_values.extend(intern.outputs.values().copied().filter_map(PackedOption::expand));
-            output_values.extend(init.iter().map(|&(_, val)| val));
+            output_values.extend(init.values().copied());
             let mut cfg = ControlFlowGraph::new();
             cfg.compute(&func);
             dead_code_elimination(&mut func, &output_values);

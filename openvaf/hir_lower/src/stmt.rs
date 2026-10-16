@@ -20,10 +20,11 @@ impl BodyLoweringCtx<'_, '_, '_> {
             Stmt::Expr(expr) => {
                 self.lower_expr(expr);
             }
-            Stmt::EventControl {
-                event: Event::Global { kind: GlobalEvent::InitialStep, phases },
-                body,
-            } if self.ctx.events => self.lower_initial_step(phases, body),
+            Stmt::EventControl { event: Event::Global { kind, phases }, body }
+                if self.ctx.events =>
+            {
+                self.lower_global_event(*kind, phases, body)
+            }
             Stmt::EventControl { body, .. } => {
                 // TODO handle porperly
                 self.lower_stmt(body);
@@ -68,13 +69,17 @@ impl BodyLoweringCtx<'_, '_, '_> {
         }
     }
 
-    /// `@(initial_step(phases))` runs its body only if the simulator sets the
-    /// INITIAL_STEP flag and (when phases are given) one of the phases is the
-    /// current analysis.
-    fn lower_initial_step(&mut self, phases: &[String], body: StmtId) {
-        let initial_step = self.ctx.use_param(ParamKind::InitialStep);
-        self.ctx.make_cond(initial_step, |ctx, is_initial_step| {
-            if !is_initial_step {
+    /// `@(initial_step(phases))` and `@(final_step(phases))` run their body only
+    /// if the simulator sets the INITIAL_STEP / FINAL_STEP flag and (when phases
+    /// are given) one of the phases is the current analysis.
+    fn lower_global_event(&mut self, kind: GlobalEvent, phases: &[String], body: StmtId) {
+        let flag = match kind {
+            GlobalEvent::InitialStep => ParamKind::InitialStep,
+            GlobalEvent::FinalStep => ParamKind::FinalStep,
+        };
+        let flag = self.ctx.use_param(flag);
+        self.ctx.make_cond(flag, |ctx, is_set| {
+            if !is_set {
                 return;
             }
             if phases.is_empty() {

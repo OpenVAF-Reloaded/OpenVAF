@@ -91,6 +91,7 @@ pub enum ParamKind {
     EnableIntegration,
     EnableLim,
     InitialStep,
+    FinalStep,
     PrevState(LimitState),
     NewState(LimitState),
     Voltage { hi: Node, lo: Option<Node> },
@@ -124,6 +125,7 @@ impl ParamKind {
                 | ParamKind::NewState(_)
                 | ParamKind::EnableLim
                 | ParamKind::InitialStep
+                | ParamKind::FinalStep
         )
     }
 }

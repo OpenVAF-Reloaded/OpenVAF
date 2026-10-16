@@ -11,7 +11,7 @@ fn compile(src: &str) -> (AHashSet<Node>, CompilationDB) {
     let db = CompilationDB::new_virtual(src).unwrap();
     let module = crate::collect_modules(&db, false, &mut ConsoleSink::new(&db)).unwrap().remove(0);
     let mut literals = Rodeo::new();
-    let mut context = context::Context::new(&db, &mut literals, &module, &[]);
+    let mut context = context::Context::new(&db, &mut literals, &module, &[], false);
     context.compute_outputs(true);
     context.compute_cfg();
     context.optimize();

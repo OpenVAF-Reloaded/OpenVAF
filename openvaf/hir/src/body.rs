@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use hir_def::db::HirDefDB;
-pub use hir_def::expr::Event;
+pub use hir_def::expr::{Event, GlobalEvent};
 use hir_def::DefWithBodyId;
 pub use hir_def::{/*expr::CaseCond,*/ BuiltIn, Case, ExprId, Literal, ParamSysFun, StmtId, Type,};
 use hir_ty::db::HirTyDB;

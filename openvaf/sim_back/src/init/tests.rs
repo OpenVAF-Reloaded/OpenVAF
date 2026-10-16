@@ -17,7 +17,7 @@ fn run_test(src: &str) {
     let db = CompilationDB::new_virtual(src).unwrap();
     let module = crate::collect_modules(&db, false, &mut ConsoleSink::new(&db)).unwrap().remove(0);
     let mut literals = Rodeo::new();
-    let mut cx = Context::new(&db, &mut literals, &module, &[]);
+    let mut cx = Context::new(&db, &mut literals, &module, &[], false);
     let init = build_init(&mut cx);
     let name = module.module.name(&db);
     let test_dir = openvaf_test_data("init");
@@ -114,7 +114,7 @@ fn hidden_state() {
     for module in &modules {
         let name = module.module.name(&db);
         let hidden_state = Context::detect_hidden_state(&db, &mut literals, module);
-        let mut cx = Context::new(&db, &mut literals, module, &hidden_state);
+        let mut cx = Context::new(&db, &mut literals, module, &hidden_state, true);
         let init = build_init(&mut cx);
 
         let mut outputs = String::new();

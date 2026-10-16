@@ -13,13 +13,14 @@ use crate::context::Context;
 /// hidden state, `c_*` and `n_*` variables are not, and `p_*` variables depend
 /// on policy (the expected result documents the current one).
 ///
-/// Not detected yet: s_istep_v0, s_istep_acc, and s_fstep, because
-/// `@(initial_step)` and `@(final_step)` are lowered unconditionally.
+/// Not detected yet: s_fstep, because `@(final_step)` is lowered
+/// unconditionally.
 fn expected_hidden_state(module: &str) -> &'static [&'static str] {
     match module {
         "hidden_state" => &[
             "p_case_par",
             "p_fcnt",
+            "p_istep_marker",
             "p_loop_par",
             "s_acc",
             "s_ainit",
@@ -36,6 +37,8 @@ fn expected_hidden_state(module: &str) -> &'static [&'static str] {
             "s_dep",
             "s_first",
             "s_inner",
+            "s_istep_acc",
+            "s_istep_v0",
             "s_lag",
             "s_loopv",
             "s_str",

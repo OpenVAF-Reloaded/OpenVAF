@@ -18,8 +18,11 @@ s_inner -> v37
 s_str -> v38
 s_arr[0] -> v40
 s_arr[1] -> v41
-s_ainit -> v42
-s_blkloc -> v43
-p_case_par -> v44
-p_loop_par -> v45
-p_fcnt -> v46
+s_istep_v0 -> v42
+s_istep_acc -> v43
+s_ainit -> v44
+s_blkloc -> v45
+p_case_par -> v46
+p_loop_par -> v47
+p_istep_marker -> v48
+p_fcnt -> v49

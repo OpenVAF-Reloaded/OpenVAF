@@ -1,9 +1,12 @@
-use hir::{BranchWrite, Case, CaseCond, ContributeKind, ExprId, Node, Stmt, StmtId, Type};
+use hir::{
+    BranchWrite, Case, CaseCond, ContributeKind, Event, ExprId, GlobalEvent, Node, Stmt, StmtId,
+    Type,
+};
 use mir::builder::InstBuilder;
-use mir::{Opcode, Value, F_ZERO};
+use mir::{Opcode, Value, F_ZERO, TRUE};
 
 use crate::body::BodyLoweringCtx;
-use crate::{CallBackKind, CurrentKind, ParamKind, PlaceKind};
+use crate::{CallBackKind, CurrentKind, LoweringCtx, ParamKind, PlaceKind};
 
 impl BodyLoweringCtx<'_, '_, '_> {
     pub(super) fn lower_stmt(&mut self, stmnt: StmtId) {
@@ -17,6 +20,10 @@ impl BodyLoweringCtx<'_, '_, '_> {
             Stmt::Expr(expr) => {
                 self.lower_expr(expr);
             }
+            Stmt::EventControl {
+                event: Event::Global { kind: GlobalEvent::InitialStep, phases },
+                body,
+            } if self.ctx.events => self.lower_initial_step(phases, body),
             Stmt::EventControl { body, .. } => {
                 // TODO handle porperly
                 self.lower_stmt(body);
@@ -59,6 +66,43 @@ impl BodyLoweringCtx<'_, '_, '_> {
             Stmt::WhileLoop { cond, body } => self.lower_loop(cond, |s| s.lower_stmt(body)),
             Stmt::Case { discr, case_arms } => self.lower_case(discr, case_arms),
         }
+    }
+
+    /// `@(initial_step(phases))` runs its body only if the simulator sets the
+    /// INITIAL_STEP flag and (when phases are given) one of the phases is the
+    /// current analysis.
+    fn lower_initial_step(&mut self, phases: &[String], body: StmtId) {
+        let initial_step = self.ctx.use_param(ParamKind::InitialStep);
+        self.ctx.make_cond(initial_step, |ctx, is_initial_step| {
+            if !is_initial_step {
+                return;
+            }
+            if phases.is_empty() {
+                BodyLoweringCtx { body: self.body, path: self.path, ctx }.lower_stmt(body);
+                return;
+            }
+            let in_phase = Self::any_analysis(ctx, phases);
+            ctx.make_cond(in_phase, |ctx, in_phase| {
+                if in_phase {
+                    BodyLoweringCtx { body: self.body, path: self.path, ctx }.lower_stmt(body);
+                }
+            });
+        });
+    }
+
+    /// `analysis(phases[0]) || analysis(phases[1]) || ...`
+    fn any_analysis(ctx: &mut LoweringCtx, phases: &[String]) -> Value {
+        let (phase, rest) = phases.split_first().unwrap();
+        let name = ctx.sconst(phase);
+        let is_phase = ctx.call1(CallBackKind::Analysis, &[name]);
+        let is_phase = ctx.insert_cast(is_phase, &Type::Integer, &Type::Bool);
+        if rest.is_empty() {
+            return is_phase;
+        }
+        ctx.make_select(
+            is_phase,
+            |ctx, is_phase| if is_phase { TRUE } else { Self::any_analysis(ctx, rest) },
+        )
     }
 
     fn lower_case(&mut self, discr: ExprId, case_arms: &[Case]) {

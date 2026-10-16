@@ -21,7 +21,7 @@ use crate::inst_data::OsdiInstanceParam;
 use crate::metadata::osdi_0_5::{
     ANALYSIS_IC, CALC_NOISE, CALC_OP, CALC_REACT_JACOBIAN, CALC_REACT_LIM_RHS, CALC_REACT_RESIDUAL,
     CALC_RESIST_JACOBIAN, CALC_RESIST_LIM_RHS, CALC_RESIST_RESIDUAL, ENABLE_LIM, EVAL_RET_FLAG_LIM,
-    INIT_LIM,
+    INITIAL_STEP, INIT_LIM,
 };
 use crate::metadata::OsdiLimFunction;
 use crate::OsdiLimId;
@@ -289,6 +289,9 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                         }
                         ParamKind::EnableLim => {
                             is_flag_set_mem(cx, ENABLE_LIM, &flags, builder.llbuilder)
+                        }
+                        ParamKind::InitialStep => {
+                            is_flag_set_mem(cx, INITIAL_STEP, &flags, builder.llbuilder)
                         }
                     }
                 };

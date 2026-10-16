@@ -186,12 +186,15 @@ pub enum PlaceKind {
     AbsDelayTime(u32),
     /// Stores the raw (unclamped) value of `tdmax` for absdelay slot `i` into instance data.
     AbsDelayMax(u32),
+    /// Value of a hidden state variable after the analog initial blocks. Only an
+    /// output (never a place), it is stored in the accepted state slot.
+    HiddenStateInit(Variable),
 }
 
 impl PlaceKind {
     pub fn ty(&self, db: &CompilationDB) -> Type {
         match *self {
-            PlaceKind::Var(var) => var.ty(db),
+            PlaceKind::Var(var) | PlaceKind::HiddenStateInit(var) => var.ty(db),
             PlaceKind::FunctionReturn(fun) => fun.return_ty(db),
             PlaceKind::FunctionArg(arg) => arg.ty(db),
 
@@ -208,7 +211,7 @@ impl PlaceKind {
     }
 
     pub fn is_init_only(&self) -> bool {
-        matches!(self, Self::CollapseImplicitEquation(_))
+        matches!(self, Self::CollapseImplicitEquation(_) | Self::HiddenStateInit(_))
     }
 }
 
@@ -450,6 +453,7 @@ pub struct MirBuilder<'a> {
     blocks: LoweredBlocks,
     is_output: &'a dyn Fn(PlaceKind) -> bool,
     required_vars: &'a mut dyn Iterator<Item = Variable>,
+    hidden_state: &'a [Variable],
     tagged_reads: AHashSet<Variable>,
     tag_writes: bool,
     ctx: Option<&'a mut FunctionBuilderContext>,
@@ -467,6 +471,7 @@ impl<'a> MirBuilder<'a> {
             db,
             module,
             blocks: LoweredBlocks::All,
+            hidden_state: &[],
             tagged_reads: AHashSet::new(),
             is_output,
             required_vars,
@@ -508,6 +513,15 @@ impl<'a> MirBuilder<'a> {
         self
     }
 
+    /// Variables whose value is carried from one evaluation to the next. In the
+    /// analog initial blocks they start from their initializers. Their values after
+    /// the analog initial blocks are `HiddenStateInit` outputs. In the analog blocks
+    /// they start from their `HiddenState` parameters.
+    pub fn with_hidden_state(mut self, hidden_state: &'a [Variable]) -> Self {
+        self.hidden_state = hidden_state;
+        self
+    }
+
     pub fn with_ctx(mut self, ctx: &'a mut FunctionBuilderContext) -> Self {
         self.ctx = Some(ctx);
         self
@@ -542,8 +556,21 @@ impl<'a> MirBuilder<'a> {
             BodyLoweringCtx { ctx: &mut ctx, body: analog_initial_body.borrow(), path: &path };
 
         // lower analog initial blocks first
+        let mut hidden_state_init = Vec::with_capacity(self.hidden_state.len());
         if self.blocks == LoweredBlocks::All {
+            for &var in self.hidden_state {
+                let val = body_ctx.ctx.lower_expr_body(var.init(self.db).borrow(), 0);
+                body_ctx.ctx.def_place(PlaceKind::Var(var), val);
+            }
             body_ctx.lower_entry_stmts();
+            for &var in self.hidden_state {
+                let mut val = body_ctx.ctx.use_place(PlaceKind::Var(var));
+                // also for constants: the value must be an instruction that init computes
+                val = body_ctx.ctx.func.ins().optbarrier(val);
+                hidden_state_init.push((PlaceKind::HiddenStateInit(var), val.into()));
+                let state = body_ctx.ctx.use_param(ParamKind::HiddenState(var));
+                body_ctx.ctx.def_place(PlaceKind::Var(var), state);
+            }
         }
         // ... and normal analog blocks afterwards
         body_ctx.body = analog_body.borrow();
@@ -566,6 +593,7 @@ impl<'a> MirBuilder<'a> {
                 }
             })
             .collect();
+        ctx.intern.outputs.extend(hidden_state_init);
         ctx.func.ins().ret();
         ctx.func.finalize();
         (func, interner)

@@ -1,0 +1,40 @@
+function %_init(v17, v56, v60) {
+    v3 = fconst 0.0
+    v4 = iconst 0
+    v5 = iconst 1
+    v6 = fconst 0x1.0000000000000p0
+    v11 = fconst 0x1.0000000000000p1
+    v25 = fconst 0x1.4000000000000p2
+    v39 = sconst "<DUMMY>"
+                                block85:
+                                    v16 = fmul v11, v17
+                                    v61 = optbarrier v16
+@0004                               v18 = fdiv v6, v17
+                                    v62 = optbarrier v18
+@0008                               v19 = fdiv v11, v17
+                                    v20 = optbarrier v3
+                                    v21 = optbarrier v5
+                                    v22 = optbarrier v3
+                                    v23 = optbarrier v4
+                                    v24 = optbarrier v25
+                                    v26 = optbarrier v3
+                                    v27 = optbarrier v3
+                                    v28 = optbarrier v3
+                                    v29 = optbarrier v3
+                                    v30 = optbarrier v3
+                                    v31 = optbarrier v3
+                                    v32 = optbarrier v3
+                                    v33 = optbarrier v4
+                                    v34 = optbarrier v3
+                                    v35 = optbarrier v6
+                                    v36 = optbarrier v6
+                                    v37 = optbarrier v3
+                                    v38 = optbarrier v39
+                                    v40 = optbarrier v3
+                                    v41 = optbarrier v3
+                                    v42 = optbarrier v19
+                                    v43 = optbarrier v3
+                                    v44 = optbarrier v3
+                                    v45 = optbarrier v6
+                                    v46 = optbarrier v4
+}

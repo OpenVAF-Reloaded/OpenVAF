@@ -47,9 +47,9 @@ impl<'a> Context<'a> {
         db: &'a CompilationDB,
         literals: &mut Rodeo,
         module: &'a ModuleInfo,
-        hidden_state: &[Variable],
+        hidden_state_vars: &[Variable],
     ) -> Self {
-        let hidden_state: AHashSet<Variable> = hidden_state.iter().copied().collect();
+        let hidden_state: AHashSet<Variable> = hidden_state_vars.iter().copied().collect();
         let (mut func, mut intern) = MirBuilder::new(
             db,
             module.module,
@@ -70,9 +70,11 @@ impl<'a> Context<'a> {
         )
         .with_equations()
         .with_tagged_writes()
+        .with_hidden_state(hidden_state_vars)
         .build(literals);
         // The HiddenState parameters of hidden state variables are kept. They are
-        // read from the accepted state slot.
+        // read from the accepted state slot. Their initializers are lowered by the
+        // MirBuilder before the analog initial blocks.
         intern.insert_var_init(db, &mut func, literals, |var| !hidden_state.contains(&var));
 
         Context {
@@ -296,6 +298,7 @@ impl<'a> Context<'a> {
                             | PlaceKind::BoundStep
                             | PlaceKind::AbsDelayTime(_)
                             | PlaceKind::AbsDelayMax(_)
+                            | PlaceKind::HiddenStateInit(_)
                     )
                 {
                     self.output_values.insert(val.unwrap_unchecked());

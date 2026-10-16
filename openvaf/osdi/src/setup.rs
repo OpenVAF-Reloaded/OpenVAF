@@ -637,6 +637,24 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             }
         }
 
+        // Values of the hidden state variables after the analog initial blocks
+        for (&kind, val) in module.init.intern.outputs.iter() {
+            let PlaceKind::HiddenStateInit(var) = kind else { continue };
+            let val = val.unwrap_unchecked();
+            let inst = func.dfg.value_def(val).unwrap_inst();
+            let bb = func.layout.inst_block(inst).unwrap();
+            builder.select_bb_before_terminator(bb);
+            unsafe {
+                if let BuilderVal::Undef = builder.values[val] {
+                    // Unconditional $fatal() in analog initial blocks
+                    continue;
+                }
+                let val = builder.values[val].get(&builder);
+                let (ptr, _) = inst_data.hidden_state_ptr(builder.llbuilder, var, false, instance);
+                builder.store(ptr, val)
+            }
+        }
+
         llfunc
     }
 }

@@ -1,0 +1,6 @@
+function %_init(v17, v20) {
+    v6 = fconst 0x1.0000000000000p0
+                                block2:
+@0004                               v16 = fdiv v6, v17
+                                    v18 = optbarrier v16
+}

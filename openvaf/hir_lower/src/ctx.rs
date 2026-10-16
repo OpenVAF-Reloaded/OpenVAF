@@ -86,6 +86,7 @@ impl<'a, 'c> LoweringCtx<'a, 'c> {
                 PlaceKind::BoundStep => INFINITY,
                 PlaceKind::AbsDelayTime(_) => F_ZERO,
                 PlaceKind::AbsDelayMax(_) => F_ZERO,
+                PlaceKind::HiddenStateInit(_) => unreachable!("{kind:?} is not a place"),
             };
             let entry = self.func.func.layout.entry_block().unwrap();
             self.func.def_var_at(place, init, entry);

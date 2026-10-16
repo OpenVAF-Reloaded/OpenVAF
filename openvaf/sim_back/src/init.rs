@@ -40,6 +40,19 @@ pub struct Initialization {
 
 impl Initialization {
     pub(super) fn new(cx: &mut Context<'_>, gvn: GVN) -> Initialization {
+        // The values of the hidden state variables after the analog initial blocks
+        // are computed and stored in the accepted state slots by init only.
+        let hidden_state_init: Vec<_> = cx
+            .intern
+            .outputs
+            .iter_mut()
+            .filter(|(kind, _)| matches!(kind, PlaceKind::HiddenStateInit(_)))
+            .filter_map(|(&kind, val)| Some((kind, val.take()?)))
+            .collect();
+        for &(_, val) in &hidden_state_init {
+            cx.output_values.remove(val);
+        }
+
         // Create empty blocks in init MIR based on layout of module MIR
         let mut builder = Builder::new(cx);
         for _ in 0..builder.func.layout.num_blocks() {
@@ -57,6 +70,7 @@ impl Initialization {
             builder.split_block(bb);
         }
         let collapse_implicit = builder.build_init_itern();
+        builder.build_hidden_state_init(hidden_state_init);
         builder.build_init_cache(&gvn, &collapse_implicit);
         builder.optimize(collapse_implicit);
         builder.init
@@ -66,6 +80,8 @@ impl Initialization {
 struct Builder<'a> {
     init: Initialization,
     init_cache: IndexMap<Value, Inst, BuildHasherDefault<FxHasher>>,
+    /// Values stored in the accepted state slots of the hidden state variables
+    hidden_state_init: AHashSet<Value>,
     // inputs
     func: &'a mut Function,
     cfg: &'a mut ControlFlowGraph,
@@ -95,6 +111,7 @@ impl<'a> Builder<'a> {
                 256,
                 BuildHasherDefault::<FxHasher>::default(),
             ),
+            hidden_state_init: AHashSet::new(),
             func: &mut ctx.func,
             cfg: &mut ctx.cfg,
             dom_tree: &mut ctx.dom_tree,
@@ -324,7 +341,11 @@ impl<'a> Builder<'a> {
         aggressive_dead_code_elimination(
             &mut self.init.func,
             self.cfg,
-            &|val, _| self.init.cached_vals.contains_key(&val) || collapse_implicit.contains(&val),
+            &|val, _| {
+                self.init.cached_vals.contains_key(&val)
+                    || collapse_implicit.contains(&val)
+                    || self.hidden_state_init.contains(&val)
+            },
             &self.control_dep,
         );
         simplify_cfg_init(&mut self.init.func, self.cfg);
@@ -355,5 +376,17 @@ impl<'a> Builder<'a> {
             }
         }
         collapse_implicit
+    }
+
+    fn build_hidden_state_init(&mut self, hidden_state_init: Vec<(PlaceKind, Value)>) {
+        for (kind, val) in hidden_state_init {
+            // Analog initial blocks are operating point independent, so the
+            // value was copied to init
+            let val = *self.val_map.get(&val).unwrap_or_else(|| {
+                unreachable!("{kind:?} depends on the operating point");
+            });
+            self.hidden_state_init.insert(val);
+            self.init.intern.outputs.insert(kind, val.into());
+        }
     }
 }

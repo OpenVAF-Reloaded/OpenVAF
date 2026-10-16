@@ -1,4 +1,4 @@
-function %_init(v17, v59, v63) {
+function %_init(v17, v60, v64) {
     v3 = fconst 0.0
     v4 = iconst 0
     v5 = iconst 1
@@ -6,11 +6,11 @@ function %_init(v17, v59, v63) {
     v11 = fconst 0x1.0000000000000p1
     v25 = fconst 0x1.4000000000000p2
     v39 = sconst "<DUMMY>"
-                                block94:
+                                block97:
                                     v16 = fmul v11, v17
-                                    v64 = optbarrier v16
+                                    v65 = optbarrier v16
 @0004                               v18 = fdiv v6, v17
-                                    v65 = optbarrier v18
+                                    v66 = optbarrier v18
 @0008                               v19 = fdiv v11, v17
                                     v20 = optbarrier v3
                                     v21 = optbarrier v5
@@ -34,10 +34,11 @@ function %_init(v17, v59, v63) {
                                     v41 = optbarrier v3
                                     v42 = optbarrier v3
                                     v43 = optbarrier v3
-                                    v44 = optbarrier v19
-                                    v45 = optbarrier v3
+                                    v44 = optbarrier v3
+                                    v45 = optbarrier v19
                                     v46 = optbarrier v3
-                                    v47 = optbarrier v6
-                                    v48 = optbarrier v3
-                                    v49 = optbarrier v4
+                                    v47 = optbarrier v3
+                                    v48 = optbarrier v6
+                                    v49 = optbarrier v3
+                                    v50 = optbarrier v4
 }

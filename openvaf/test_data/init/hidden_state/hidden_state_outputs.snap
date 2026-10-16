@@ -20,9 +20,10 @@ s_arr[0] -> v40
 s_arr[1] -> v41
 s_istep_v0 -> v42
 s_istep_acc -> v43
-s_ainit -> v44
-s_blkloc -> v45
-p_case_par -> v46
-p_loop_par -> v47
-p_istep_marker -> v48
-p_fcnt -> v49
+s_fstep -> v44
+s_ainit -> v45
+s_blkloc -> v46
+p_case_par -> v47
+p_loop_par -> v48
+p_istep_marker -> v49
+p_fcnt -> v50

@@ -12,9 +12,6 @@ use crate::context::Context;
 /// The names follow the convention of the test file: `s_*` variables are
 /// hidden state, `c_*` and `n_*` variables are not, and `p_*` variables depend
 /// on policy (the expected result documents the current one).
-///
-/// Not detected yet: s_fstep, because `@(final_step)` is lowered
-/// unconditionally.
 fn expected_hidden_state(module: &str) -> &'static [&'static str] {
     match module {
         "hidden_state" => &[
@@ -36,6 +33,7 @@ fn expected_hidden_state(module: &str) -> &'static [&'static str] {
             "s_cnt",
             "s_dep",
             "s_first",
+            "s_fstep",
             "s_inner",
             "s_istep_acc",
             "s_istep_v0",

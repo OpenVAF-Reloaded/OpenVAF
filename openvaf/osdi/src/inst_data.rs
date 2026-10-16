@@ -1398,6 +1398,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                     | ParamKind::EnableIntegration
                     | ParamKind::EnableLim
                     | ParamKind::InitialStep
+                    | ParamKind::FinalStep
                     | ParamKind::PrevState(_)
                     | ParamKind::NewState(_)
                     | ParamKind::ImplicitUnknown(_) => unreachable!(),
@@ -1484,6 +1485,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                     | ParamKind::Abstime
                     | ParamKind::EnableLim
                     | ParamKind::InitialStep
+                    | ParamKind::FinalStep
                     | ParamKind::PrevState(_)
                     | ParamKind::NewState(_)
                     | ParamKind::ImplicitUnknown(_) => unreachable!(),

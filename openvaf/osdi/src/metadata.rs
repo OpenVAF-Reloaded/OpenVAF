@@ -550,6 +550,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                 absdelays: self.absdelays(target_data),
                 jacobian_values: self.jacobian_values(target_data),
                 accept: self.accept(),
+                init_hidden: self.init_hidden(),
             }
         }
     }

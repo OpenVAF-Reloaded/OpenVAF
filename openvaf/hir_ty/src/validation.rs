@@ -356,7 +356,7 @@ impl Diagnostic for BodyValidationDiagnosticWrapped<'_> {
                         "analysis function '{}' is not allowed in constants",
                         name
                     )),
-                    IllegalCtxAccessKind::SystemTask { name } => {
+                    IllegalCtxAccessKind::Builtin { name } => {
                         res.with_message(format!("'{}' is not allowed in {}", name, ctx))
                     }
                     IllegalCtxAccessKind::Var(var) => {

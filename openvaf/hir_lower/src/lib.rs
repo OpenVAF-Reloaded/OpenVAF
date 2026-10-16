@@ -435,9 +435,19 @@ impl HirInterner {
     }
 }
 
+/// The analog blocks of a module lowered by [`MirBuilder`]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LoweredBlocks {
+    /// analog initial blocks followed by normal analog blocks
+    All,
+    /// only normal analog blocks
+    Analog,
+}
+
 pub struct MirBuilder<'a> {
     db: &'a CompilationDB,
     module: Module,
+    blocks: LoweredBlocks,
     is_output: &'a dyn Fn(PlaceKind) -> bool,
     required_vars: &'a mut dyn Iterator<Item = Variable>,
     tagged_reads: AHashSet<Variable>,
@@ -456,6 +466,7 @@ impl<'a> MirBuilder<'a> {
         MirBuilder {
             db,
             module,
+            blocks: LoweredBlocks::All,
             tagged_reads: AHashSet::new(),
             is_output,
             required_vars,
@@ -489,6 +500,11 @@ impl<'a> MirBuilder<'a> {
 
     pub fn with_equations(mut self) -> Self {
         self.lower_equations = true;
+        self
+    }
+
+    pub fn with_blocks(mut self, blocks: LoweredBlocks) -> Self {
+        self.blocks = blocks;
         self
     }
 
@@ -526,7 +542,9 @@ impl<'a> MirBuilder<'a> {
             BodyLoweringCtx { ctx: &mut ctx, body: analog_initial_body.borrow(), path: &path };
 
         // lower analog initial blocks first
-        body_ctx.lower_entry_stmts();
+        if self.blocks == LoweredBlocks::All {
+            body_ctx.lower_entry_stmts();
+        }
         // ... and normal analog blocks afterwards
         body_ctx.body = analog_body.borrow();
         body_ctx.lower_entry_stmts();

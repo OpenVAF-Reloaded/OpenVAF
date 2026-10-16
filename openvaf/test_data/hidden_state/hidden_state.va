@@ -26,16 +26,19 @@
 //   - Output variables are never hidden state. Reading one before it is
 //     written gives its initializer.
 //   - Cases are independent unless a comment says otherwise.
-//   - Event cases (@(initial_step), @(final_step), analog initial) state the
-//     expected result assuming the event bodies are gated on the simulator's
-//     initial/final-step flag. With the current unconditional lowering they
-//     classify differently; this is noted per case.
+//   - Event cases (@(initial_step), @(final_step)) state the expected result
+//     assuming the event bodies are gated on the simulator's initial/final-step
+//     flag. With the current unconditional lowering they classify
+//     differently; this is noted per case.
+//   - analog initial runs once during initialization, before the first
+//     evaluation. Hidden state detection treats it this way.
 //   - $strobe calls are guarded by V(a,b) > 1e30 so they never print but
 //     remain observable side effects the optimizer cannot remove.
 //   - After the main module follow small modules (hs_m1 ... hs_m6), each
 //     isolating one case that a detection without the optimistic
-//     initializer assumption gets wrong. Variable and parameter names are
-//     unique across the whole file.
+//     initializer assumption gets wrong. Module hs_ainit isolates a variable
+//     that is set in analog initial and carried through the analog block.
+//     Variable and parameter names are unique across the whole file.
 
 `include "disciplines.vams"
 
@@ -105,6 +108,9 @@ module hidden_state(a, b);
                                 //     every eval (crashed Meisam's E7, case 1)
     real s_fstep;               // S17 written only in @(final_step), read always.
                                 //     Current lowering: written every eval -> n
+    real s_ainit;               // S18 set in analog initial, read and then
+                                //     written in the analog block (like
+                                //     hs_ainit)
 
     // --------------------------------------------------------------- NOT STATE
     real n_wbr;                 // N1  written before read
@@ -147,9 +153,9 @@ module hidden_state(a, b);
                                 //     folds. Acceptable: state.
     real p_ainit;               // P5  assigned only in analog initial (1/r).
                                 //     Ideal: per-instance constant hoisted to
-                                //     setup. With gating, the plain fixpoint
-                                //     says state. Current lowering: written
-                                //     every eval -> n.
+                                //     setup. The fixpoint assumes the value
+                                //     after analog initial on entry, so it is
+                                //     constant.
     real p_istep_marker;        // P6  @(initial_step) x = 100; read always
                                 //     (crashed Meisam's E7, case 2). Every
                                 //     observed value is 100, so ideal: constant;
@@ -184,6 +190,8 @@ module hidden_state(a, b);
     analog initial begin
         // P5
         p_ainit = 1.0 / r;
+        // S18
+        s_ainit = 2.0 / r;
     end
 
     analog begin
@@ -332,6 +340,10 @@ module hidden_state(a, b);
         @(final_step)
             s_fstep = V(a, b);
         I(a, b) <+ 1e-15 * s_fstep;
+
+        // S18
+        I(a, b) <+ 1e-15 * s_ainit;
+        s_ainit = s_ainit + V(a, b);
 
         // ----------------------------------------------------------- NOT STATE
         // N1
@@ -512,5 +524,22 @@ module hs_m6(a, b);
             $strobe("%g", n_m6_x);
         n_m6_x = V(a, b);
         I(a, b) <+ n_m6_x;
+    end
+endmodule
+
+// AINIT: set in analog initial, read in the analog block, then written
+// again. analog initial runs once, so the analog block reads the value
+// written by the previous evaluation: state.
+module hs_ainit(a, b);
+    inout a, b;
+    electrical a, b;
+    parameter real r_ainit = 1k;
+    real s_ainit_x;
+    analog initial begin
+        s_ainit_x = 1.0 / r_ainit;
+    end
+    analog begin
+        I(a, b) <+ s_ainit_x * V(a, b);
+        s_ainit_x = s_ainit_x + V(a, b);
     end
 endmodule

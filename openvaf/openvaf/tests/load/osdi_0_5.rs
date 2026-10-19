@@ -66,6 +66,9 @@ pub const NOISE_TYPE_FLICKER: u32 = 1;
 pub const NOISE_TYPE_TABLE: u32 = 2;
 pub const MODULEFLAG_ABSTIME: u32 = 1;
 pub const MODULEFLAG_HIDDEN_STATE: u32 = 2;
+pub const MODULEFLAG_INITIAL_STEP: u32 = 4;
+pub const MODULEFLAG_FINAL_STEP: u32 = 8;
+pub const MODULEFLAG_COMPACT: u32 = 16;
 
 #[repr(C)]
 pub struct OsdiLimFunction {

@@ -21,7 +21,7 @@ impl BodyLoweringCtx<'_, '_, '_> {
                 self.lower_expr(expr);
             }
             Stmt::EventControl { event: Event::Global { kind, phases }, body }
-                if self.ctx.events =>
+                if !self.ctx.compact =>
             {
                 self.lower_global_event(*kind, phases, body)
             }

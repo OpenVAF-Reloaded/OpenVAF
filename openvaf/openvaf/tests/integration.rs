@@ -10,7 +10,10 @@ use openvaf::{CompilationDestination, CompilationTermination, LLVMCodeGenOptLeve
 use stdx::{ignore_dev_tests, openvaf_test_data, project_root};
 use target::spec::Target;
 
-use crate::load::{load_osdi_lib, EvalFlags, OsdiDescriptor};
+use crate::load::{
+    load_osdi_lib, EvalFlags, OsdiDescriptor, MODULEFLAG_COMPACT, MODULEFLAG_FINAL_STEP,
+    MODULEFLAG_INITIAL_STEP,
+};
 use crate::mock_sim::{MockSimulation, ALPHA};
 
 mod laplace;
@@ -63,13 +66,13 @@ endmodule
 }
 
 fn compile_and_load(root_file: &Utf8Path) -> &'static OsdiDescriptor {
-    let libs = compile_and_load_modules(root_file, false);
+    let libs = compile_and_load_modules(root_file, true);
     assert_eq!(libs.len(), 1);
     &libs[0]
 }
 
-/// `hidden_state` enables full Verilog-A (`-s`)
-fn compile_and_load_modules(root_file: &Utf8Path, hidden_state: bool) -> &'static [OsdiDescriptor] {
+/// `compact` disables full Verilog-A (`-s`)
+fn compile_and_load_modules(root_file: &Utf8Path, compact: bool) -> &'static [OsdiDescriptor] {
     let openvaf_opts = openvaf::Opts {
         defines: Vec::new(),
         codegen_opts: Vec::new(),
@@ -88,7 +91,7 @@ fn compile_and_load_modules(root_file: &Utf8Path, hidden_state: bool) -> &'stati
         dump_unopt_mir: false,
         dump_ir: false,
         dump_unopt_ir: false,
-        hidden_state,
+        compact,
         dump_hs: false,
     };
 
@@ -412,12 +415,17 @@ endmodule
     ];
     let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
 
-    for hidden_state in [true, false] {
-        let root_file = tmp_dir.join(format!("openvaf_step_events_hs_{hidden_state}_test.va"));
+    for compact in [false, true] {
+        let root_file = tmp_dir.join(format!("openvaf_step_events_compact_{compact}_test.va"));
         std::fs::write(&root_file, SRC)?;
-        let libs = compile_and_load_modules(&root_file, hidden_state);
+        let libs = compile_and_load_modules(&root_file, compact);
         assert_eq!(libs.len(), 1);
         let desc = &libs[0];
+        // set regardless of -s: without it the simulator may still signal the steps
+        let step_flags = MODULEFLAG_INITIAL_STEP | MODULEFLAG_FINAL_STEP;
+        assert_eq!(desc.module_flags & step_flags, step_flags, "compact={compact}");
+        let compact_flag = if compact { MODULEFLAG_COMPACT } else { 0 };
+        assert_eq!(desc.module_flags & MODULEFLAG_COMPACT, compact_flag, "compact={compact}");
         let model = desc.new_model();
         model.process_params()?;
         let mut instance = model.new_instance();
@@ -429,7 +437,7 @@ endmodule
             ["a", "b", "c", "e"].map(|node| sim.read_jacobian(node, node))
         };
 
-        if hidden_state {
+        if !compact {
             // the accepted state starts at the initializer (0) and is never accepted here
             for (flags, x_any, x_ph, x_fin) in cases {
                 let x_keep = if flags.contains(EvalFlags::INITIAL_STEP) { 5.0 } else { 0.0 };
@@ -547,7 +555,7 @@ endmodule
     let root_file =
         Utf8PathBuf::try_from(std::env::temp_dir())?.join("openvaf_hierarchy_bus_slices_test.va");
     std::fs::write(&root_file, SRC)?;
-    let libs = compile_and_load_modules(&root_file, false);
+    let libs = compile_and_load_modules(&root_file, true);
     let desc = libs.iter().find(|desc| unsafe { load::osdi_str(desc.name) } == "top").unwrap();
     assert_eq!(desc.num_terminals, 7);
     let model = desc.new_model();
@@ -603,7 +611,7 @@ endmodule
         let root_file = Utf8PathBuf::try_from(std::env::temp_dir())?
             .join(format!("openvaf_hierarchy_slice_width_{width}_test.va"));
         std::fs::write(&root_file, src)?;
-        let libs = compile_and_load_modules(&root_file, false);
+        let libs = compile_and_load_modules(&root_file, true);
         let desc = libs.iter().find(|desc| unsafe { load::osdi_str(desc.name) } == "top").unwrap();
         assert_eq!(desc.num_terminals, 33);
         let model = desc.new_model();

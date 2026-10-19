@@ -80,7 +80,7 @@ pub fn compile<'a>(
     dump_unopt_mir: bool,
     dump_ir: bool,
     dump_unopt_ir: bool,
-    hidden_state: bool,
+    compact: bool,
     dump_hs: bool,
 ) -> (Vec<Utf8PathBuf>, Vec<CompiledModule<'a>>, Rodeo) {
     initialize_llvm();
@@ -96,7 +96,7 @@ pub fn compile<'a>(
                 &mut literals,
                 dump_unopt_mir,
                 dump_mir,
-                hidden_state,
+                compact,
                 dump_hs,
             );
             for cb in mir.intern.callbacks.iter() {

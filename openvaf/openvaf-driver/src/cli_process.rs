@@ -121,7 +121,7 @@ pub fn matches_to_opts(matches: ArgMatches) -> Result<Opts> {
         dump_unopt_mir: matches.get_flag(DUMPUNOPTMIR),
         dump_ir: matches.get_flag(DUMPIR),
         dump_unopt_ir: matches.get_flag(DUMPUNOPTIR),
-        hidden_state: matches.get_flag(HIDDENSTATE) || matches.get_flag(DUMPHS),
+        compact: !(matches.get_flag(HIDDENSTATE) || matches.get_flag(DUMPHS)),
         dump_hs: matches.get_flag(DUMPHS),
         dry_run: matches.get_flag(DRYRUN),
     })

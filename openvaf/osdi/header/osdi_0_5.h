@@ -84,6 +84,9 @@
 
 #define MODULEFLAG_ABSTIME 1
 #define MODULEFLAG_HIDDEN_STATE 2
+#define MODULEFLAG_INITIAL_STEP 4
+#define MODULEFLAG_FINAL_STEP 8
+#define MODULEFLAG_COMPACT 16
 
 typedef struct OsdiLimFunction {
   char *name;

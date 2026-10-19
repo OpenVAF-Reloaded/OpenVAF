@@ -124,8 +124,9 @@ fn dump_unopt_ir() -> Arg {
 fn hidden_state() -> Arg {
     flag(HIDDENSTATE, "hidden-state")
         .short('s')
-        .help("Enable hidden state detection.")
-        .long_help("Enable hidden state detection.\nFinds the variables whose value must be kept from one evaluation to the next.\nAlso enabled by --dump-hs.")
+        .visible_alias("no-compact")
+        .help("Full model with hidden state detection and event gating.")
+        .long_help("Full mode with hidden state detection and event gating.\nFinds the variables whose value must be kept from one evaluation to the next.\nAlso enabled by --dump-hs.")
 }
 
 fn dump_hs() -> Arg {

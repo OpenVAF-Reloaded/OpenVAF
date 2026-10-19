@@ -141,6 +141,8 @@ pub struct OsdiModule<'a> {
     pub node_collapse: &'a NodeCollapse,
     /// Variables whose value is carried from one evaluation to the next
     pub hidden_state: &'a [Variable],
+    /// Compiled as a compact model (without full Verilog-A semantics, `-s`)
+    pub compact: bool,
     pub sym: String,
 }
 
@@ -161,6 +163,7 @@ impl<'a> OsdiModule<'a> {
             model_param_intern,
             node_collapse,
             hidden_state,
+            compact,
             ..
         } = module;
         OsdiModule {
@@ -175,6 +178,7 @@ impl<'a> OsdiModule<'a> {
             model_param_intern,
             node_collapse,
             hidden_state,
+            compact: *compact,
         }
     }
 }

@@ -462,7 +462,7 @@ pub struct MirBuilder<'a> {
     tag_writes: bool,
     ctx: Option<&'a mut FunctionBuilderContext>,
     lower_equations: bool,
-    events: bool,
+    compact: bool,
 }
 
 impl<'a> MirBuilder<'a> {
@@ -483,7 +483,7 @@ impl<'a> MirBuilder<'a> {
             ctx: None,
             lower_equations: false,
             tag_writes: false,
-            events: false,
+            compact: true,
         }
     }
 
@@ -528,11 +528,11 @@ impl<'a> MirBuilder<'a> {
         self
     }
 
-    /// Full Verilog-A event semantics: `@(initial_step)` bodies run only when the
-    /// `InitialStep` parameter is set (and one of the phases is the current
-    /// analysis). Otherwise (compact-model Verilog-A) they run in every evaluation.
-    pub fn with_events(mut self, events: bool) -> Self {
-        self.events = events;
+    /// Compact-model Verilog-A (default): `@(initial_step)` bodies run in every
+    /// evaluation. Otherwise (full Verilog-A event semantics) they run only when the
+    /// `InitialStep` parameter is set (and one of the phases is the current analysis).
+    pub fn with_compact(mut self, compact: bool) -> Self {
+        self.compact = compact;
         self
     }
 
@@ -566,7 +566,7 @@ impl<'a> MirBuilder<'a> {
 
         let mut ctx = LoweringCtx::new(self.db, builder, !self.lower_equations, &mut interner)
             .with_tagged_vars(self.tagged_reads);
-        ctx.events = self.events;
+        ctx.compact = self.compact;
         let mut body_ctx =
             BodyLoweringCtx { ctx: &mut ctx, body: analog_initial_body.borrow(), path: &path };
 

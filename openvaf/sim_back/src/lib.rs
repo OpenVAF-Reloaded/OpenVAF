@@ -52,6 +52,8 @@ pub struct CompiledModule<'a> {
     /// Variables whose value must be kept between evaluations
     /// (empty unless hidden state detection is enabled)
     pub hidden_state: Vec<Variable>,
+    /// Compiled as a compact model (without full Verilog-A semantics, `-s`)
+    pub compact: bool,
 }
 
 pub fn print_module(
@@ -162,16 +164,12 @@ impl<'a> CompiledModule<'a> {
         literals: &mut Rodeo,
         dump_unopt_mir: bool,
         dump_mir: bool,
-        hidden_state: bool,
+        compact: bool,
         dump_hs: bool,
     ) -> CompiledModule<'a> {
-        // full Verilog-A event semantics only together with hidden state
-        let events = hidden_state;
-        let hidden_state = if hidden_state {
-            Context::detect_hidden_state(db, literals, module)
-        } else {
-            Vec::new()
-        };
+        // full Verilog-A semantics (hidden state, events) unless compiling a compact model
+        let hidden_state =
+            if compact { Vec::new() } else { Context::detect_hidden_state(db, literals, module) };
         if dump_hs {
             println!("Hidden state of {}", module.module.name(db));
             for var in &hidden_state {
@@ -180,7 +178,7 @@ impl<'a> CompiledModule<'a> {
         }
 
         // Build MIR for the module
-        let mut cx = Context::new(db, literals, module, &hidden_state, events);
+        let mut cx = Context::new(db, literals, module, &hidden_state, compact);
 
         if dump_unopt_mir {
             println!("Unoptimized MIR (no DAE) of {}", module.module.name(db));
@@ -272,6 +270,7 @@ impl<'a> CompiledModule<'a> {
             model_param_setup,
             node_collapse,
             hidden_state,
+            compact,
         }
     }
 }

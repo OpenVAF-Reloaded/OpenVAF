@@ -27,6 +27,14 @@ impl Body {
     pub fn borrow(&self) -> BodyRef<'_> {
         BodyRef { body: &self.body, infere: &self.infere }
     }
+
+    /// Kinds of all global events (`@(initial_step)`, `@(final_step)`) in this body
+    pub fn global_events(&self) -> impl Iterator<Item = GlobalEvent> + '_ {
+        self.body.stmts.iter().filter_map(|stmt| match stmt {
+            hir_def::Stmt::EventControl { event: Event::Global { kind, .. }, .. } => Some(*kind),
+            _ => None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

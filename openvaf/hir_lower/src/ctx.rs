@@ -20,9 +20,9 @@ pub struct LoweringCtx<'a, 'c> {
     pub places: TiSet<Place, PlaceKind>,
     tagged_vars: AHashSet<Variable>,
     pub inside_lim: bool,
-    /// Gate event bodies (`@(initial_step)`) on their events. Otherwise they
-    /// run in every evaluation.
-    pub events: bool,
+    /// Compact model: event bodies (`@(initial_step)`) run in every evaluation.
+    /// Otherwise they are gated on their events.
+    pub compact: bool,
     /// We create a dedicated callback for each noise source
     /// by giving each callback a unique index. Kind of ineffcient
     /// but necessary to avoid accidental correlation/opimization.
@@ -44,7 +44,7 @@ impl<'a, 'c> LoweringCtx<'a, 'c> {
             places: TiSet::default(),
             tagged_vars: AHashSet::default(),
             inside_lim: false,
-            events: false,
+            compact: true,
             intern,
             num_noise_sources: 0,
         }

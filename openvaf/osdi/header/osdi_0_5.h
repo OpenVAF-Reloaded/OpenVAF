@@ -53,6 +53,7 @@
 #define EVAL_RET_FLAG_FINISH 4
 #define EVAL_RET_FLAG_STOP 8
 
+#define INIT_HIDDEN_STATE 1
 
 #define LOG_LVL_MASK 7
 #define LOG_LVL_DEBUG 0
@@ -253,7 +254,6 @@ typedef struct OsdiDescriptor {
   OsdiAbsDelay *absdelays;
   OsdiJacobianValue *jacobian_values;
   void (*accept)(void *inst, void *model);
-  void (*init_hidden)(void *inst, void *model);
 }OsdiDescriptor;
 
 typedef struct OsdiNature {

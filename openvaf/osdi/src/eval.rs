@@ -4,8 +4,8 @@ use hir_lower::{CallBackKind, CurrentKind, LimitState, ParamKind};
 use llvm_sys::core::{
     LLVMAppendBasicBlockInContext, LLVMBuildAlloca, LLVMBuildAnd, LLVMBuildBr, LLVMBuildCall2,
     LLVMBuildCondBr, LLVMBuildICmp, LLVMBuildInBoundsGEP2, LLVMBuildIntCast2, LLVMBuildLoad2,
-    LLVMBuildOr, LLVMBuildRet, LLVMBuildRetVoid, LLVMBuildStore, LLVMConstNull,
-    LLVMCreateBuilderInContext, LLVMDisposeBuilder, LLVMGetParam, LLVMPositionBuilderAtEnd,
+    LLVMBuildOr, LLVMBuildRet, LLVMBuildRetVoid, LLVMBuildStore, LLVMCreateBuilderInContext,
+    LLVMDisposeBuilder, LLVMGetParam, LLVMPositionBuilderAtEnd,
 };
 use llvm_sys::LLVMIntPredicate::{LLVMIntNE, LLVMIntULT};
 use log::info;
@@ -477,38 +477,6 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                     UNNAMED,
                 );
                 LLVMBuildStore(llbuilder, val, NonNull::from(accepted).as_ptr());
-            }
-
-            LLVMBuildRetVoid(llbuilder);
-            LLVMDisposeBuilder(llbuilder);
-        }
-
-        llfunc
-    }
-
-    /// Builds `init_hidden(inst, model)` which sets the accepted slots of the hidden
-    /// state variables to zero (default initialization of the hidden state).
-    /// Called once per analysis or sweep, before `setup_instance`.
-    pub fn init_hidden(&self) -> &'ll llvm_sys::LLVMValue {
-        let OsdiCompilationUnit { inst_data, cx, module, .. } = self;
-        let fun_ty = cx.ty_func(&[cx.ty_ptr(), cx.ty_ptr()], cx.ty_void());
-        let name = &format!("init_hidden_{}", module.sym);
-        let llfunc = cx.declare_int_c_fn(name, fun_ty);
-
-        unsafe {
-            let entry = LLVMAppendBasicBlockInContext(
-                NonNull::from(cx.llcx).as_ptr(),
-                NonNull::from(llfunc).as_ptr(),
-                UNNAMED,
-            );
-            let llbuilder = LLVMCreateBuilderInContext(NonNull::from(cx.llcx).as_ptr());
-            LLVMPositionBuilderAtEnd(llbuilder, entry);
-            let inst = &*LLVMGetParam(NonNull::from(llfunc).as_ptr(), 0);
-
-            for &var in inst_data.hidden_state.keys() {
-                let (accepted, ty) = inst_data.hidden_state_ptr(&*llbuilder, var, false, inst);
-                let zero = LLVMConstNull(NonNull::from(ty).as_ptr());
-                LLVMBuildStore(llbuilder, zero, NonNull::from(accepted).as_ptr());
             }
 
             LLVMBuildRetVoid(llbuilder);

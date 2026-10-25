@@ -74,6 +74,7 @@ pub const EVAL_RET_FLAG_LIM: u32 = 1;
 pub const EVAL_RET_FLAG_FATAL: u32 = 2;
 pub const EVAL_RET_FLAG_FINISH: u32 = 4;
 pub const EVAL_RET_FLAG_STOP: u32 = 8;
+pub const INIT_HIDDEN_STATE: u32 = 1;
 pub const LOG_LVL_MASK: u32 = 7;
 pub const LOG_LVL_DEBUG: u32 = 0;
 pub const LOG_LVL_DISPLAY: u32 = 1;
@@ -491,7 +492,6 @@ pub struct OsdiDescriptor<'ll> {
     pub absdelays: Vec<OsdiAbsDelay>,
     pub jacobian_values: Vec<OsdiJacobianValue>,
     pub accept: &'ll llvm_sys::LLVMValue,
-    pub init_hidden: &'ll llvm_sys::LLVMValue,
 }
 impl<'ll> OsdiDescriptor<'ll> {
     pub fn to_ll_val(
@@ -567,7 +567,6 @@ impl<'ll> OsdiDescriptor<'ll> {
             ctx.const_arr_ptr(tys.osdi_abs_delay, &arr_52),
             ctx.const_arr_ptr(tys.osdi_jacobian_value, &arr_53),
             self.accept,
-            self.init_hidden,
         ];
         let ty = tys.osdi_descriptor;
         ctx.const_struct(ty, &fields)
@@ -629,7 +628,6 @@ impl OsdiTyBuilder<'_, '_, '_> {
             ctx.ty_ptr(),
             ctx.ty_int(),
             ctx.ty_int(),
-            ctx.ty_ptr(),
             ctx.ty_ptr(),
             ctx.ty_ptr(),
             ctx.ty_ptr(),

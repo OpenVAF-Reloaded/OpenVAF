@@ -295,7 +295,8 @@ impl OsdiInstance {
             vals_str: ptr::null_mut(),
         };
 
-        let mut res = OsdiInitInfo { flags: 0, num_errors: 0, errors: ptr::null_mut() };
+        let mut res =
+            OsdiInitInfo { flags: INIT_HIDDEN_STATE, num_errors: 0, errors: ptr::null_mut() };
         self.descriptor.setup_instance(
             b"foo\0".as_ptr() as *mut c_void,
             self.data,

@@ -24,7 +24,7 @@ const ANALOG_OPERATORS: [&str; 16] = [
     "transition",
 ];
 
-const UNSUPPORTED: [&str; 45] = [
+const UNSUPPORTED: [&str; 44] = [
     "simprobe",
     "analog_node_alias",
     "analog_port_alias",
@@ -34,7 +34,6 @@ const UNSUPPORTED: [&str; 45] = [
     "zi_np",
     "zi_zd",
     "zi_zp",
-    "last_crossing",
     "transition",
     "fclose",
     "fopen",

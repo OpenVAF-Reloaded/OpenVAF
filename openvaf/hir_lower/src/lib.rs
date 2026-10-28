@@ -90,13 +90,28 @@ pub enum HiddenStateKey {
     Var(Variable),
     /// Output of the `i`-th `slew()` call site
     Slew(u32),
+    /// State of the `i`-th `last_crossing()` call site
+    LastCrossing(u32, CrossingSlot),
+}
+
+/// Hidden state of a `last_crossing()` call site
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CrossingSlot {
+    /// Time of the last rising crossing (-1 if none)
+    Rising,
+    /// Time of the last falling crossing (-1 if none)
+    Falling,
+    /// Last nonzero value of the input
+    LastNonZero,
+    /// Value of the input
+    Input,
 }
 
 impl HiddenStateKey {
     pub fn ty(&self, db: &CompilationDB) -> Type {
         match *self {
             HiddenStateKey::Var(var) => var.ty(db),
-            HiddenStateKey::Slew(_) => Type::Real,
+            HiddenStateKey::Slew(_) | HiddenStateKey::LastCrossing(..) => Type::Real,
         }
     }
 
@@ -105,6 +120,17 @@ impl HiddenStateKey {
         match *self {
             HiddenStateKey::Var(var) => PlaceKind::Var(var),
             HiddenStateKey::Slew(i) => PlaceKind::SlewOutput(i),
+            HiddenStateKey::LastCrossing(i, slot) => PlaceKind::LastCrossingOutput(i, slot),
+        }
+    }
+
+    /// Value of the accepted slot after initialization if not zero
+    pub fn init_value(&self) -> Option<f64> {
+        match *self {
+            HiddenStateKey::LastCrossing(_, CrossingSlot::Rising | CrossingSlot::Falling) => {
+                Some(-1.0)
+            }
+            _ => None,
         }
     }
 }
@@ -231,6 +257,9 @@ pub enum PlaceKind {
     /// Output of the `i`-th `slew()` call site, stored in the pending slot of
     /// its hidden state
     SlewOutput(u32),
+    /// New state of the `i`-th `last_crossing()` call site, stored in the
+    /// pending slot of its hidden state
+    LastCrossingOutput(u32, CrossingSlot),
 }
 
 impl PlaceKind {
@@ -245,7 +274,8 @@ impl PlaceKind {
             | PlaceKind::BoundStep
             | PlaceKind::AbsDelayTime(_)
             | PlaceKind::AbsDelayMax(_)
-            | PlaceKind::SlewOutput(_) => Type::Real,
+            | PlaceKind::SlewOutput(_)
+            | PlaceKind::LastCrossingOutput(..) => Type::Real,
             PlaceKind::ParamMin(param) | PlaceKind::ParamMax(param) | PlaceKind::Param(param) => {
                 param.ty(db)
             }

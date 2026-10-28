@@ -183,7 +183,6 @@ impl BuiltIn {
             | BuiltIn::zi_zd
             | BuiltIn::zi_zp
             | BuiltIn::last_crossing
-            | BuiltIn::slew
             | BuiltIn::transition
             | BuiltIn::fclose
             | BuiltIn::fopen

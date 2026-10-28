@@ -458,6 +458,64 @@ endmodule
     Ok(())
 }
 
+// With full Verilog-A (`-s`) the output of each slew() call site is hidden state. If dt != 0
+// and $abstime != 0 its change from the accepted output is limited to [neg_rate*dt,
+// pos_rate*dt] and its derivative is zero while limited. Otherwise it follows the input.
+fn slew_test() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    const SRC: &str = r#"`include "disciplines.vams"
+module slew_test(a, b);
+    inout a, b;
+    electrical a, b;
+    analog begin
+        I(a) <+ slew(V(a), 1e3);
+        I(b) <+ slew(V(b), 1e3, -2e3);
+    end
+endmodule
+"#;
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+    let root_file = tmp_dir.join("openvaf_slew_test.va");
+    std::fs::write(&root_file, SRC)?;
+    let libs = compile_and_load_modules(&root_file, false);
+    assert_eq!(libs.len(), 1);
+    let desc = &libs[0];
+    let model = desc.new_model();
+    model.process_params()?;
+    let mut instance = model.new_instance();
+    let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+
+    // (abstime, dt, V(a) = V(b), expected I(a), dI(a)/dV(a), expected I(b), dI(b)/dV(b))
+    let steps = [
+        // operating point: follows the input
+        (0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0),
+        // rising by at most 1e3 * 1e-4 = 0.1
+        (1e-4, 1e-4, 2.0, 1.1, 0.0, 1.1, 0.0),
+        (2e-4, 1e-4, 2.0, 1.2, 0.0, 1.2, 0.0),
+        // within the limits: follows the input
+        (3e-4, 1e-4, 1.25, 1.25, 1.0, 1.25, 1.0),
+        // falling by at most 1e3 * 1e-4 = 0.1 (a) and 2e3 * 1e-4 = 0.2 (b)
+        (4e-4, 1e-4, 0.0, 1.15, 0.0, 1.05, 0.0),
+    ];
+    for (abstime, dt, v, ia, ga, ib, gb) in steps {
+        sim.abstime = abstime;
+        sim.dt = dt;
+        sim.set_voltage("a", v);
+        sim.set_voltage("b", v);
+        sim.clear();
+        instance.eval(&model, &mut sim, EvalFlags::ANALYSIS_TRAN);
+        instance.load_dae(&model, &mut sim);
+        assert_approx_eq!(sim.read_residual("a").0, ia);
+        assert_approx_eq!(sim.read_residual("b").0, ib);
+        assert_eq!(sim.read_jacobian("a", "a").0, ga, "t={abstime}");
+        assert_eq!(sim.read_jacobian("b", "b").0, gb, "t={abstime}");
+        desc.accept(instance.data, model.data);
+    }
+    Ok(())
+}
+
 // Enhancement-3: vector ports. A 4-bit DAC with a bus port followed by a scalar port, in
 // non-ANSI and ANSI style. The OSDI terminals must be `d[0] d[1] d[2] d[3] out` (simulators
 // bind instance terminals by position) and the output must be computed from the right bits.
@@ -651,6 +709,7 @@ harness! {
         Test::new("absdelay_maxdelay_offset", &absdelay_maxdelay_offset_test),
         Test::new("indirect_opamp", &indirect_opamp_test),
         Test::new("step_events", &step_events_test),
+        Test::new("slew", &slew_test),
         Test::new("bus_port_dac", &bus_port_dac_test),
         Test::new("hierarchy_bus_slices", &hierarchy_bus_slices_test),
         Test::new("hierarchy_variable_width_slices", &hierarchy_variable_width_slices_test),

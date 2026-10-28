@@ -109,6 +109,7 @@ typedef struct OsdiSimInfo {
     double *prev_state;
     double *next_state;
     uint32_t flags;
+    double dt;
 }OsdiSimInfo;
 
 typedef union OsdiInitErrorPayload {

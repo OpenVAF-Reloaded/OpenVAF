@@ -18,8 +18,8 @@ use syntax::ast::{BinaryOp, UnaryOp};
 use crate::body::BodyLoweringCtx;
 use crate::fmt::DisplayKind;
 use crate::{
-    CallBackKind, CurrentKind, IdtKind, ImplicitEquationKind, NoiseTable, ParamKind, PlaceKind,
-    RetFlag,
+    CallBackKind, CurrentKind, HiddenStateKey, IdtKind, ImplicitEquationKind, NoiseTable,
+    ParamKind, PlaceKind, RetFlag,
 };
 
 impl BodyLoweringCtx<'_, '_, '_> {
@@ -721,6 +721,7 @@ impl BodyLoweringCtx<'_, '_, '_> {
                 // The absdelay result is V(z); eq_z's equation is handled by the simulator
                 z_val
             }
+            BuiltIn::slew if !self.ctx.compact && args.len() > 1 => self.lower_slew(args),
             BuiltIn::slew | BuiltIn::transition | BuiltIn::limit => self.lower_expr(args[0]),
 
             BuiltIn::laplace_nd
@@ -730,6 +731,57 @@ impl BodyLoweringCtx<'_, '_, '_> {
 
             _ => unreachable!(),
         }
+    }
+
+    /// Lowers `slew(x, max_pos_slew_rate [, max_neg_slew_rate])`.
+    ///
+    /// The output of each call site is hidden state (`last_x`). If `dt != 0` and
+    /// `$abstime != 0` the change `x - last_x` is limited to
+    /// `[max_neg_slew_rate * dt, max_pos_slew_rate * dt]`. Otherwise the output is
+    /// `x`. The negative rate defaults to `-max_pos_slew_rate`. While slewing the
+    /// derivative of the output with respect to `x` is zero.
+    fn lower_slew(&mut self, args: &[ExprId]) -> Value {
+        let x = self.lower_expr(args[0]);
+        let max_slew = self.lower_expr(args[1]);
+        let min_slew = if let Some(&arg) = args.get(2) {
+            self.lower_expr(arg)
+        } else {
+            self.ctx.ins().fneg(max_slew)
+        };
+
+        let idx = self.ctx.num_slews;
+        self.ctx.num_slews += 1;
+        let last_x = self.ctx.use_param(ParamKind::HiddenState(HiddenStateKey::Slew(idx)));
+        let dt = self.ctx.use_param(ParamKind::TimeStep);
+        let t = self.ctx.use_param(ParamKind::Abstime);
+
+        let dt_nonzero = self.ctx.ins().fne(dt, F_ZERO);
+        let t_nonzero = self.ctx.ins().fne(t, F_ZERO);
+        let limit = self.lower_select_with(dt_nonzero, |_| t_nonzero, |_| FALSE);
+        let x = self.lower_select_with(
+            limit,
+            |mut ctx| {
+                let delta = ctx.ctx.ins().fsub(x, last_x);
+                let max_delta = ctx.ctx.ins().fmul(max_slew, dt);
+                let rising = ctx.ctx.ins().fgt(delta, max_delta);
+                ctx.lower_select_with(
+                    rising,
+                    |ctx| ctx.ctx.ins().fadd(last_x, max_delta),
+                    |mut ctx| {
+                        let min_delta = ctx.ctx.ins().fmul(min_slew, dt);
+                        let falling = ctx.ctx.ins().flt(delta, min_delta);
+                        ctx.lower_select_with(
+                            falling,
+                            |ctx| ctx.ctx.ins().fadd(last_x, min_delta),
+                            |_| x,
+                        )
+                    },
+                )
+            },
+            |_| x,
+        );
+        self.ctx.def_place(PlaceKind::SlewOutput(idx), x);
+        x
     }
 
     /// Lowers `laplace_nd`/`laplace_np`/`laplace_zd`/`laplace_zp(in, num_or_zero, den_or_pole

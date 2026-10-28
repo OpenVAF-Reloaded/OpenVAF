@@ -84,23 +84,57 @@ impl TryFrom<CurrentKind> for BranchWrite {
     }
 }
 
+/// A value carried from one evaluation to the next
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum HiddenStateKey {
+    Var(Variable),
+    /// Output of the `i`-th `slew()` call site
+    Slew(u32),
+}
+
+impl HiddenStateKey {
+    pub fn ty(&self, db: &CompilationDB) -> Type {
+        match *self {
+            HiddenStateKey::Var(var) => var.ty(db),
+            HiddenStateKey::Slew(_) => Type::Real,
+        }
+    }
+
+    /// The output holding the value at the end of an evaluation
+    pub fn output(&self) -> PlaceKind {
+        match *self {
+            HiddenStateKey::Var(var) => PlaceKind::Var(var),
+            HiddenStateKey::Slew(i) => PlaceKind::SlewOutput(i),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ParamKind {
     Param(Parameter),
     Abstime,
+    /// Time step of the current transient step, zero outside transient analysis
+    TimeStep,
     EnableIntegration,
     EnableLim,
     InitialStep,
     FinalStep,
     PrevState(LimitState),
     NewState(LimitState),
-    Voltage { hi: Node, lo: Option<Node> },
+    Voltage {
+        hi: Node,
+        lo: Option<Node>,
+    },
     Current(CurrentKind),
     Temperature,
-    ParamGiven { param: Parameter },
-    PortConnected { port: Node },
+    ParamGiven {
+        param: Parameter,
+    },
+    PortConnected {
+        port: Node,
+    },
     ParamSysFun(ParamSysFun),
-    HiddenState(Variable),
+    HiddenState(HiddenStateKey),
     ImplicitUnknown(ImplicitEquation),
 }
 
@@ -119,6 +153,7 @@ impl ParamKind {
                 | ParamKind::Current(_)
                 | ParamKind::ImplicitUnknown(_)
                 | ParamKind::Abstime
+                | ParamKind::TimeStep
                 | ParamKind::EnableIntegration
                 | ParamKind::HiddenState(_)
                 | ParamKind::PrevState(_)
@@ -193,6 +228,9 @@ pub enum PlaceKind {
     /// Value of a hidden state variable after the analog initial blocks. Only an
     /// output (never a place), it is stored in the accepted state slot.
     HiddenStateInit(Variable),
+    /// Output of the `i`-th `slew()` call site, stored in the pending slot of
+    /// its hidden state
+    SlewOutput(u32),
 }
 
 impl PlaceKind {
@@ -206,7 +244,8 @@ impl PlaceKind {
             | PlaceKind::Contribute { .. }
             | PlaceKind::BoundStep
             | PlaceKind::AbsDelayTime(_)
-            | PlaceKind::AbsDelayMax(_) => Type::Real,
+            | PlaceKind::AbsDelayMax(_)
+            | PlaceKind::SlewOutput(_) => Type::Real,
             PlaceKind::ParamMin(param) | PlaceKind::ParamMax(param) | PlaceKind::Param(param) => {
                 param.ty(db)
             }
@@ -583,7 +622,8 @@ impl<'a> MirBuilder<'a> {
                 // also for constants: the value must be an instruction that init computes
                 val = body_ctx.ctx.func.ins().optbarrier(val);
                 hidden_state_init.push((PlaceKind::HiddenStateInit(var), val.into()));
-                let state = body_ctx.ctx.use_param(ParamKind::HiddenState(var));
+                let state =
+                    body_ctx.ctx.use_param(ParamKind::HiddenState(HiddenStateKey::Var(var)));
                 body_ctx.ctx.def_place(PlaceKind::Var(var), state);
             }
         }

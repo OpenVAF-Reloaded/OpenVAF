@@ -9,11 +9,12 @@ license = "GPL-3.0"
 doctest = false
 
 [features]
-# No default - user must specify --features llvm18/llvm19/llvm20/llvm21
+# No default - user must specify --features llvm18/llvm19/llvm20/llvm21/llvm22
 llvm18 = ["dep:llvm-sys-181", "mir_llvm/llvm18"]
 llvm19 = ["dep:llvm-sys-191", "mir_llvm/llvm19"]
 llvm20 = ["dep:llvm-sys-201", "mir_llvm/llvm20"]
 llvm21 = ["dep:llvm-sys-211", "mir_llvm/llvm21"]
+llvm22 = ["dep:llvm-sys-221", "mir_llvm/llvm22"]
 
 [dependencies]
 
@@ -35,6 +36,7 @@ llvm-sys-181 = { package = "llvm-sys", version = "181.2.0", optional = true }
 llvm-sys-191 = { package = "llvm-sys", version = "191.0.0", optional = true }
 llvm-sys-201 = { package = "llvm-sys", version = "201.0.1", optional = true }
 llvm-sys-211 = { package = "llvm-sys", version = "211.0.0", optional = true }
+llvm-sys-221 = { package = "llvm-sys", version = "221.0.1", optional = true }
 target = { version = "0.0.0", path = "../target"}
 
 typed-index-collections = "3.1"

@@ -3,7 +3,7 @@ use core::ptr::NonNull;
 use std::hash::BuildHasherDefault;
 
 use hir::{CompilationDB, ParamSysFun, Parameter, Variable};
-use hir_lower::{HirInterner, LimitState, ParamKind, PlaceKind};
+use hir_lower::{HiddenStateKey, HirInterner, LimitState, ParamKind, PlaceKind};
 use indexmap::IndexMap;
 use llvm_sys::core::{
     LLVMBuildFAdd,
@@ -237,10 +237,11 @@ pub struct OsdiInstanceData<'ll> {
     /// One eval-output slot per absdelay slot with `has_maxdelay`, storing the
     /// current raw (unclamped) `tdmax` value. `None` for slots without a maxdelay.
     pub delay_maxes: Vec<Option<EvalOutputSlot>>,
-    /// Hidden state variables with their llvm types. Each variable has two slots
-    /// after the constants section: all accepted slots followed by all pending slots.
+    /// Hidden state with its llvm types. Each hidden state has two slots after
+    /// the constants section: all accepted slots followed by all pending slots.
     /// Eval reads the accepted slot and writes the pending slot.
-    pub hidden_state: IndexMap<Variable, &'ll llvm_sys::LLVMType, BuildHasherDefault<FxHasher>>,
+    pub hidden_state:
+        IndexMap<HiddenStateKey, &'ll llvm_sys::LLVMType, BuildHasherDefault<FxHasher>>,
 }
 
 impl<'ll> OsdiInstanceData<'ll> {
@@ -340,7 +341,7 @@ impl<'ll> OsdiInstanceData<'ll> {
             module.init.cache_slots.raw.values().map(|ty| lltype(ty, cx)).collect();
 
         let mut hidden_state = IndexMap::with_hasher(BuildHasherDefault::<FxHasher>::default());
-        hidden_state.extend(module.hidden_state.iter().map(|&var| (var, lltype(&var.ty(db), cx))));
+        hidden_state.extend(module.hidden_state.iter().map(|&key| (key, lltype(&key.ty(db), cx))));
 
         let state_idx = cx.ty_array(cx.ty_int(), module.intern.lim_state.len() as u32);
         let static_fields: [_; NUM_CONST_FIELDS as usize] = [
@@ -1130,7 +1131,7 @@ impl<'ll> OsdiInstanceData<'ll> {
     }
 
     /// Struct element of the accepted (`pending == false`) or the pending
-    /// (`pending == true`) slot of the `pos`-th hidden state variable
+    /// (`pending == true`) slot of the `pos`-th hidden state
     pub fn hidden_state_elem(&self, pos: u32, pending: bool) -> u32 {
         let num = self.hidden_state.len() as u32;
         NUM_CONST_FIELDS
@@ -1145,22 +1146,22 @@ impl<'ll> OsdiInstanceData<'ll> {
     pub fn hidden_state_loc(
         &self,
         cx: &CodegenCx<'_, 'll>,
-        var: Variable,
+        key: HiddenStateKey,
         pending: bool,
         ptr: &'ll llvm_sys::LLVMValue,
     ) -> MemLoc<'ll> {
-        let (pos, _, &ty) = self.hidden_state.get_full(&var).unwrap();
+        let (pos, _, &ty) = self.hidden_state.get_full(&key).unwrap();
         MemLoc::struct_gep(ptr, self.ty, ty, self.hidden_state_elem(pos as u32, pending), cx)
     }
 
     pub fn hidden_state_ptr(
         &self,
         llbuilder: &llvm_sys::LLVMBuilder,
-        var: Variable,
+        key: HiddenStateKey,
         pending: bool,
         ptr: &'ll llvm_sys::LLVMValue,
     ) -> (&'ll llvm_sys::LLVMValue, &'ll llvm_sys::LLVMType) {
-        let (pos, _, &ty) = self.hidden_state.get_full(&var).unwrap();
+        let (pos, _, &ty) = self.hidden_state.get_full(&key).unwrap();
         let ptr = unsafe {
             &*LLVMBuildStructGEP2(
                 NonNull::from(llbuilder).as_ptr(),
@@ -1173,17 +1174,17 @@ impl<'ll> OsdiInstanceData<'ll> {
         (ptr, ty)
     }
 
-    /// Stores the final value of every hidden state variable in its pending slot
+    /// Stores the final value of every hidden state in its pending slot
     pub unsafe fn store_hidden_state(
         &self,
         module: &OsdiModule,
         ptr: &'ll llvm_sys::LLVMValue,
         builder: &mir_llvm::Builder<'_, '_, 'll>,
     ) {
-        for &var in self.hidden_state.keys() {
-            let val = module.intern.outputs[&PlaceKind::Var(var)].unwrap_unchecked();
+        for &key in self.hidden_state.keys() {
+            let val = module.intern.outputs[&key.output()].unwrap_unchecked();
             let val = builder.values[val].get(builder);
-            let (ptr, _) = self.hidden_state_ptr(builder.llbuilder, var, true, ptr);
+            let (ptr, _) = self.hidden_state_ptr(builder.llbuilder, key, true, ptr);
             builder.store(ptr, val)
         }
     }
@@ -1395,6 +1396,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                     | ParamKind::PortConnected { .. }
                     | ParamKind::ParamGiven { .. }
                     | ParamKind::Abstime
+                    | ParamKind::TimeStep
                     | ParamKind::EnableIntegration
                     | ParamKind::EnableLim
                     | ParamKind::InitialStep
@@ -1483,6 +1485,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                     | ParamKind::ParamGiven { .. }
                     | ParamKind::EnableIntegration { .. }
                     | ParamKind::Abstime
+                    | ParamKind::TimeStep
                     | ParamKind::EnableLim
                     | ParamKind::InitialStep
                     | ParamKind::FinalStep

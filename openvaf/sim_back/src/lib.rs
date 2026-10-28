@@ -1,5 +1,5 @@
-use hir::{BranchWrite, CompilationDB, Node, Variable};
-use hir_lower::{CurrentKind, HirInterner, ImplicitEquation, ParamKind};
+use hir::{BranchWrite, CompilationDB, Node};
+use hir_lower::{CurrentKind, HiddenStateKey, HirInterner, ImplicitEquation, ParamKind};
 use lasso::Rodeo;
 use mir::Function;
 use mir_opt::{simplify_cfg, sparse_conditional_constant_propagation};
@@ -49,9 +49,9 @@ pub struct CompiledModule<'a> {
     pub model_param_setup: Function,
     pub model_param_intern: HirInterner,
     pub node_collapse: NodeCollapse,
-    /// Variables whose value must be kept between evaluations
-    /// (empty unless hidden state detection is enabled)
-    pub hidden_state: Vec<Variable>,
+    /// Values that must be kept between evaluations: detected variables and
+    /// `slew()` outputs (empty unless compiled with full Verilog-A semantics)
+    pub hidden_state: Vec<HiddenStateKey>,
     /// Compiled as a compact model (without full Verilog-A semantics, `-s`)
     pub compact: bool,
 }
@@ -117,7 +117,7 @@ pub fn print_intern(pfx: &str, db: &CompilationDB, intern: &HirInterner) {
                     println!("{pfx} .. {:?} -> {:?}", n.name(db), val);
                 }
             },
-            ParamKind::HiddenState(var) => {
+            ParamKind::HiddenState(HiddenStateKey::Var(var)) => {
                 println!("{pfx} .. {:?} -> {:?}", var.name(db), val);
             }
             // ParamKind::ImplicitUnknown
@@ -168,17 +168,27 @@ impl<'a> CompiledModule<'a> {
         dump_hs: bool,
     ) -> CompiledModule<'a> {
         // full Verilog-A semantics (hidden state, events) unless compiling a compact model
-        let hidden_state =
+        let hidden_vars =
             if compact { Vec::new() } else { Context::detect_hidden_state(db, literals, module) };
-        if dump_hs {
-            println!("Hidden state of {}", module.module.name(db));
-            for var in &hidden_state {
-                println!("  {}", var.name(db));
-            }
-        }
 
         // Build MIR for the module
-        let mut cx = Context::new(db, literals, module, &hidden_state, compact);
+        let mut cx = Context::new(db, literals, module, &hidden_vars, compact);
+
+        // slew() outputs are always hidden state
+        let mut hidden_state: Vec<_> = hidden_vars.into_iter().map(HiddenStateKey::Var).collect();
+        hidden_state.extend(cx.intern.params.raw.keys().filter_map(|kind| match *kind {
+            ParamKind::HiddenState(key @ HiddenStateKey::Slew(_)) => Some(key),
+            _ => None,
+        }));
+        if dump_hs {
+            println!("Hidden state of {}", module.module.name(db));
+            for key in &hidden_state {
+                match *key {
+                    HiddenStateKey::Var(var) => println!("  {}", var.name(db)),
+                    HiddenStateKey::Slew(i) => println!("  slew #{i}"),
+                }
+            }
+        }
 
         if dump_unopt_mir {
             println!("Unoptimized MIR (no DAE) of {}", module.module.name(db));

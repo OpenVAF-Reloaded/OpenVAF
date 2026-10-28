@@ -113,6 +113,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
         let simparam = unsafe { builder.struct_gep(sim_info_ty, sim_info, 0) };
 
         const ABSTIME_OFFSET: u32 = 1;
+        const DT_OFFSET: u32 = 6;
 
         let prev_result = unsafe {
             let ptr = builder.struct_gep(sim_info_ty, sim_info, 2);
@@ -196,6 +197,16 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                                 sim_info_ty,
                                 cx.ty_double(),
                                 ABSTIME_OFFSET,
+                                cx,
+                            );
+                            return loc.into();
+                        }
+                        ParamKind::TimeStep => {
+                            let loc = MemLoc::struct_gep(
+                                sim_info,
+                                sim_info_ty,
+                                cx.ty_double(),
+                                DT_OFFSET,
                                 cx,
                             );
                             return loc.into();

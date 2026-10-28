@@ -475,6 +475,7 @@ impl InstanceImpl for OsdiInstance {
             prev_state: ptr::null_mut(),
             next_state: ptr::null_mut(),
             flags: sim_info.flags.bits(),
+            dt: 0.0,
         };
 
         let ret_flags = self.descriptor.eval(

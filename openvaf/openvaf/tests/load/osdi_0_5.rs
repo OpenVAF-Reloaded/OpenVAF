@@ -92,6 +92,7 @@ pub struct OsdiSimInfo {
     pub prev_state: *mut f64,
     pub next_state: *mut f64,
     pub flags: u32,
+    pub dt: f64,
 }
 #[repr(C)]
 pub union OsdiInitErrorPayload {
@@ -359,7 +360,9 @@ impl OsdiDescriptor {
     ) {
         (self.load_noise_params)(inst, model, power, exponent)
     }
-    pub fn accept(&self, inst: *mut c_void, model: *mut c_void) { (self.accept)(inst, model) }
+    pub fn accept(&self, inst: *mut c_void, model: *mut c_void) {
+        (self.accept)(inst, model)
+    }
 }
 #[repr(C)]
 pub struct OsdiNature {

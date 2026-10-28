@@ -25,6 +25,8 @@ pub struct MockSimulation {
     pub state_1: Vec<f64>,
     pub state_2: Vec<f64>,
     pub noise_dense: Vec<f64>,
+    pub abstime: f64,
+    pub dt: f64,
 }
 impl MockSimulation {
     fn new() -> MockSimulation {
@@ -47,6 +49,8 @@ impl MockSimulation {
             state_1: Vec::new(),
             state_2: Vec::new(),
             noise_dense: Vec::new(),
+            abstime: 0.0,
+            dt: 0.0,
         }
     }
 
@@ -240,11 +244,12 @@ impl OsdiInstance {
         };
         let mut sim_info = OsdiSimInfo {
             paras: sim_params,
-            abstime: 0.0,
+            abstime: sim.abstime,
             prev_solve: sim.solve.as_ptr() as *mut f64,
             prev_state: sim.state_1.as_mut_ptr(),
             next_state: sim.state_2.as_mut_ptr(),
             flags: flags.bits(),
+            dt: sim.dt,
         };
         let flags = self.descriptor.eval(
             b"foo\0".as_ptr() as *mut c_void,

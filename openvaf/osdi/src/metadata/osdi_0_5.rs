@@ -146,6 +146,7 @@ impl OsdiTyBuilder<'_, '_, '_> {
             ctx.ty_ptr(),
             ctx.ty_ptr(),
             ctx.ty_int(),
+            ctx.ty_double(),
         ];
         let ty = ctx.ty_struct("OsdiSimInfo", &fields);
         self.osdi_sim_info = Some(ty);

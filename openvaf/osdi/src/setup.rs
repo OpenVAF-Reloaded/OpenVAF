@@ -1,6 +1,6 @@
 use core::ptr::NonNull;
 
-use hir_lower::{CallBackKind, ParamInfoKind, ParamKind, PlaceKind};
+use hir_lower::{CallBackKind, HiddenStateKey, ParamInfoKind, ParamKind, PlaceKind};
 use llvm_sys::core::{
     LLVMAppendBasicBlockInContext, LLVMBuildBr, LLVMBuildCondBr, LLVMBuildRetVoid, LLVMConstNull,
     LLVMCreateBuilderInContext, LLVMDisposeBuilder, LLVMGetInsertBlock, LLVMGetLastInstruction,
@@ -671,7 +671,12 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                     continue;
                 }
                 let val = builder.values[val].get(&builder);
-                let (ptr, ty) = inst_data.hidden_state_ptr(builder.llbuilder, var, false, instance);
+                let (ptr, ty) = inst_data.hidden_state_ptr(
+                    builder.llbuilder,
+                    HiddenStateKey::Var(var),
+                    false,
+                    instance,
+                );
                 let old = builder.load(ty, ptr);
                 let val = builder.select(init_hidden, val, old);
                 builder.store(ptr, val)

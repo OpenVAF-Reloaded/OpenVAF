@@ -7,7 +7,7 @@ use mir_build::{FunctionBuilder, FunctionBuilderContext};
 
 use crate::body::BodyLoweringCtx;
 use crate::ctx::LoweringCtx;
-use crate::{HirInterner, ParamKind, PlaceKind};
+use crate::{HiddenStateKey, HirInterner, ParamKind, PlaceKind};
 
 impl HirInterner {
     /// Replaces the `HiddenState` parameters of the variables selected by `filter`
@@ -25,7 +25,7 @@ impl HirInterner {
         let mut ctx = LoweringCtx::new(db, builder, true, self);
         let mut init = AHashMap::default();
         for (kind, param) in ctx.intern.params.clone().iter() {
-            if let ParamKind::HiddenState(var) = *kind {
+            if let ParamKind::HiddenState(HiddenStateKey::Var(var)) = *kind {
                 if !filter(var) || ctx.dfg().value_dead(*param) {
                     continue;
                 }
@@ -64,7 +64,11 @@ impl HirInterner {
             .params
             .iter()
             .filter_map(|(kind, &param)| match *kind {
-                ParamKind::HiddenState(var) if !ctx.dfg().value_dead(param) => Some((var, param)),
+                ParamKind::HiddenState(HiddenStateKey::Var(var))
+                    if !ctx.dfg().value_dead(param) =>
+                {
+                    Some((var, param))
+                }
                 _ => None,
             })
             .collect();

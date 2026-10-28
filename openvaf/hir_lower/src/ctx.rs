@@ -8,8 +8,8 @@ use mir_build::{FuncInstBuilder, FunctionBuilder, Place};
 use typed_indexmap::TiSet;
 
 use crate::{
-    CallBackKind, HirInterner, ImplicitEquation, ImplicitEquationKind, LimitState, ParamKind,
-    PlaceKind,
+    CallBackKind, HiddenStateKey, HirInterner, ImplicitEquation, ImplicitEquationKind, LimitState,
+    ParamKind, PlaceKind,
 };
 
 pub struct LoweringCtx<'a, 'c> {
@@ -28,6 +28,8 @@ pub struct LoweringCtx<'a, 'c> {
     /// but necessary to avoid accidental correlation/opimization.
     /// For example white_noise(x) - white_noise(x) is not zero.
     pub num_noise_sources: u32,
+    /// Number of `slew()` call sites with hidden state lowered so far
+    pub num_slews: u32,
 }
 
 impl<'a, 'c> LoweringCtx<'a, 'c> {
@@ -47,6 +49,7 @@ impl<'a, 'c> LoweringCtx<'a, 'c> {
             compact: true,
             intern,
             num_noise_sources: 0,
+            num_slews: 0,
         }
     }
 
@@ -83,7 +86,13 @@ impl<'a, 'c> LoweringCtx<'a, 'c> {
                 | PlaceKind::ParamMin(_)
                 | PlaceKind::ParamMax(_) => return place,
 
-                PlaceKind::Var(var) => self.use_param(ParamKind::HiddenState(var)),
+                PlaceKind::Var(var) => {
+                    self.use_param(ParamKind::HiddenState(HiddenStateKey::Var(var)))
+                }
+                // keeps its previous value if the call site is not executed
+                PlaceKind::SlewOutput(i) => {
+                    self.use_param(ParamKind::HiddenState(HiddenStateKey::Slew(i)))
+                }
                 PlaceKind::ImplicitResidual { .. } | PlaceKind::Contribute { .. } => F_ZERO,
                 PlaceKind::CollapseImplicitEquation(_) => TRUE,
                 PlaceKind::IsVoltageSrc(_) => FALSE,

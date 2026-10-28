@@ -1,7 +1,7 @@
 use ahash::{AHashMap, AHashSet};
 use bitset::{BitSet, SparseBitMatrix};
 use hir::{CompilationDB, Variable};
-use hir_lower::{HirInterner, LoweredBlocks, MirBuilder, ParamKind, PlaceKind};
+use hir_lower::{HiddenStateKey, HirInterner, LoweredBlocks, MirBuilder, ParamKind, PlaceKind};
 use lasso::Rodeo;
 use mir::{
     strip_optbarrier, Block, ControlFlowGraph, DominatorTree, Function, Inst, InstructionData,
@@ -61,7 +61,8 @@ impl<'a> Context<'a> {
                 | PlaceKind::IsVoltageSrc(_)
                 | PlaceKind::BoundStep
                 | PlaceKind::AbsDelayTime(_)
-                | PlaceKind::AbsDelayMax(_) => true,
+                | PlaceKind::AbsDelayMax(_)
+                | PlaceKind::SlewOutput(_) => true,
                 PlaceKind::Var(var) => {
                     module.op_vars.contains_key(&var) || hidden_state.contains(&var)
                 }
@@ -147,7 +148,7 @@ impl<'a> Context<'a> {
             .params
             .iter()
             .filter_map(|(kind, _)| match *kind {
-                ParamKind::HiddenState(var) => Some(var),
+                ParamKind::HiddenState(HiddenStateKey::Var(var)) => Some(var),
                 _ => None,
             })
             .collect();
@@ -205,7 +206,7 @@ impl<'a> Context<'a> {
             .params
             .iter()
             .filter_map(|(kind, &param)| {
-                let ParamKind::HiddenState(var) = *kind else { return None };
+                let ParamKind::HiddenState(HiddenStateKey::Var(var)) = *kind else { return None };
                 if constant.contains(&var) {
                     return None;
                 }
@@ -302,6 +303,7 @@ impl<'a> Context<'a> {
                             | PlaceKind::AbsDelayTime(_)
                             | PlaceKind::AbsDelayMax(_)
                             | PlaceKind::HiddenStateInit(_)
+                            | PlaceKind::SlewOutput(_)
                     )
                 {
                     self.output_values.insert(val.unwrap_unchecked());

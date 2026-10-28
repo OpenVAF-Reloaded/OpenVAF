@@ -1,6 +1,6 @@
 use ahash::AHashSet;
 use bitset::{BitSet, SparseBitMatrix};
-use hir_lower::{CallBackKind, HirInterner, MirBuilder, ParamKind, PlaceKind};
+use hir_lower::{CallBackKind, HiddenStateKey, HirInterner, MirBuilder, ParamKind, PlaceKind};
 use lasso::Rodeo;
 use mir::{ControlFlowGraph, DominatorTree, Function, ValueDef};
 use mir_autodiff::auto_diff;
@@ -25,7 +25,7 @@ impl FuncSpec {
         let depbreak_vars: Vec<_> = self
             .dependency_breaking
             .iter()
-            .map(|var| intern.params.raw[&ParamKind::HiddenState(*var)])
+            .map(|var| intern.params.raw[&ParamKind::HiddenState(HiddenStateKey::Var(*var))])
             .collect();
 
         for (val, var) in &intern.tagged_reads {

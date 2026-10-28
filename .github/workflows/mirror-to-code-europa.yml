@@ -1,0 +1,103 @@
+name: Mirror to code.europa.eu
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["**"]
+  delete:            # also propagate branch/tag deletions
+  workflow_dispatch: # allow a manual full sync from the Actions tab
+
+# Never run two mirror jobs at once; queue them instead
+concurrency:
+  group: mirror-to-code-europa
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    env:
+      # Target project path on code.europa.eu, e.g. my-group/my-subgroup/my-project
+      TARGET_REPO_RAW: ${{ secrets.CODE_EUROPA_REPO }}
+    steps:
+      - name: Clone GitHub repository (all branches and tags)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git clone --bare \
+            "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
+            repo.git
+
+      - name: Diagnose code.europa.eu access
+        env:
+          TARGET_TOKEN: ${{ secrets.CODE_EUROPA_TOKEN }}
+        run: |
+          API="https://code.europa.eu/api/v4"
+          # Normalise the path: drop whitespace, https://code.europa.eu/, .git and stray slashes
+          TARGET_REPO="$(printf '%s' "$TARGET_REPO_RAW" | tr -d '[:space:]')"
+          TARGET_REPO="${TARGET_REPO#https://}"; TARGET_REPO="${TARGET_REPO#code.europa.eu/}"
+          TARGET_REPO="${TARGET_REPO%.git}"; TARGET_REPO="${TARGET_REPO%/}"; TARGET_REPO="${TARGET_REPO#/}"
+          REPO="$TARGET_REPO"
+          echo "Repo path has ${#REPO} characters and $(printf '%s' "$REPO" | tr -cd / | wc -c) slashes"
+          # Remove whitespace/newlines that often sneak in when pasting the token
+          TOKEN="$(printf '%s' "$TARGET_TOKEN" | tr -d '[:space:]')"
+          if [ "$TOKEN" != "$TARGET_TOKEN" ]; then
+            echo "::warning::CODE_EUROPA_TOKEN contains spaces or newlines - re-save the secret without them"
+          fi
+
+          echo "Repo path used: '$REPO'"
+          echo "Token length: ${#TOKEN} characters"
+
+          echo "--- 1. Is the token valid, and what are its scopes?"
+          code=$(curl -s -o token.json -w '%{http_code}' -H "PRIVATE-TOKEN: $TOKEN" "$API/personal_access_tokens/self")
+          echo "HTTP $code"
+          jq '{name, scopes, active, revoked, expires_at}' token.json 2>/dev/null || cat token.json
+
+          echo "--- 2. Can the token see the project, and with which access level?"
+          ENC=$(printf '%s' "$REPO" | jq -sRr @uri)
+          code=$(curl -s -o project.json -w '%{http_code}' -H "PRIVATE-TOKEN: $TOKEN" "$API/projects/$ENC")
+          echo "HTTP $code"
+          jq '{path_with_namespace, default_branch, permissions}' project.json 2>/dev/null || cat project.json
+          echo "(access_level: 30 = Developer, 40 = Maintainer, 50 = Owner)"
+
+          echo "--- 3. Can git authenticate?"
+          git ls-remote --heads "https://oauth2:${TOKEN}@code.europa.eu/${REPO}.git" | head -n 5 \
+            && echo "git auth OK" || echo "::error::git could not authenticate or find the repo"
+
+          echo "--- 4. Protected branches on code.europa.eu"
+          curl -s -H "PRIVATE-TOKEN: $TOKEN" "$API/projects/$ENC/protected_branches" \
+            | jq '.[] | {name, allow_force_push, push_access_levels: [.push_access_levels[].access_level_description]}' 2>/dev/null || true
+
+      - name: Push all branches and tags to code.europa.eu
+        working-directory: repo.git
+        env:
+          TARGET_TOKEN: ${{ secrets.CODE_EUROPA_TOKEN }}
+        run: |
+          missing=0
+          if [ -z "$TARGET_TOKEN" ]; then
+            echo "::error::Secret CODE_EUROPA_TOKEN is empty or not available to this run"
+            missing=1
+          fi
+          if [ -z "$TARGET_REPO_RAW" ]; then
+            echo "::error::Secret CODE_EUROPA_REPO is empty or not available to this run"
+            missing=1
+          fi
+          [ "$missing" -eq 0 ] || exit 1
+
+          # Normalise the path: drop whitespace, https://code.europa.eu/, .git and stray slashes
+          TARGET_REPO="$(printf '%s' "$TARGET_REPO_RAW" | tr -d '[:space:]')"
+          TARGET_REPO="${TARGET_REPO#https://}"; TARGET_REPO="${TARGET_REPO#code.europa.eu/}"
+          TARGET_REPO="${TARGET_REPO%.git}"; TARGET_REPO="${TARGET_REPO%/}"; TARGET_REPO="${TARGET_REPO#/}"
+
+          TARGET_TOKEN="$(printf '%s' "$TARGET_TOKEN" | tr -d '[:space:]')"
+          TARGET_URL="https://oauth2:${TARGET_TOKEN}@code.europa.eu/${TARGET_REPO}.git"
+
+          # Push only branches and tags (not GitHub's refs/pull/*, which GitLab rejects).
+          # '+' = force-update, so the mirror always matches GitHub exactly.
+          # --prune = delete branches/tags on code.europa.eu that no longer exist on GitHub.
+          #           Remove --prune if code.europa.eu has branches of its own you want to keep.
+          git push --prune "$TARGET_URL" \
+            '+refs/heads/*:refs/heads/*' \
+            '+refs/tags/*:refs/tags/*'

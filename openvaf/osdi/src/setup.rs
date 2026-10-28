@@ -389,12 +389,15 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
         };
 
         // Default initialization of the hidden state
-        for &var in inst_data.hidden_state.keys() {
-            let (ptr, ty) = inst_data.hidden_state_ptr(builder.llbuilder, var, false, instance);
+        for &key in inst_data.hidden_state.keys() {
+            let (ptr, ty) = inst_data.hidden_state_ptr(builder.llbuilder, key, false, instance);
             unsafe {
                 let old = builder.load(ty, ptr);
-                let val =
-                    builder.select(init_hidden, &*LLVMConstNull(NonNull::from(ty).as_ptr()), old);
+                let init = match key.init_value() {
+                    Some(val) => cx.const_real(val),
+                    None => &*LLVMConstNull(NonNull::from(ty).as_ptr()),
+                };
+                let val = builder.select(init_hidden, init, old);
                 builder.store(ptr, val)
             };
         }

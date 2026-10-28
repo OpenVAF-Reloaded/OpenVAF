@@ -516,6 +516,66 @@ endmodule
     Ok(())
 }
 
+// With full Verilog-A (`-s`) each last_crossing() call site keeps the times of the last
+// rising/falling crossings (-1 if none) as hidden state. A crossing is detected if dt > 0 and
+// the input changed its sign since the last accepted point (a zero has the sign of the last
+// nonzero value). Its time is interpolated linearly.
+fn last_crossing_test() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    const SRC: &str = r#"`include "disciplines.vams"
+module last_crossing_test(a, r, f);
+    inout a, r, f;
+    electrical a, r, f;
+    analog begin
+        I(a) <+ last_crossing(V(a));
+        I(r) <+ last_crossing(V(r), 1);
+        I(f) <+ last_crossing(V(f), -1);
+    end
+endmodule
+"#;
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+    let root_file = tmp_dir.join("openvaf_last_crossing_test.va");
+    std::fs::write(&root_file, SRC)?;
+    let libs = compile_and_load_modules(&root_file, false);
+    assert_eq!(libs.len(), 1);
+    let desc = &libs[0];
+    let model = desc.new_model();
+    model.process_params()?;
+    let mut instance = model.new_instance();
+    let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+
+    // (abstime, dt, input, expected any, rising, falling crossing time)
+    let steps = [
+        // operating point: no crossings
+        (0.0, 0.0, -1.0, -1.0, -1.0, -1.0),
+        // rising from -1 to 1, crossing halfway
+        (1e-4, 1e-4, 1.0, 0.5e-4, 0.5e-4, -1.0),
+        // zero is not a crossing
+        (2e-4, 1e-4, 0.0, 0.5e-4, 0.5e-4, -1.0),
+        // falling from zero (last nonzero value positive), crossing at the last point
+        (3e-4, 1e-4, -3.0, 2e-4, 0.5e-4, 2e-4),
+        (4e-4, 1e-4, -1.0, 2e-4, 0.5e-4, 2e-4),
+    ];
+    for (abstime, dt, v, any, rising, falling) in steps {
+        sim.abstime = abstime;
+        sim.dt = dt;
+        sim.set_voltage("a", v);
+        sim.set_voltage("r", v);
+        sim.set_voltage("f", v);
+        sim.clear();
+        instance.eval(&model, &mut sim, EvalFlags::ANALYSIS_TRAN);
+        instance.load_dae(&model, &mut sim);
+        assert_approx_eq!(sim.read_residual("a").0, any);
+        assert_approx_eq!(sim.read_residual("r").0, rising);
+        assert_approx_eq!(sim.read_residual("f").0, falling);
+        desc.accept(instance.data, model.data);
+    }
+    Ok(())
+}
+
 // Enhancement-3: vector ports. A 4-bit DAC with a bus port followed by a scalar port, in
 // non-ANSI and ANSI style. The OSDI terminals must be `d[0] d[1] d[2] d[3] out` (simulators
 // bind instance terminals by position) and the output must be computed from the right bits.
@@ -710,6 +770,7 @@ harness! {
         Test::new("indirect_opamp", &indirect_opamp_test),
         Test::new("step_events", &step_events_test),
         Test::new("slew", &slew_test),
+        Test::new("last_crossing", &last_crossing_test),
         Test::new("bus_port_dac", &bus_port_dac_test),
         Test::new("hierarchy_bus_slices", &hierarchy_bus_slices_test),
         Test::new("hierarchy_variable_width_slices", &hierarchy_variable_width_slices_test),

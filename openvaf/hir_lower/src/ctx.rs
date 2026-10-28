@@ -30,6 +30,8 @@ pub struct LoweringCtx<'a, 'c> {
     pub num_noise_sources: u32,
     /// Number of `slew()` call sites with hidden state lowered so far
     pub num_slews: u32,
+    /// Number of `last_crossing()` call sites with hidden state lowered so far
+    pub num_last_crossings: u32,
 }
 
 impl<'a, 'c> LoweringCtx<'a, 'c> {
@@ -50,6 +52,7 @@ impl<'a, 'c> LoweringCtx<'a, 'c> {
             intern,
             num_noise_sources: 0,
             num_slews: 0,
+            num_last_crossings: 0,
         }
     }
 
@@ -92,6 +95,9 @@ impl<'a, 'c> LoweringCtx<'a, 'c> {
                 // keeps its previous value if the call site is not executed
                 PlaceKind::SlewOutput(i) => {
                     self.use_param(ParamKind::HiddenState(HiddenStateKey::Slew(i)))
+                }
+                PlaceKind::LastCrossingOutput(i, slot) => {
+                    self.use_param(ParamKind::HiddenState(HiddenStateKey::LastCrossing(i, slot)))
                 }
                 PlaceKind::ImplicitResidual { .. } | PlaceKind::Contribute { .. } => F_ZERO,
                 PlaceKind::CollapseImplicitEquation(_) => TRUE,

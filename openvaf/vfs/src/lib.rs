@@ -84,8 +84,7 @@ impl From<Result<Vec<u8>, io::ErrorKind>> for VfsEntry {
 impl From<Vec<u8>> for VfsEntry {
     fn from(contents: Vec<u8>) -> Self {
         // TODO allow back transformations
-        let mut detector =
-            chardetng::EncodingDetector::new(chardetng::Iso2022JpDetection::Allow);
+        let mut detector = chardetng::EncodingDetector::new(chardetng::Iso2022JpDetection::Allow);
         if contents.len() > u16::MAX as usize {
             detector.feed(&contents[..u16::MAX as usize], false);
         } else {

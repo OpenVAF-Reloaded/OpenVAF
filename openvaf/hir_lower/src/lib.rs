@@ -92,6 +92,35 @@ pub enum HiddenStateKey {
     Slew(u32),
     /// State of the `i`-th `last_crossing()` call site
     LastCrossing(u32, CrossingSlot),
+    /// Input of the `i`-th `transition()` call site
+    Transition(u32),
+}
+
+/// Slot of a `transition()` call site written by eval
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TransitionSlot {
+    /// Time at which a new transition begins (`$abstime + td`), cleared by accept
+    /// if no new transition was posted
+    Begin,
+    /// Rise time
+    Rise,
+    /// Fall time
+    Fall,
+    /// Time tolerance
+    TimeTol,
+    /// Value of the input, stored in the pending slot of its hidden state
+    Input,
+}
+
+impl TransitionSlot {
+    /// Slots stored in the instance data of a `transition()` call site
+    /// (the input is hidden state)
+    pub const STORED: [TransitionSlot; 4] = [
+        TransitionSlot::Begin,
+        TransitionSlot::Rise,
+        TransitionSlot::Fall,
+        TransitionSlot::TimeTol,
+    ];
 }
 
 /// Hidden state of a `last_crossing()` call site
@@ -111,7 +140,9 @@ impl HiddenStateKey {
     pub fn ty(&self, db: &CompilationDB) -> Type {
         match *self {
             HiddenStateKey::Var(var) => var.ty(db),
-            HiddenStateKey::Slew(_) | HiddenStateKey::LastCrossing(..) => Type::Real,
+            HiddenStateKey::Slew(_)
+            | HiddenStateKey::LastCrossing(..)
+            | HiddenStateKey::Transition(_) => Type::Real,
         }
     }
 
@@ -121,6 +152,7 @@ impl HiddenStateKey {
             HiddenStateKey::Var(var) => PlaceKind::Var(var),
             HiddenStateKey::Slew(i) => PlaceKind::SlewOutput(i),
             HiddenStateKey::LastCrossing(i, slot) => PlaceKind::LastCrossingOutput(i, slot),
+            HiddenStateKey::Transition(i) => PlaceKind::Transition(i, TransitionSlot::Input),
         }
     }
 
@@ -161,6 +193,8 @@ pub enum ParamKind {
     },
     ParamSysFun(ParamSysFun),
     HiddenState(HiddenStateKey),
+    /// Output of the `i`-th `transition()` call site, written by the simulator
+    TransitionOutput(u32),
     ImplicitUnknown(ImplicitEquation),
 }
 
@@ -182,6 +216,7 @@ impl ParamKind {
                 | ParamKind::TimeStep
                 | ParamKind::EnableIntegration
                 | ParamKind::HiddenState(_)
+                | ParamKind::TransitionOutput(_)
                 | ParamKind::PrevState(_)
                 | ParamKind::NewState(_)
                 | ParamKind::EnableLim
@@ -260,6 +295,8 @@ pub enum PlaceKind {
     /// New state of the `i`-th `last_crossing()` call site, stored in the
     /// pending slot of its hidden state
     LastCrossingOutput(u32, CrossingSlot),
+    /// Slot of the `i`-th `transition()` call site written by eval
+    Transition(u32, TransitionSlot),
 }
 
 impl PlaceKind {
@@ -275,7 +312,8 @@ impl PlaceKind {
             | PlaceKind::AbsDelayTime(_)
             | PlaceKind::AbsDelayMax(_)
             | PlaceKind::SlewOutput(_)
-            | PlaceKind::LastCrossingOutput(..) => Type::Real,
+            | PlaceKind::LastCrossingOutput(..)
+            | PlaceKind::Transition(..) => Type::Real,
             PlaceKind::ParamMin(param) | PlaceKind::ParamMax(param) | PlaceKind::Param(param) => {
                 param.ty(db)
             }

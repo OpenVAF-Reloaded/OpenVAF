@@ -63,7 +63,8 @@ impl<'a> Context<'a> {
                 | PlaceKind::AbsDelayTime(_)
                 | PlaceKind::AbsDelayMax(_)
                 | PlaceKind::SlewOutput(_)
-                | PlaceKind::LastCrossingOutput(..) => true,
+                | PlaceKind::LastCrossingOutput(..)
+                | PlaceKind::Transition(..) => true,
                 PlaceKind::Var(var) => {
                     module.op_vars.contains_key(&var) || hidden_state.contains(&var)
                 }
@@ -306,6 +307,7 @@ impl<'a> Context<'a> {
                             | PlaceKind::HiddenStateInit(_)
                             | PlaceKind::SlewOutput(_)
                             | PlaceKind::LastCrossingOutput(..)
+                            | PlaceKind::Transition(..)
                     )
                 {
                     self.output_values.insert(val.unwrap_unchecked());

@@ -4,7 +4,7 @@ use std::iter::once;
 use hir::{CompilationDB, GlobalEvent, ParamSysFun, Type};
 use hir_def::db::HirDefDB;
 use hir_def::ndatable::NDATable;
-use hir_lower::{CurrentKind, ImplicitEquation, ParamKind};
+use hir_lower::{CurrentKind, HiddenStateKey, ImplicitEquation, ParamKind};
 use lasso::{Rodeo, Spur};
 use llvm_sys::core::{
     LLVMConstArray2, LLVMConstInt, LLVMConstPtrToInt, LLVMGetArrayLength2, LLVMGetDataLayoutStr,
@@ -31,7 +31,7 @@ use crate::inst_data::{
 use crate::load::JacobianLoadType;
 use crate::metadata::osdi_0_5::{
     OsdiAbsDelay, OsdiDescriptor, OsdiJacobianEntry, OsdiJacobianValue, OsdiNatureRef, OsdiNode,
-    OsdiNodePair, OsdiNoiseSource, OsdiParamOpvar, OsdiTys, JACOBIAN_ENTRY_REACT,
+    OsdiNodePair, OsdiNoiseSource, OsdiParamOpvar, OsdiTransition, OsdiTys, JACOBIAN_ENTRY_REACT,
     JACOBIAN_ENTRY_REACT_CONST, JACOBIAN_ENTRY_RESIST, JACOBIAN_ENTRY_RESIST_CONST,
     MODULEFLAG_ABSTIME, MODULEFLAG_COMPACT, MODULEFLAG_FINAL_STEP, MODULEFLAG_HIDDEN_STATE,
     MODULEFLAG_INITIAL_STEP, NATREF_DISCIPLINE_FLOW, NATREF_DISCIPLINE_POTENTIAL, NATREF_NONE,
@@ -403,6 +403,25 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             .collect()
     }
 
+    pub fn transitions(&self, target_data: &LLVMTargetDataRef) -> Vec<OsdiTransition> {
+        let inst_data = &self.inst_data;
+        (0..inst_data.num_transitions)
+            .map(|i| {
+                let [tbegin_offset, tr_offset, tf_offset, time_tol_offset, output_offset] =
+                    inst_data.transition_offsets(i, target_data);
+                OsdiTransition {
+                    tbegin_offset,
+                    tr_offset,
+                    tf_offset,
+                    time_tol_offset,
+                    input_accepted_offset: inst_data
+                        .hidden_state_offset(HiddenStateKey::Transition(i), target_data),
+                    output_offset,
+                }
+            })
+            .collect()
+    }
+
     pub fn unknown_residual_natures(
         &self,
         db: &CompilationDB,
@@ -559,6 +578,8 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                 absdelays: self.absdelays(target_data),
                 jacobian_values: self.jacobian_values(target_data),
                 accept: self.accept(),
+                transition_count: self.inst_data.num_transitions,
+                transitions: self.transitions(target_data),
             }
         }
     }

@@ -32,6 +32,8 @@ pub struct LoweringCtx<'a, 'c> {
     pub num_slews: u32,
     /// Number of `last_crossing()` call sites with hidden state lowered so far
     pub num_last_crossings: u32,
+    /// Number of `transition()` call sites with hidden state lowered so far
+    pub num_transitions: u32,
 }
 
 impl<'a, 'c> LoweringCtx<'a, 'c> {
@@ -53,6 +55,7 @@ impl<'a, 'c> LoweringCtx<'a, 'c> {
             num_noise_sources: 0,
             num_slews: 0,
             num_last_crossings: 0,
+            num_transitions: 0,
         }
     }
 
@@ -105,6 +108,8 @@ impl<'a, 'c> LoweringCtx<'a, 'c> {
                 PlaceKind::BoundStep => INFINITY,
                 PlaceKind::AbsDelayTime(_) => F_ZERO,
                 PlaceKind::AbsDelayMax(_) => F_ZERO,
+                // transition() is never called conditionally
+                PlaceKind::Transition(..) => F_ZERO,
                 PlaceKind::HiddenStateInit(_) => unreachable!("{kind:?} is not a place"),
             };
             let entry = self.func.func.layout.entry_block().unwrap();

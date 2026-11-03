@@ -1,6 +1,8 @@
 use core::ptr::NonNull;
 
-use hir_lower::{CallBackKind, HiddenStateKey, ParamInfoKind, ParamKind, PlaceKind};
+use hir_lower::{
+    CallBackKind, HiddenStateKey, ParamInfoKind, ParamKind, PlaceKind, TransitionSlot,
+};
 use llvm_sys::core::{
     LLVMAppendBasicBlockInContext, LLVMBuildBr, LLVMBuildCondBr, LLVMBuildRetVoid, LLVMConstNull,
     LLVMCreateBuilderInContext, LLVMDisposeBuilder, LLVMGetInsertBlock, LLVMGetLastInstruction,
@@ -17,7 +19,7 @@ use sim_back::SimUnknownKind;
 
 use crate::bitfield::is_flag_set;
 use crate::compilation_unit::{general_callbacks, OsdiCompilationUnit};
-use crate::inst_data::OsdiInstanceParam;
+use crate::inst_data::{OsdiInstanceParam, TRANSITION_SLOTS};
 use crate::metadata::osdi_0_5::INIT_HIDDEN_STATE;
 
 use std::collections::HashMap;
@@ -400,6 +402,19 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                 let val = builder.select(init_hidden, init, old);
                 builder.store(ptr, val)
             };
+        }
+
+        // transition() slots: no transition posted (tbegin = -1), everything else 0
+        for i in 0..inst_data.num_transitions {
+            for (pos, slot) in TRANSITION_SLOTS.iter().enumerate() {
+                let init = if *slot == Some(TransitionSlot::Begin) { -1.0 } else { 0.0 };
+                let ptr = inst_data.transition_ptr(builder.llbuilder, i, pos, instance);
+                unsafe {
+                    let old = builder.load(cx.ty_double(), ptr);
+                    let val = builder.select(init_hidden, cx.const_real(init), old);
+                    builder.store(ptr, val)
+                };
+            }
         }
 
         // Fill constants section of instance data

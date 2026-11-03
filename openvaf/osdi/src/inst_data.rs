@@ -3,7 +3,7 @@ use core::ptr::NonNull;
 use std::hash::BuildHasherDefault;
 
 use hir::{CompilationDB, ParamSysFun, Parameter, Variable};
-use hir_lower::{HiddenStateKey, HirInterner, LimitState, ParamKind, PlaceKind};
+use hir_lower::{HiddenStateKey, HirInterner, LimitState, ParamKind, PlaceKind, TransitionSlot};
 use indexmap::IndexMap;
 use llvm_sys::core::{
     LLVMBuildFAdd,
@@ -242,7 +242,20 @@ pub struct OsdiInstanceData<'ll> {
     /// Eval reads the accepted slot and writes the pending slot.
     pub hidden_state:
         IndexMap<HiddenStateKey, &'ll llvm_sys::LLVMType, BuildHasherDefault<FxHasher>>,
+    /// Number of `transition()` call sites. Each has the slots
+    /// [`TRANSITION_SLOTS`] after the hidden state slots.
+    pub num_transitions: u32,
 }
+
+/// Instance data slots of a `transition()` call site, the output is written by
+/// the simulator
+pub const TRANSITION_SLOTS: [Option<TransitionSlot>; 5] = [
+    Some(TransitionSlot::Begin),
+    Some(TransitionSlot::Rise),
+    Some(TransitionSlot::Fall),
+    Some(TransitionSlot::TimeTol),
+    None,
+];
 
 impl<'ll> OsdiInstanceData<'ll> {
     pub fn new(db: &CompilationDB, module: &OsdiModule<'_>, cx: &CodegenCx<'_, 'll>) -> Self {
@@ -342,6 +355,9 @@ impl<'ll> OsdiInstanceData<'ll> {
 
         let mut hidden_state = IndexMap::with_hasher(BuildHasherDefault::<FxHasher>::default());
         hidden_state.extend(module.hidden_state.iter().map(|&key| (key, lltype(&key.ty(db), cx))));
+        let num_transitions =
+            hidden_state.keys().filter(|key| matches!(key, HiddenStateKey::Transition(_))).count()
+                as u32;
 
         let state_idx = cx.ty_array(cx.ty_int(), module.intern.lim_state.len() as u32);
         let static_fields: [_; NUM_CONST_FIELDS as usize] = [
@@ -363,6 +379,7 @@ impl<'ll> OsdiInstanceData<'ll> {
             .chain(consts.iter().map(|_| ty_f64))
             .chain(hidden_state.values().copied())
             .chain(hidden_state.values().copied())
+            .chain((0..num_transitions as usize * TRANSITION_SLOTS.len()).map(|_| ty_f64))
             .collect();
 
         let name = &module.sym;
@@ -389,6 +406,7 @@ impl<'ll> OsdiInstanceData<'ll> {
             delay_times,
             delay_maxes,
             hidden_state,
+            num_transitions,
         }
     }
 
@@ -1189,6 +1207,89 @@ impl<'ll> OsdiInstanceData<'ll> {
         }
     }
 
+    /// Struct element of the `slot`-th entry of [`TRANSITION_SLOTS`] of the `i`-th
+    /// `transition()` call site
+    pub fn transition_elem(&self, i: u32, slot: usize) -> u32 {
+        self.hidden_state_elem(0, false)
+            + 2 * self.hidden_state.len() as u32
+            + i * TRANSITION_SLOTS.len() as u32
+            + slot as u32
+    }
+
+    pub fn transition_ptr(
+        &self,
+        llbuilder: &llvm_sys::LLVMBuilder,
+        i: u32,
+        slot: usize,
+        ptr: &'ll llvm_sys::LLVMValue,
+    ) -> &'ll llvm_sys::LLVMValue {
+        unsafe {
+            &*LLVMBuildStructGEP2(
+                NonNull::from(llbuilder).as_ptr(),
+                NonNull::from(self.ty).as_ptr(),
+                NonNull::from(ptr).as_ptr(),
+                self.transition_elem(i, slot),
+                UNNAMED,
+            )
+        }
+    }
+
+    /// Location of the output slot (written by the simulator) of the `i`-th
+    /// `transition()` call site
+    pub fn transition_output_loc(
+        &self,
+        cx: &CodegenCx<'_, 'll>,
+        i: u32,
+        ptr: &'ll llvm_sys::LLVMValue,
+    ) -> MemLoc<'ll> {
+        let elem = self.transition_elem(i, TRANSITION_SLOTS.len() - 1);
+        MemLoc::struct_gep(ptr, self.ty, cx.ty_double(), elem, cx)
+    }
+
+    /// Stores the slots of every `transition()` call site written by eval
+    pub unsafe fn store_transitions(
+        &self,
+        module: &OsdiModule,
+        ptr: &'ll llvm_sys::LLVMValue,
+        builder: &mir_llvm::Builder<'_, '_, 'll>,
+    ) {
+        for i in 0..self.num_transitions {
+            for (pos, slot) in TRANSITION_SLOTS.iter().enumerate() {
+                let Some(slot) = *slot else { continue };
+                let val = module.intern.outputs[&PlaceKind::Transition(i, slot)].unwrap_unchecked();
+                let val = builder.values[val].get(builder);
+                builder.store(self.transition_ptr(builder.llbuilder, i, pos, ptr), val)
+            }
+        }
+    }
+
+    /// Byte offsets of the [`TRANSITION_SLOTS`] of the `i`-th `transition()` call site
+    pub fn transition_offsets(
+        &self,
+        i: u32,
+        target_data: &LLVMTargetDataRef,
+    ) -> [u32; TRANSITION_SLOTS.len()] {
+        std::array::from_fn(|slot| unsafe {
+            LLVMOffsetOfElement(
+                *target_data,
+                NonNull::from(self.ty).as_ptr(),
+                self.transition_elem(i, slot),
+            ) as u32
+        })
+    }
+
+    /// Byte offset of the accepted slot of the hidden state `key`
+    pub fn hidden_state_offset(&self, key: HiddenStateKey, target_data: &LLVMTargetDataRef) -> u32 {
+        let pos = self.hidden_state.get_index_of(&key).unwrap() as u32;
+        unsafe {
+            LLVMOffsetOfElement(
+                *target_data,
+                NonNull::from(self.ty).as_ptr(),
+                self.hidden_state_elem(pos, false),
+            ) as u32
+        }
+    }
+
     pub fn cache_slot_elem(&self, slot: CacheSlot) -> u32 {
         NUM_CONST_FIELDS + self.params.len() as u32 + u32::from(slot)
     }
@@ -1403,6 +1504,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                     | ParamKind::FinalStep
                     | ParamKind::PrevState(_)
                     | ParamKind::NewState(_)
+                    | ParamKind::TransitionOutput(_)
                     | ParamKind::ImplicitUnknown(_) => unreachable!(),
                 }
             }
@@ -1491,6 +1593,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                     | ParamKind::FinalStep
                     | ParamKind::PrevState(_)
                     | ParamKind::NewState(_)
+                    | ParamKind::TransitionOutput(_)
                     | ParamKind::ImplicitUnknown(_) => unreachable!(),
                 }
             }

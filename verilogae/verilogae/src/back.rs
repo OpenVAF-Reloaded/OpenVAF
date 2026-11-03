@@ -382,6 +382,7 @@ impl CodegenCtx<'_, '_> {
                     ParamKind::ImplicitUnknown(_)
                     | ParamKind::Abstime
                     | ParamKind::TimeStep
+                    | ParamKind::TransitionOutput(_)
                     | ParamKind::PrevState(_)
                     | ParamKind::NewState(_) => codegen.builder.cx.const_real(0.0),
                     ParamKind::EnableIntegration | ParamKind::EnableLim => {
@@ -733,6 +734,7 @@ impl CodegenCtx<'_, '_> {
                     ParamKind::ImplicitUnknown(_)
                     | ParamKind::Abstime
                     | ParamKind::TimeStep
+                    | ParamKind::TransitionOutput(_)
                     | ParamKind::PrevState(_)
                     | ParamKind::NewState(_) => builder.cx.const_real(0.0),
                     ParamKind::EnableIntegration | ParamKind::EnableLim => {

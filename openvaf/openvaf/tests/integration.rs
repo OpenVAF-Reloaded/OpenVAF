@@ -11,8 +11,8 @@ use stdx::{ignore_dev_tests, openvaf_test_data, project_root};
 use target::spec::Target;
 
 use crate::load::{
-    load_osdi_lib, EvalFlags, OsdiDescriptor, MODULEFLAG_COMPACT, MODULEFLAG_FINAL_STEP,
-    MODULEFLAG_INITIAL_STEP,
+    load_osdi_lib, EvalFlags, OsdiDescriptor, OsdiInstance, MODULEFLAG_COMPACT,
+    MODULEFLAG_FINAL_STEP, MODULEFLAG_INITIAL_STEP,
 };
 use crate::mock_sim::{MockSimulation, ALPHA};
 
@@ -446,7 +446,7 @@ endmodule
             }
             // the value set in the initial step persists once it is accepted
             eval(EvalFlags::INITIAL_STEP);
-            desc.accept(instance.data, model.data);
+            instance.accept(&model, 0.0, 0.0);
             assert_eq!(eval(EvalFlags::ANALYSIS_TRAN)[2], (5.0, 0.0), "-s, x_keep accepted");
         } else {
             for (flags, ..) in cases {
@@ -511,7 +511,7 @@ endmodule
         assert_approx_eq!(sim.read_residual("b").0, ib);
         assert_eq!(sim.read_jacobian("a", "a").0, ga, "t={abstime}");
         assert_eq!(sim.read_jacobian("b", "b").0, gb, "t={abstime}");
-        desc.accept(instance.data, model.data);
+        instance.accept(&model, abstime, dt);
     }
     Ok(())
 }
@@ -571,7 +571,118 @@ endmodule
         assert_approx_eq!(sim.read_residual("a").0, any);
         assert_approx_eq!(sim.read_residual("r").0, rising);
         assert_approx_eq!(sim.read_residual("f").0, falling);
-        desc.accept(instance.data, model.data);
+        instance.accept(&model, abstime, dt);
+    }
+    Ok(())
+}
+
+// With full Verilog-A (`-s`) the input of each transition() call site is hidden state. Eval
+// stores $abstime + td, tr, tf, and time_tol for the simulator. If dt > 0 the output is read
+// from the slot written by the simulator (derivative zero), otherwise it is the input. Accept
+// clears tbegin (-1) if dt == 0 or the input did not change.
+fn transition_test() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    const SRC: &str = r#"`include "disciplines.vams"
+module transition_test(a, b, c);
+    inout a, b, c;
+    electrical a, b, c;
+    parameter real td = 1e-6;
+    analog begin
+        I(a) <+ transition(V(a), td, 2e-6, 3e-6, 1e-9);
+        // tf defaults to tr
+        I(b) <+ transition(V(b), 0, 4e-6);
+        I(c) <+ transition(V(c));
+    end
+endmodule
+"#;
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+    let root_file = tmp_dir.join("openvaf_transition_test.va");
+    std::fs::write(&root_file, SRC)?;
+    let libs = compile_and_load_modules(&root_file, false);
+    assert_eq!(libs.len(), 1);
+    let desc = &libs[0];
+    assert_eq!(desc.transitions().len(), 3);
+    let model = desc.new_model();
+    model.process_params()?;
+    let mut instance = model.new_instance();
+    let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+    let nodes = ["a", "b", "c"];
+    // (tbegin, tr, tf, time_tol, input_accepted) of every call site
+    let slots = |instance: &OsdiInstance| {
+        desc.transitions()
+            .iter()
+            .map(|t| {
+                [t.tbegin_offset, t.tr_offset, t.tf_offset, t.time_tol_offset]
+                    .map(|off| instance.read_f64(off))
+            })
+            .collect::<Vec<_>>()
+    };
+    let accepted = |instance: &OsdiInstance| -> Vec<f64> {
+        desc.transitions().iter().map(|t| instance.read_f64(t.input_accepted_offset)).collect()
+    };
+
+    // initialized by setup_instance: no transition posted
+    assert_eq!(slots(&instance), vec![[-1.0, 0.0, 0.0, 0.0]; 3]);
+    assert_eq!(accepted(&instance), vec![0.0; 3]);
+
+    // (abstime, dt, input, output slots, expected output, derivative, tbegin after accept)
+    let steps = [
+        // operating point: follows the input, tbegin is cleared
+        (0.0, 0.0, 1.0, [9.0; 3], [1.0; 3], 1.0, [-1.0; 3]),
+        // input changed: output from the simulator, the transition stays posted
+        (1e-6, 1e-6, 2.0, [1.25, 1.5, 1.75], [1.25, 1.5, 1.75], 0.0, [2e-6, 1e-6, 1e-6]),
+        // input unchanged: tbegin is cleared
+        (2e-6, 1e-6, 2.0, [1.5, 2.0, 2.0], [1.5, 2.0, 2.0], 0.0, [-1.0; 3]),
+    ];
+    for (abstime, dt, v, outputs, expected, deriv, tbegin) in steps {
+        sim.abstime = abstime;
+        sim.dt = dt;
+        for (i, node) in nodes.iter().enumerate() {
+            sim.set_voltage(node, v);
+            instance.set_transition_output(i, outputs[i]);
+        }
+        sim.clear();
+        instance.eval(&model, &mut sim, EvalFlags::ANALYSIS_TRAN);
+        instance.load_dae(&model, &mut sim);
+        for (i, node) in nodes.iter().enumerate() {
+            assert_approx_eq!(sim.read_residual(node).0, expected[i]);
+            assert_eq!(sim.read_jacobian(node, node).0, deriv, "t={abstime} {node}");
+        }
+        let expected_slots = vec![
+            [abstime + 1e-6, 2e-6, 3e-6, 1e-9],
+            [abstime, 4e-6, 4e-6, 0.0],
+            [abstime, 0.0, 0.0, 0.0],
+        ];
+        assert_eq!(slots(&instance), expected_slots, "t={abstime} before accept");
+        instance.accept(&model, abstime, dt);
+        let after: Vec<f64> = slots(&instance).iter().map(|s| s[0]).collect();
+        assert_eq!(after, tbegin, "t={abstime} after accept");
+        assert_eq!(accepted(&instance), vec![v; 3], "t={abstime}");
+    }
+
+    // without -s transition() is a passthrough (a new file, the library is loaded only once)
+    let root_file = tmp_dir.join("openvaf_transition_compact_test.va");
+    std::fs::write(&root_file, SRC)?;
+    let libs = compile_and_load_modules(&root_file, true);
+    let desc = &libs[0];
+    assert!(desc.transitions().is_empty());
+    let model = desc.new_model();
+    model.process_params()?;
+    let mut instance = model.new_instance();
+    let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+    sim.abstime = 1e-6;
+    sim.dt = 1e-6;
+    for node in nodes {
+        sim.set_voltage(node, 2.0);
+    }
+    instance.eval(&model, &mut sim, EvalFlags::ANALYSIS_TRAN);
+    instance.load_dae(&model, &mut sim);
+    for node in nodes {
+        assert_eq!(sim.read_residual(node).0, 2.0, "no -s, {node}");
+        assert_eq!(sim.read_jacobian(node, node).0, 1.0, "no -s, {node}");
     }
     Ok(())
 }
@@ -771,6 +882,7 @@ harness! {
         Test::new("step_events", &step_events_test),
         Test::new("slew", &slew_test),
         Test::new("last_crossing", &last_crossing_test),
+        Test::new("transition", &transition_test),
         Test::new("bus_port_dac", &bus_port_dac_test),
         Test::new("hierarchy_bus_slices", &hierarchy_bus_slices_test),
         Test::new("hierarchy_variable_width_slices", &hierarchy_variable_width_slices_test),

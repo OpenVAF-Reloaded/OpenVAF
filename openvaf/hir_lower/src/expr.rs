@@ -20,7 +20,7 @@ use crate::ctx::LoweringCtx;
 use crate::fmt::DisplayKind;
 use crate::{
     CallBackKind, CrossingSlot, CurrentKind, HiddenStateKey, IdtKind, ImplicitEquationKind,
-    NoiseTable, ParamKind, PlaceKind, RetFlag,
+    NoiseTable, ParamKind, PlaceKind, RetFlag, TransitionSlot,
 };
 
 impl BodyLoweringCtx<'_, '_, '_> {
@@ -723,6 +723,7 @@ impl BodyLoweringCtx<'_, '_, '_> {
                 z_val
             }
             BuiltIn::slew if !self.ctx.compact && args.len() > 1 => self.lower_slew(args),
+            BuiltIn::transition if !self.ctx.compact => self.lower_transition(args),
             BuiltIn::slew | BuiltIn::transition | BuiltIn::limit => self.lower_expr(args[0]),
             BuiltIn::last_crossing if !self.ctx.compact => self.lower_last_crossing(args),
             // compact models have no crossings
@@ -786,6 +787,44 @@ impl BodyLoweringCtx<'_, '_, '_> {
         );
         self.ctx.def_place(PlaceKind::SlewOutput(idx), x);
         x
+    }
+
+    /// Lowers `transition(x [, td [, tr [, tf [, time_tol]]]])`.
+    ///
+    /// The input of each call site is hidden state. Eval stores `$abstime + td`,
+    /// `tr`, `tf`, and `time_tol` for the simulator, which computes the output
+    /// waveform. If `dt > 0` the output is read from the slot written by the
+    /// simulator (its derivative with respect to `x` is zero). Otherwise the output
+    /// is `x`. `td`, `tr`, and `time_tol` default to 0, `tf` defaults to `tr`.
+    fn lower_transition(&mut self, args: &[ExprId]) -> Value {
+        let x = self.lower_expr(args[0]);
+        let mut arg = |i: usize| args.get(i).map(|&arg| self.lower_expr(arg));
+        let td = arg(1).unwrap_or(F_ZERO);
+        let tr = arg(2).unwrap_or(F_ZERO);
+        let tf = arg(3).unwrap_or(tr);
+        let time_tol = arg(4).unwrap_or(F_ZERO);
+
+        let idx = self.ctx.num_transitions;
+        self.ctx.num_transitions += 1;
+        let t = self.ctx.use_param(ParamKind::Abstime);
+        let begin = self.ctx.ins().fadd(t, td);
+        for (slot, val) in [
+            (TransitionSlot::Input, x),
+            (TransitionSlot::Begin, begin),
+            (TransitionSlot::Rise, tr),
+            (TransitionSlot::Fall, tf),
+            (TransitionSlot::TimeTol, time_tol),
+        ] {
+            self.ctx.def_place(PlaceKind::Transition(idx, slot), val);
+        }
+
+        let dt = self.ctx.use_param(ParamKind::TimeStep);
+        let advanced = self.ctx.ins().fgt(dt, F_ZERO);
+        self.lower_select_with(
+            advanced,
+            |ctx| ctx.ctx.use_param(ParamKind::TransitionOutput(idx)),
+            |_| x,
+        )
     }
 
     /// Lowers `last_crossing(x [, direction])`.

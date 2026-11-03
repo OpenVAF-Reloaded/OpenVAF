@@ -1,13 +1,15 @@
 use core::ptr::NonNull;
 
-use hir_lower::{CallBackKind, CurrentKind, LimitState, ParamKind};
+use hir_lower::{CallBackKind, CurrentKind, HiddenStateKey, LimitState, ParamKind};
 use llvm_sys::core::{
     LLVMAppendBasicBlockInContext, LLVMBuildAlloca, LLVMBuildAnd, LLVMBuildBr, LLVMBuildCall2,
-    LLVMBuildCondBr, LLVMBuildICmp, LLVMBuildInBoundsGEP2, LLVMBuildIntCast2, LLVMBuildLoad2,
-    LLVMBuildOr, LLVMBuildRet, LLVMBuildRetVoid, LLVMBuildStore, LLVMCreateBuilderInContext,
-    LLVMDisposeBuilder, LLVMGetParam, LLVMPositionBuilderAtEnd,
+    LLVMBuildCondBr, LLVMBuildFCmp, LLVMBuildICmp, LLVMBuildInBoundsGEP2, LLVMBuildIntCast2,
+    LLVMBuildLoad2, LLVMBuildOr, LLVMBuildRet, LLVMBuildRetVoid, LLVMBuildSelect, LLVMBuildStore,
+    LLVMBuildStructGEP2, LLVMCreateBuilderInContext, LLVMDisposeBuilder, LLVMGetParam,
+    LLVMPositionBuilderAtEnd,
 };
 use llvm_sys::LLVMIntPredicate::{LLVMIntNE, LLVMIntULT};
+use llvm_sys::LLVMRealPredicate::LLVMRealOEQ;
 use log::info;
 use mir_llvm::{
     Builder, BuilderVal, BuiltCallbackFun, CallbackFun, InlineCallbackBuilder, MemLoc, UNNAMED,
@@ -25,6 +27,9 @@ use crate::metadata::osdi_0_5::{
 };
 use crate::metadata::OsdiLimFunction;
 use crate::OsdiLimId;
+
+/// Field of `dt` in `OsdiSimInfo`
+const DT_OFFSET: u32 = 6;
 
 /*
 // Inline callback example
@@ -113,7 +118,6 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
         let simparam = unsafe { builder.struct_gep(sim_info_ty, sim_info, 0) };
 
         const ABSTIME_OFFSET: u32 = 1;
-        const DT_OFFSET: u32 = 6;
 
         let prev_result = unsafe {
             let ptr = builder.struct_gep(sim_info_ty, sim_info, 2);
@@ -261,6 +265,10 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                         // Value from the previous evaluation
                         ParamKind::HiddenState(var) => {
                             return inst_data.hidden_state_loc(cx, var, false, instance).into()
+                        }
+                        // Written by the simulator before eval
+                        ParamKind::TransitionOutput(i) => {
+                            return inst_data.transition_output_loc(cx, i, instance).into()
                         }
                         ParamKind::EnableIntegration => {
                             let flags = flags.read(builder.llbuilder);
@@ -453,6 +461,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             inst_data.store_delay_times(instance, &builder);
             inst_data.store_delay_maxes(instance, &builder);
             inst_data.store_hidden_state(module, instance, &builder);
+            inst_data.store_transitions(module, instance, &builder);
 
             builder.ret();
         }
@@ -460,11 +469,13 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
         llfunc
     }
 
-    /// Builds `accept(inst, model)` which copies the pending slots of the hidden
-    /// state variables to their accepted slots. May only be called after eval.
+    /// Builds `accept(inst, model, info)` which copies the pending slots of the
+    /// hidden state variables to their accepted slots. May only be called after
+    /// eval. Clears `tbegin` of every `transition()` call site if `dt == 0` or
+    /// its input did not change (no new transition was posted).
     pub fn accept(&self) -> &'ll llvm_sys::LLVMValue {
-        let OsdiCompilationUnit { inst_data, cx, module, .. } = self;
-        let fun_ty = cx.ty_func(&[cx.ty_ptr(), cx.ty_ptr()], cx.ty_void());
+        let OsdiCompilationUnit { inst_data, cx, module, tys, .. } = self;
+        let fun_ty = cx.ty_func(&[cx.ty_ptr(), cx.ty_ptr(), cx.ty_ptr()], cx.ty_void());
         let name = &format!("accept_{}", module.sym);
         let llfunc = cx.declare_int_c_fn(name, fun_ty);
 
@@ -477,6 +488,40 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             let llbuilder = LLVMCreateBuilderInContext(NonNull::from(cx.llcx).as_ptr());
             LLVMPositionBuilderAtEnd(llbuilder, entry);
             let inst = &*LLVMGetParam(NonNull::from(llfunc).as_ptr(), 0);
+            let sim_info = LLVMGetParam(NonNull::from(llfunc).as_ptr(), 2);
+
+            if inst_data.num_transitions != 0 {
+                let load = |ty: &'ll llvm_sys::LLVMType, ptr| {
+                    LLVMBuildLoad2(llbuilder, NonNull::from(ty).as_ptr(), ptr, UNNAMED)
+                };
+                let dt = LLVMBuildStructGEP2(
+                    llbuilder,
+                    NonNull::from(tys.osdi_sim_info).as_ptr(),
+                    sim_info,
+                    DT_OFFSET,
+                    UNNAMED,
+                );
+                let dt = load(cx.ty_double(), dt);
+                let zero = NonNull::from(cx.const_real(0.0)).as_ptr();
+                let dt_zero = LLVMBuildFCmp(llbuilder, LLVMRealOEQ, dt, zero, UNNAMED);
+                let none = NonNull::from(cx.const_real(-1.0)).as_ptr();
+                for i in 0..inst_data.num_transitions {
+                    let key = HiddenStateKey::Transition(i);
+                    let (pending, ty) = inst_data.hidden_state_ptr(&*llbuilder, key, true, inst);
+                    let (accepted, _) = inst_data.hidden_state_ptr(&*llbuilder, key, false, inst);
+                    let pending = load(ty, NonNull::from(pending).as_ptr());
+                    let accepted = load(ty, NonNull::from(accepted).as_ptr());
+                    let unchanged =
+                        LLVMBuildFCmp(llbuilder, LLVMRealOEQ, pending, accepted, UNNAMED);
+                    let clear = LLVMBuildOr(llbuilder, dt_zero, unchanged, UNNAMED);
+                    // TRANSITION_SLOTS[0] is tbegin
+                    let begin = inst_data.transition_ptr(&*llbuilder, i, 0, inst);
+                    let begin = NonNull::from(begin).as_ptr();
+                    let old = load(cx.ty_double(), begin);
+                    let val = LLVMBuildSelect(llbuilder, clear, none, old, UNNAMED);
+                    LLVMBuildStore(llbuilder, val, begin);
+                }
+            }
 
             for &var in inst_data.hidden_state.keys() {
                 let (pending, ty) = inst_data.hidden_state_ptr(&*llbuilder, var, true, inst);

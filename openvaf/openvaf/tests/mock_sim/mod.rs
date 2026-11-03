@@ -259,4 +259,36 @@ impl OsdiInstance {
         );
         EvalRetFlags::from_bits(flags).unwrap()
     }
+
+    /// Accepts the last evaluation at `abstime` with time step `dt`
+    pub fn accept(&self, model: &OsdiModel, abstime: f64, dt: f64) {
+        let sim_params = OsdiSimParas {
+            names: &mut ptr::null_mut(),
+            vals: ptr::null_mut(),
+            names_str: &mut ptr::null_mut(),
+            vals_str: ptr::null_mut(),
+        };
+        let mut sim_info = OsdiSimInfo {
+            paras: sim_params,
+            abstime,
+            prev_solve: ptr::null_mut(),
+            prev_state: ptr::null_mut(),
+            next_state: ptr::null_mut(),
+            flags: 0,
+            dt,
+        };
+        self.descriptor.accept(self.data, model.data, &mut sim_info);
+    }
+
+    /// Writes the output of the `i`-th `transition()` call site (done by the
+    /// simulator before eval)
+    pub fn set_transition_output(&self, i: usize, val: f64) {
+        let offset = self.descriptor.transitions()[i].output_offset;
+        unsafe { *(self.data as *mut u8).add(offset as usize).cast::<f64>() = val };
+    }
+
+    /// Reads the slot at `offset` of the instance data
+    pub fn read_f64(&self, offset: u32) -> f64 {
+        unsafe { *(self.data as *mut u8).add(offset as usize).cast::<f64>() }
+    }
 }

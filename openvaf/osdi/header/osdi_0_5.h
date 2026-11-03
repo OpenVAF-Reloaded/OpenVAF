@@ -182,6 +182,15 @@ typedef struct OsdiAbsDelay {
   uint32_t maxdelay_offset;
 } OsdiAbsDelay;
 
+typedef struct OsdiTransition {
+  uint32_t tbegin_offset;
+  uint32_t tr_offset;
+  uint32_t tf_offset;
+  uint32_t time_tol_offset;
+  uint32_t input_accepted_offset;
+  uint32_t output_offset;
+} OsdiTransition;
+
 typedef struct OsdiDescriptor {
   char *name;
 
@@ -254,7 +263,9 @@ typedef struct OsdiDescriptor {
   uint32_t absdelay_count;
   OsdiAbsDelay *absdelays;
   OsdiJacobianValue *jacobian_values;
-  void (*accept)(void *inst, void *model);
+  void (*accept)(void *inst, void *model, OsdiSimInfo *info);
+  uint32_t transition_count;
+  OsdiTransition *transitions;
 }OsdiDescriptor;
 
 typedef struct OsdiNature {

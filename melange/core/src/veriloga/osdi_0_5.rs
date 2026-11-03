@@ -165,6 +165,15 @@ pub struct OsdiAbsDelay {
     pub maxdelay_offset: u32,
 }
 #[repr(C)]
+pub struct OsdiTransition {
+    pub tbegin_offset: u32,
+    pub tr_offset: u32,
+    pub tf_offset: u32,
+    pub time_tol_offset: u32,
+    pub input_accepted_offset: u32,
+    pub output_offset: u32,
+}
+#[repr(C)]
 #[non_exhaustive]
 pub struct OsdiDescriptor {
     pub name: *mut c_char,
@@ -222,7 +231,9 @@ pub struct OsdiDescriptor {
     pub absdelay_count: u32,
     pub absdelays: *mut OsdiAbsDelay,
     pub jacobian_values: *mut OsdiJacobianValue,
-    pub accept: fn(*mut c_void, *mut c_void),
+    pub accept: fn(*mut c_void, *mut c_void, *mut OsdiSimInfo),
+    pub transition_count: u32,
+    pub transitions: *mut OsdiTransition,
 }
 impl OsdiDescriptor {
     pub fn access(
@@ -360,8 +371,8 @@ impl OsdiDescriptor {
     ) {
         (self.load_noise_params)(inst, model, power, exponent)
     }
-    pub fn accept(&self, inst: *mut c_void, model: *mut c_void) {
-        (self.accept)(inst, model)
+    pub fn accept(&self, inst: *mut c_void, model: *mut c_void, info: *mut OsdiSimInfo) {
+        (self.accept)(inst, model, info)
     }
 }
 #[repr(C)]

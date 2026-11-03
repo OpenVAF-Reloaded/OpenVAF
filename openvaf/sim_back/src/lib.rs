@@ -1,5 +1,8 @@
 use hir::{BranchWrite, CompilationDB, Node};
-use hir_lower::{CurrentKind, HiddenStateKey, HirInterner, ImplicitEquation, ParamKind};
+use hir_lower::{
+    CurrentKind, HiddenStateKey, HirInterner, ImplicitEquation, ParamKind, PlaceKind,
+    TransitionSlot,
+};
 use lasso::Rodeo;
 use mir::Function;
 use mir_opt::{simplify_cfg, sparse_conditional_constant_propagation};
@@ -49,8 +52,9 @@ pub struct CompiledModule<'a> {
     pub model_param_setup: Function,
     pub model_param_intern: HirInterner,
     pub node_collapse: NodeCollapse,
-    /// Values that must be kept between evaluations: detected variables and
-    /// `slew()` outputs (empty unless compiled with full Verilog-A semantics)
+    /// Values that must be kept between evaluations: detected variables and the
+    /// state of `slew()`, `last_crossing()`, and `transition()` call sites (empty
+    /// unless compiled with full Verilog-A semantics)
     pub hidden_state: Vec<HiddenStateKey>,
     /// Compiled as a compact model (without full Verilog-A semantics, `-s`)
     pub compact: bool,
@@ -174,12 +178,17 @@ impl<'a> CompiledModule<'a> {
         // Build MIR for the module
         let mut cx = Context::new(db, literals, module, &hidden_vars, compact);
 
-        // slew() and last_crossing() state is always hidden state
+        // slew(), last_crossing(), and transition() state is always hidden state
         let mut hidden_state: Vec<_> = hidden_vars.into_iter().map(HiddenStateKey::Var).collect();
         hidden_state.extend(cx.intern.params.raw.keys().filter_map(|kind| match *kind {
             ParamKind::HiddenState(
                 key @ (HiddenStateKey::Slew(_) | HiddenStateKey::LastCrossing(..)),
             ) => Some(key),
+            _ => None,
+        }));
+        // eval never reads the accepted input of a transition()
+        hidden_state.extend(cx.intern.outputs.keys().filter_map(|kind| match *kind {
+            PlaceKind::Transition(i, TransitionSlot::Input) => Some(HiddenStateKey::Transition(i)),
             _ => None,
         }));
         if dump_hs {
@@ -191,6 +200,7 @@ impl<'a> CompiledModule<'a> {
                     HiddenStateKey::LastCrossing(i, slot) => {
                         println!("  last_crossing #{i} {slot:?}")
                     }
+                    HiddenStateKey::Transition(i) => println!("  transition #{i}"),
                 }
             }
         }

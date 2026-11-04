@@ -234,6 +234,7 @@ pub struct OsdiDescriptor {
     pub accept: fn(*mut c_void, *mut c_void, *mut OsdiSimInfo),
     pub transition_count: u32,
     pub transitions: *mut OsdiTransition,
+    pub discontinuity_offset: u32,
 }
 impl OsdiDescriptor {
     pub fn access(

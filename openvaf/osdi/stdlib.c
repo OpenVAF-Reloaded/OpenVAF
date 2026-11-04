@@ -176,7 +176,18 @@ char *fmt_binary(int val) {
   return res;
 }
 
-void lim_discontinuity(int *flags) { *flags |= EVAL_RET_FLAG_LIM; }
+// $discontinuity(degree): -1 inside a $limit function sets the limiting flag,
+// other negative degrees are ignored, a nonnegative degree updates the slot
+// (smallest nonnegative degree, -1 if none). slot is NULL if the module has none.
+void discontinuity(int *flags, int *slot, int in_limit, int degree) {
+  if (degree < 0) {
+    if (degree == -1 && in_limit) {
+      *flags |= EVAL_RET_FLAG_LIM;
+    }
+  } else if (slot && (*slot < 0 || degree < *slot)) {
+    *slot = degree;
+  }
+}
 
 void set_ret_flag_fatal(int *flags) { *flags |= EVAL_RET_FLAG_FATAL; }
 

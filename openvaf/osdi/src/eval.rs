@@ -139,6 +139,11 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
         let ret_flags = builder.ret_allocated.unwrap();
         unsafe { builder.store(ret_flags, cx.const_int(0)) };
 
+        let discontinuity = inst_data.discontinuity_ptr(builder.llbuilder, instance);
+        if let Some(slot) = discontinuity {
+            unsafe { builder.store(slot, cx.const_int(-1)) };
+        }
+
         let connected_ports = unsafe { inst_data.load_connected_ports(&mut builder, instance) };
         let prev_solve: TiVec<_, _> = module
             .dae_system
@@ -354,16 +359,20 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                         num_state: 0,
                     })
                 }
-                CallBackKind::LimDiscontinuity => {
+                CallBackKind::Discontinuity { in_limit } => {
                     let fun = builder
                         .cx
-                        .get_func_by_name("lim_discontinuity")
-                        .expect("stdlib function lim_discontinuity is missing");
-                    let fun_ty = cx.ty_func(&[cx.ty_ptr()], cx.ty_void());
+                        .get_func_by_name("discontinuity")
+                        .expect("stdlib function discontinuity is missing");
+                    let fun_ty = cx.ty_func(
+                        &[cx.ty_ptr(), cx.ty_ptr(), cx.ty_int(), cx.ty_int()],
+                        cx.ty_void(),
+                    );
+                    let slot = discontinuity.unwrap_or_else(|| cx.const_null_ptr());
                     CallbackFun::Prebuilt(BuiltCallbackFun {
                         fun_ty,
                         fun,
-                        state: Box::new([ret_flags]),
+                        state: Box::new([ret_flags, slot, cx.const_int(in_limit as i32)]),
                         num_state: 0,
                     })
                 }

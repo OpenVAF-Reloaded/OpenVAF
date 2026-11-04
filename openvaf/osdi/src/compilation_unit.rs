@@ -256,7 +256,7 @@ pub fn general_callbacks<'ll>(
                 | CallBackKind::CollapseHint(_, _)
                 | CallBackKind::BuiltinLimit { .. }
                 | CallBackKind::StoreLimit(_)
-                | CallBackKind::LimDiscontinuity
+                | CallBackKind::Discontinuity { .. }
                 | CallBackKind::Analysis
                 | CallBackKind::NoiseTable(_)
                 | CallBackKind::WhiteNoise { .. }

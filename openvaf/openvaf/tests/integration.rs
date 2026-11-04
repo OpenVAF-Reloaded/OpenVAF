@@ -11,7 +11,7 @@ use stdx::{ignore_dev_tests, openvaf_test_data, project_root};
 use target::spec::Target;
 
 use crate::load::{
-    load_osdi_lib, EvalFlags, OsdiDescriptor, OsdiInstance, MODULEFLAG_COMPACT,
+    load_osdi_lib, EvalFlags, EvalRetFlags, OsdiDescriptor, OsdiInstance, MODULEFLAG_COMPACT,
     MODULEFLAG_FINAL_STEP, MODULEFLAG_INITIAL_STEP,
 };
 use crate::mock_sim::{MockSimulation, ALPHA};
@@ -687,6 +687,155 @@ endmodule
     Ok(())
 }
 
+fn discontinuity_test() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    const SRC: &str = r#"`include "disciplines.vams"
+module discontinuity_test(a, b);
+    inout a, b;
+    electrical a, b;
+    parameter integer deg = -1;
+    analog function real mylim;
+        input vnew, vold, vmax;
+        real vnew, vold, vmax;
+        begin
+            mylim = vnew;
+            if (vnew > vmax) begin
+                mylim = vmax;
+                $discontinuity(-1);
+            end
+        end
+    endfunction
+    analog begin
+        if (V(a, b) > 1)
+            $discontinuity(2);
+        // larger than the slot: ignored
+        if (V(a, b) > 1)
+            $discontinuity(4);
+        if (V(a, b) > 2)
+            $discontinuity;
+        if (V(a, b) > 3)
+            $discontinuity(deg);
+        // ignored: negative and not inside $limit
+        $discontinuity(-1);
+        $discontinuity(-3);
+        I(a, b) <+ $limit(V(a, b), mylim, 5.0);
+    end
+endmodule
+
+// only -1 inside $limit sets the limiting flag
+module discontinuity_lim_test(a, b);
+    inout a, b;
+    electrical a, b;
+    analog function real lim_p1;
+        input vnew, vold, vmax;
+        real vnew, vold, vmax;
+        begin
+            lim_p1 = vnew;
+            if (vnew > vmax)
+                $discontinuity(1);
+        end
+    endfunction
+    analog function real lim_m2;
+        input vnew, vold, vmax;
+        real vnew, vold, vmax;
+        begin
+            lim_m2 = vnew;
+            if (vnew > vmax)
+                $discontinuity(-2);
+        end
+    endfunction
+    analog function real lim_m1;
+        input vnew, vold, vmax;
+        real vnew, vold, vmax;
+        begin
+            lim_m1 = vnew;
+            if (vnew > vmax)
+                $discontinuity(-1);
+        end
+    endfunction
+    analog begin
+        I(a, b) <+ $limit(V(a, b), lim_p1, 1.0) + $limit(V(a, b), lim_m2, 2.0)
+            + $limit(V(a, b), lim_m1, 3.0);
+    end
+endmodule
+
+// no slot: only negative constants, -1 inside $limit sets just the limiting flag
+module no_discontinuity_test(a, b);
+    inout a, b;
+    electrical a, b;
+    analog function real lim_m1;
+        input vnew, vold, vmax;
+        real vnew, vold, vmax;
+        begin
+            lim_m1 = vnew;
+            if (vnew > vmax)
+                $discontinuity(-1);
+        end
+    endfunction
+    analog begin
+        $discontinuity(-1);
+        $discontinuity(-2 - 1);
+        I(a, b) <+ $limit(V(a, b), lim_m1, 1.0);
+    end
+endmodule
+"#;
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+    let root_file = tmp_dir.join("openvaf_discontinuity_test.va");
+    std::fs::write(&root_file, SRC)?;
+    let libs = compile_and_load_modules(&root_file, false);
+    assert_eq!(libs.len(), 3);
+    let find = |name: &str| libs.iter().find(|desc| unsafe { load::osdi_str(desc.name) } == name);
+
+    // evaluates the steps (voltage, slot after eval, limited) in order
+    let run = |name: &str, steps: &[(f64, i32, bool)]| -> Result<()> {
+        let desc = find(name).unwrap();
+        let offset = desc.discontinuity_offset;
+        assert_ne!(offset, u32::MAX, "{name}");
+        let model = desc.new_model();
+        model.process_params()?;
+        let mut instance = model.new_instance();
+        let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+        for &(v, slot, limited) in steps {
+            sim.next_iter();
+            sim.set_voltage("a", v);
+            let ret = instance.eval(&model, &mut sim, EvalFlags::ENABLE_LIM);
+            assert_eq!(instance.read_i32(offset), slot, "{name} V={v}");
+            let lim = ret.contains(EvalRetFlags::EVAL_RET_FLAG_LIM);
+            assert_eq!(lim, limited, "{name} V={v}");
+        }
+        Ok(())
+    };
+    // the last step checks that the slot is reset at every eval
+    let steps = [
+        (0.0, -1, false),
+        (1.5, 2, false),
+        (2.5, 0, false),
+        (3.5, 0, false),
+        (6.0, 0, true),
+        (0.0, -1, false),
+    ];
+    run("discontinuity_test", &steps)?;
+    let steps = [(0.0, -1, false), (1.5, 1, false), (2.5, 1, false), (3.5, 1, true)];
+    run("discontinuity_lim_test", &steps)?;
+
+    let desc = find("no_discontinuity_test").unwrap();
+    assert_eq!(desc.discontinuity_offset, u32::MAX);
+    let model = desc.new_model();
+    model.process_params()?;
+    let mut instance = model.new_instance();
+    let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+    for (v, limited) in [(0.0, false), (2.0, true)] {
+        sim.next_iter();
+        sim.set_voltage("a", v);
+        let ret = instance.eval(&model, &mut sim, EvalFlags::ENABLE_LIM);
+        assert_eq!(ret.contains(EvalRetFlags::EVAL_RET_FLAG_LIM), limited, "V={v}");
+    }
+    Ok(())
+}
+
 // Enhancement-3: vector ports. A 4-bit DAC with a bus port followed by a scalar port, in
 // non-ANSI and ANSI style. The OSDI terminals must be `d[0] d[1] d[2] d[3] out` (simulators
 // bind instance terminals by position) and the output must be computed from the right bits.
@@ -883,6 +1032,7 @@ harness! {
         Test::new("slew", &slew_test),
         Test::new("last_crossing", &last_crossing_test),
         Test::new("transition", &transition_test),
+        Test::new("discontinuity", &discontinuity_test),
         Test::new("bus_port_dac", &bus_port_dac_test),
         Test::new("hierarchy_bus_slices", &hierarchy_bus_slices_test),
         Test::new("hierarchy_variable_width_slices", &hierarchy_variable_width_slices_test),

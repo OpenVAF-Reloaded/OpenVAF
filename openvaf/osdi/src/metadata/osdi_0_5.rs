@@ -526,6 +526,7 @@ pub struct OsdiDescriptor<'ll> {
     pub accept: &'ll llvm_sys::LLVMValue,
     pub transition_count: u32,
     pub transitions: Vec<OsdiTransition>,
+    pub discontinuity_offset: u32,
 }
 impl<'ll> OsdiDescriptor<'ll> {
     pub fn to_ll_val(
@@ -604,6 +605,7 @@ impl<'ll> OsdiDescriptor<'ll> {
             self.accept,
             ctx.const_unsigned_int(self.transition_count),
             ctx.const_arr_ptr(tys.osdi_transition, &arr_56),
+            ctx.const_unsigned_int(self.discontinuity_offset),
         ];
         let ty = tys.osdi_descriptor;
         ctx.const_struct(ty, &fields)
@@ -670,6 +672,7 @@ impl OsdiTyBuilder<'_, '_, '_> {
             ctx.ty_ptr(),
             ctx.ty_int(),
             ctx.ty_ptr(),
+            ctx.ty_int(),
         ];
         let ty = ctx.ty_struct("OsdiDescriptor", &fields);
         self.osdi_descriptor = Some(ty);

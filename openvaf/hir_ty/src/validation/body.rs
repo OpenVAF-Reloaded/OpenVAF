@@ -173,7 +173,7 @@ impl BodyCtx {
         !matches!(self, Self::Const)
     }
 
-    /// `$stop`, `$abstime` and `analysis()` require a running analysis
+    /// `$stop`, `$abstime`, `analysis()` and `$discontinuity` require a running analysis
     fn allow_analysis_state(self) -> bool {
         !matches!(self, Self::AnalogInitialBlock)
     }
@@ -604,7 +604,7 @@ impl ExprValidator<'_, '_> {
                     },
                     expr,
                 ),
-            BuiltIn::stop | BuiltIn::abstime | BuiltIn::analysis
+            BuiltIn::stop | BuiltIn::abstime | BuiltIn::analysis | BuiltIn::discontinuity
                 if !self.parent.ctx.allow_analysis_state() =>
             {
                 self.report_illegal_access(
@@ -712,6 +712,7 @@ impl ExprValidator<'_, '_> {
                 BuiltIn::noise_table | BuiltIn::noise_table_log,
                 Some(NOISE_TABLE_INLINE | NOISE_TABLE_INLINE_NAME),
             ) => self.validate_const_expr(args[0]),
+            (BuiltIn::discontinuity, _) if !args.is_empty() => self.validate_const_expr(args[0]),
             (func @ (BuiltIn::simparam | BuiltIn::simparam_str), _) => {
                 if self.parent.ctx == BodyCtx::Const {
                     let known = if let Expr::Literal(Literal::String(name)) =

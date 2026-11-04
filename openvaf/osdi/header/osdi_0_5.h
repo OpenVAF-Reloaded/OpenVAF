@@ -266,6 +266,7 @@ typedef struct OsdiDescriptor {
   void (*accept)(void *inst, void *model, OsdiSimInfo *info);
   uint32_t transition_count;
   OsdiTransition *transitions;
+  uint32_t discontinuity_offset;
 }OsdiDescriptor;
 
 typedef struct OsdiNature {

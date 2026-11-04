@@ -667,13 +667,10 @@ impl BodyLoweringCtx<'_, '_, '_> {
                 self.ctx.finish_limit(state, res)
             }
             BuiltIn::discontinuity => {
-                // AB: Negative literals are represented as UnaryOp::Neg(Literal)
-                //     We have a function for that now.
-                if self.ctx.inside_lim && Some(-1) == self.body.as_literalsignedint(&args[0]) {
-                    self.ctx.call(CallBackKind::LimDiscontinuity, &[]);
-                } else {
-                    // TODO implement support for discontinuity?
-                }
+                // without an argument it behaves as $discontinuity(0)
+                let degree = args.first().map_or(ZERO, |&arg| self.lower_expr(arg));
+                let in_limit = self.ctx.inside_lim;
+                self.ctx.call(CallBackKind::Discontinuity { in_limit }, &[degree]);
                 GRAVESTONE
             }
             BuiltIn::finish => {

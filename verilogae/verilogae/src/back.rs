@@ -72,7 +72,7 @@ pub fn stub_callbacks<'ll>(
                 | CallBackKind::ParamInfo(_, _)
                 | CallBackKind::BuiltinLimit { .. }
                 | CallBackKind::StoreLimit(_)
-                | CallBackKind::LimDiscontinuity
+                | CallBackKind::Discontinuity { .. }
                 | CallBackKind::CollapseHint(_, _)
                 | CallBackKind::SetRetFlag { .. } => return None,
                 CallBackKind::Analysis => {

@@ -3,7 +3,9 @@ use core::ptr::NonNull;
 use std::hash::BuildHasherDefault;
 
 use hir::{CompilationDB, ParamSysFun, Parameter, Variable};
-use hir_lower::{HiddenStateKey, HirInterner, LimitState, ParamKind, PlaceKind, TransitionSlot};
+use hir_lower::{
+    CallBackKind, HiddenStateKey, HirInterner, LimitState, ParamKind, PlaceKind, TransitionSlot,
+};
 use indexmap::IndexMap;
 use llvm_sys::core::{
     LLVMBuildFAdd,
@@ -19,7 +21,7 @@ use llvm_sys::core::{
 };
 use llvm_sys::target::{LLVMOffsetOfElement, LLVMTargetDataRef};
 use llvm_sys::LLVMIntPredicate;
-use mir::{strip_optbarrier, Const, Function, Param, ValueDef, F_ZERO};
+use mir::{strip_optbarrier, Const, Function, InstructionData, Param, ValueDef, F_ZERO};
 use mir_llvm::{CodegenCx, MemLoc, UNNAMED};
 use rustc_hash::FxHasher;
 use sim_back::dae::{self, MatrixEntryId, SimUnknown};
@@ -245,6 +247,27 @@ pub struct OsdiInstanceData<'ll> {
     /// Number of `transition()` call sites. Each has the slots
     /// [`TRANSITION_SLOTS`] after the hidden state slots.
     pub num_transitions: u32,
+    /// An integer slot after the transition slots holding the smallest nonnegative
+    /// `$discontinuity` degree of the last eval (-1 if none)
+    pub discontinuity: bool,
+}
+
+/// The discontinuity slot is needed if, after optimization, eval still calls
+/// `$discontinuity` with an argument that is not a negative constant
+fn has_discontinuity_slot(module: &OsdiModule<'_>) -> bool {
+    let func = module.eval;
+    func.layout.blocks().any(|bb| {
+        func.layout.block_insts(bb).any(|inst| {
+            let InstructionData::Call { func_ref, .. } = func.dfg.insts[inst] else {
+                return false;
+            };
+            if !matches!(module.intern.callbacks[func_ref], CallBackKind::Discontinuity { .. }) {
+                return false;
+            }
+            let degree = func.dfg.instr_args(inst)[0];
+            !matches!(func.dfg.value_def(degree), ValueDef::Const(Const::Int(i)) if i < 0)
+        })
+    })
 }
 
 /// Instance data slots of a `transition()` call site, the output is written by
@@ -358,6 +381,7 @@ impl<'ll> OsdiInstanceData<'ll> {
         let num_transitions =
             hidden_state.keys().filter(|key| matches!(key, HiddenStateKey::Transition(_))).count()
                 as u32;
+        let discontinuity = has_discontinuity_slot(module);
 
         let state_idx = cx.ty_array(cx.ty_int(), module.intern.lim_state.len() as u32);
         let static_fields: [_; NUM_CONST_FIELDS as usize] = [
@@ -380,6 +404,7 @@ impl<'ll> OsdiInstanceData<'ll> {
             .chain(hidden_state.values().copied())
             .chain(hidden_state.values().copied())
             .chain((0..num_transitions as usize * TRANSITION_SLOTS.len()).map(|_| ty_f64))
+            .chain(discontinuity.then_some(ty_u32))
             .collect();
 
         let name = &module.sym;
@@ -407,6 +432,7 @@ impl<'ll> OsdiInstanceData<'ll> {
             delay_maxes,
             hidden_state,
             num_transitions,
+            discontinuity,
         }
     }
 
@@ -1276,6 +1302,37 @@ impl<'ll> OsdiInstanceData<'ll> {
                 self.transition_elem(i, slot),
             ) as u32
         })
+    }
+
+    /// Pointer to the discontinuity slot, `None` if the module has none
+    pub fn discontinuity_ptr(
+        &self,
+        llbuilder: &llvm_sys::LLVMBuilder,
+        ptr: &'ll llvm_sys::LLVMValue,
+    ) -> Option<&'ll llvm_sys::LLVMValue> {
+        self.discontinuity.then(|| unsafe {
+            &*LLVMBuildStructGEP2(
+                NonNull::from(llbuilder).as_ptr(),
+                NonNull::from(self.ty).as_ptr(),
+                NonNull::from(ptr).as_ptr(),
+                self.transition_elem(self.num_transitions, 0),
+                UNNAMED,
+            )
+        })
+    }
+
+    /// Byte offset of the discontinuity slot, `u32::MAX` if the module has none
+    pub fn discontinuity_offset(&self, target_data: &LLVMTargetDataRef) -> u32 {
+        if !self.discontinuity {
+            return u32::MAX;
+        }
+        unsafe {
+            LLVMOffsetOfElement(
+                *target_data,
+                NonNull::from(self.ty).as_ptr(),
+                self.transition_elem(self.num_transitions, 0),
+            ) as u32
+        }
     }
 
     /// Byte offset of the accepted slot of the hidden state `key`

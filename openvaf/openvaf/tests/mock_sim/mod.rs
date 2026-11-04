@@ -291,4 +291,9 @@ impl OsdiInstance {
     pub fn read_f64(&self, offset: u32) -> f64 {
         unsafe { *(self.data as *mut u8).add(offset as usize).cast::<f64>() }
     }
+
+    /// Reads the integer slot at `offset` of the instance data
+    pub fn read_i32(&self, offset: u32) -> i32 {
+        unsafe { *(self.data as *mut u8).add(offset as usize).cast::<i32>() }
+    }
 }

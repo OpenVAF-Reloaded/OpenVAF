@@ -39,7 +39,10 @@ impl std::fmt::Display for RetFlag {
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub enum CallBackKind {
-    Print { kind: DisplayKind, arg_tys: Box<[FmtArg]> },
+    Print {
+        kind: DisplayKind,
+        arg_tys: Box<[FmtArg]>,
+    },
     SimParam,
     SimParamOpt,
     SimParamStr,
@@ -47,13 +50,27 @@ pub enum CallBackKind {
     NodeDerivative(Node),
     ParamInfo(ParamInfoKind, Parameter),
     CollapseHint(Node, Option<Node>),
-    LimDiscontinuity,
+    /// `$discontinuity(i)`: -1 inside a `$limit` function sets the limiting flag,
+    /// other negative values are ignored, nonnegative values update the
+    /// discontinuity slot
+    Discontinuity {
+        in_limit: bool,
+    },
     Analysis,
-    BuiltinLimit { name: Spur, num_args: u32 },
+    BuiltinLimit {
+        name: Spur,
+        num_args: u32,
+    },
     StoreLimit(LimitState),
     TimeDerivative,
-    WhiteNoise { name: Spur, idx: u32 },
-    FlickerNoise { name: Spur, idx: u32 },
+    WhiteNoise {
+        name: Spur,
+        idx: u32,
+    },
+    FlickerNoise {
+        name: Spur,
+        idx: u32,
+    },
     NoiseTable(Box<NoiseTable>),
     SetRetFlag(RetFlag),
 }
@@ -121,9 +138,9 @@ impl CallBackKind {
                 returns: 1,
                 has_sideeffects: false,
             },
-            CallBackKind::LimDiscontinuity => FunctionSignature {
-                name: "$discontinuty[-1]".to_owned(),
-                params: 0,
+            CallBackKind::Discontinuity { in_limit } => FunctionSignature {
+                name: if *in_limit { "$discontinuity[lim]" } else { "$discontinuity" }.to_owned(),
+                params: 1,
                 returns: 0,
                 has_sideeffects: true,
             },
@@ -187,7 +204,7 @@ impl CallBackKind {
                 | CallBackKind::StoreLimit(_)
                 | CallBackKind::Analysis
                 | CallBackKind::SimParamStr
-                | CallBackKind::LimDiscontinuity
+                | CallBackKind::Discontinuity { .. }
                 | CallBackKind::BuiltinLimit { .. }
         )
     }

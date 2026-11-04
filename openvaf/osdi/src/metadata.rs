@@ -580,6 +580,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                 accept: self.accept(),
                 transition_count: self.inst_data.num_transitions,
                 transitions: self.transitions(target_data),
+                discontinuity_offset: self.inst_data.discontinuity_offset(target_data),
             }
         }
     }

@@ -243,11 +243,53 @@ impl ModuleData {
     pub fn module_data_query(db: &dyn HirDefDB, module: ModuleId) -> Arc<ModuleData> {
         let loc = module.lookup(db);
         let item_tree = loc.item_tree(db);
-        let num_ports = item_tree[loc.id].num_ports;
-        let num_nodes = item_tree[loc.id].nodes.len() as u32;
-        let ports = (0..num_ports).map(|id| NodeLoc { module, id: id.into() }.intern(db)).collect();
-        let internal_nodes =
-            (num_ports..num_nodes).map(|id| NodeLoc { module, id: id.into() }.intern(db)).collect();
+        // Filter by `Node::is_port` rather than slicing on `num_ports`: a vectored
+        // ("bus") port declared in the body (non-ANSI style, e.g. `module m(in, out);
+        // output [3:0] out;`) expands into extra port nodes *after* the header's port
+        // count was captured, so a positional cutoff would misclassify them as internal
+        // nodes. `is_port` is authoritative for every node regardless of when/where it
+        // was declared or expanded.
+        //
+        // For the same reason node order alone does not give the port order: in
+        // `module m(d, out); input [0:3] d;` the header placeholder `d` becomes `d[0]`
+        // (before `out`) while `d[1]`..`d[3]` are appended after `out`. Emit all bits of
+        // a bus port contiguously at the position of its first (lowest) bit, so the
+        // terminal order is `d[0], d[1], d[2], d[3], out`.
+        let module_tree = &item_tree[loc.id];
+        let nodes = &module_tree.nodes;
+        let mut emitted = vec![false; nodes.len()];
+        let mut ports = Vec::new();
+        for (id, node) in nodes.iter_enumerated() {
+            if !node.is_port || emitted[usize::from(id)] {
+                continue;
+            }
+            let bus =
+                module_tree.buses.iter().find(|bus| bus.bit_name(bus.min_max().0) == node.name);
+            let bits: Vec<_> = match bus {
+                Some(bus) => {
+                    let (lo, hi) = bus.min_max();
+                    (lo..=hi)
+                        .filter_map(|bit| {
+                            let name = bus.bit_name(bit);
+                            nodes.iter_enumerated().find(|(_, n)| n.is_port && n.name == name)
+                        })
+                        .map(|(id, _)| id)
+                        .collect()
+                }
+                None => vec![id],
+            };
+            for id in bits {
+                if !emitted[usize::from(id)] {
+                    emitted[usize::from(id)] = true;
+                    ports.push(NodeLoc { module, id }.intern(db));
+                }
+            }
+        }
+        let internal_nodes = nodes
+            .iter_enumerated()
+            .filter(|(_, node)| !node.is_port)
+            .map(|(id, _)| NodeLoc { module, id }.intern(db))
+            .collect();
         Arc::new(ModuleData { name: item_tree[loc.id].name.clone(), ports, internal_nodes })
     }
 }

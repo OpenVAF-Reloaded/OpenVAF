@@ -10,18 +10,20 @@ use hir_def::expr::{CaseCond, Literal};
 use hir_def::nameres::diagnostics::PathResolveError;
 use hir_def::nameres::{NatureAccess, ResolvedPath, ScopeDefItem, ScopeDefItemKind};
 use hir_def::{
-    BranchId, BuiltIn, DefWithBodyId, Expr, ExprId, FunctionArgLoc, FunctionId, LocalFunctionArgId,
-    Lookup, NatureId, NodeId, ParamSysFun, Path, Stmt, StmtId, Type, VarId,
+    BranchId, BuiltIn, BusDecl, DefWithBodyId, Expr, ExprId, FunctionArgLoc, FunctionId,
+    LocalFunctionArgId, Lookup, NatureId, NodeId, ParamSysFun, Path, Stmt, StmtId, Type, VarId,
 };
 use stdx::impl_from;
 use stdx::iter::zip;
 use syntax::ast::{self, BinaryOp, UnaryOp};
+use syntax::name::{AsIdent, Name};
 use syntax::{TextRange, TextSize};
 use typed_index_collections::{TiSlice, TiVec};
 
 use crate::builtin::{
-    DDX_FLOW, DDX_POT, DDX_POT_DIFF, DDX_TEMP, LIMIT_BUILTIN_FUNCTION, LIMIT_USER_FUNCTION,
-    NATURE_ACCESS_BRANCH, NATURE_ACCESS_NODES, NATURE_ACCESS_NODE_GND, NATURE_ACCESS_PORT_FLOW,
+    DDX_FLOW, DDX_POT, DDX_POT_DIFF, DDX_TEMP, LAPALCE_TOL, LAPLACE_NATURE_TOL, LAPLACE_NO_TOL,
+    LIMIT_BUILTIN_FUNCTION, LIMIT_USER_FUNCTION, NATURE_ACCESS_BRANCH, NATURE_ACCESS_NODES,
+    NATURE_ACCESS_NODE_GND, NATURE_ACCESS_PORT_FLOW,
 };
 use crate::db::{Alias, HirTyDB};
 use crate::diagnostics::{ArrayTypeMismatch, SignatureMismatch, TypeMismatch};
@@ -71,7 +73,15 @@ pub struct InferenceResult {
     pub resolved_calls: AHashMap<ExprId, ResolvedFun>,
     pub resolved_signatures: AHashMap<ExprId, Signature>,
     pub assignment_destination: AHashMap<StmtId, AssignDst>,
+    /// For `Stmt::Assignment`s with `assignment_kind == AssignOp::IndirectBranch`, the
+    /// decomposed `(lhs, rhs)` operands of the required `lhs == rhs` constraint expression.
+    pub indirect_branch_constraints: AHashMap<StmtId, (ExprId, ExprId)>,
     pub casts: AHashMap<ExprId, Type>,
+    /// For a `laplace_*` `num`/`den` (or `zero`/`pole`) argument that is a bare reference to a
+    /// module-body array variable (`coeffs` for `real [0:n] coeffs;`) rather than an array
+    /// literal: the variable's expanded scalar `VarId`s, in ascending declared-index order
+    /// (`coeffs[0]`, `coeffs[1]`, ...). See `infere_laplace_array_arg`.
+    pub array_var_refs: AHashMap<ExprId, Vec<VarId>>,
     pub diagnostics: Vec<InferenceDiagnostic>,
 }
 
@@ -83,7 +93,7 @@ impl InferenceResult {
             ..Default::default()
         };
 
-        let mut ctx = Ctx { result, body: &body, db, expr_stmt_ty: None };
+        let mut ctx = Ctx { result, body: &body, db, expr_stmt_ty: None, owner: id };
         ctx.expr_stmt_ty = match id {
             DefWithBodyId::ParamId(param) => match &db.param_data(param).ty {
                 Some(ty) => Some(ty.clone()),
@@ -113,6 +123,7 @@ struct Ctx<'a> {
     /// For behavioural (anlog body and function) and untype (nature attr)
     /// bodys this is simply none
     expr_stmt_ty: Option<Type>,
+    owner: DefWithBodyId,
 }
 
 impl Ctx<'_> {
@@ -121,6 +132,10 @@ impl Ctx<'_> {
             Stmt::Expr(expr) => {
                 // TODO lint for side effect free expressions
                 self.infere_assignment(stmt, expr, self.expr_stmt_ty.clone());
+            }
+            Stmt::Assignment { dst, val, assignment_kind: ast::AssignOp::IndirectBranch } => {
+                let dst_ty = self.infere_assignment_dst(stmt, dst, ast::AssignOp::IndirectBranch);
+                self.infere_indirect_branch_constraint(stmt, val, dst_ty);
             }
             Stmt::Assignment { dst, val, assignment_kind } => {
                 let dst_ty = self.infere_assignment_dst(stmt, dst, assignment_kind);
@@ -188,6 +203,64 @@ impl Ctx<'_> {
         }
     }
 
+    /// Type checks the constraint of an indirect branch assignment
+    /// (`<dst> : <val>;`). `val` must be a top-level `==` expression; its
+    /// two operands are type checked as `Real` (matching `dst_ty`, which is
+    /// always `Type::Real` for a valid branch-access destination) and
+    /// recorded in `indirect_branch_constraints` for later use by HIR
+    /// lowering, instead of being type checked as a single boolean value.
+    fn infere_indirect_branch_constraint(
+        &mut self,
+        stmt: StmtId,
+        val: ExprId,
+        dst_ty: Option<Type>,
+    ) {
+        let (lhs, rhs) = match self.body.exprs[val] {
+            Expr::BinaryOp { lhs, rhs, op: Some(BinaryOp::EqualityTest) } => (lhs, rhs),
+            _ => {
+                self.result
+                    .diagnostics
+                    .push(InferenceDiagnostic::IndirectAssignRequiresEquality { e: val });
+                return;
+            }
+        };
+
+        for operand in [lhs, rhs] {
+            if let Some(operand_ty) = self.infere_expr(stmt, operand) {
+                if let Some(value_ty) = operand_ty.to_value() {
+                    if let Some(dst_ty) = dst_ty.clone() {
+                        if dst_ty.is_assignable_to(&value_ty) {
+                            if dst_ty != value_ty {
+                                self.result.casts.insert(operand, dst_ty);
+                            }
+                        } else {
+                            self.result.diagnostics.push(
+                                TypeMismatch {
+                                    expected: Cow::Owned(vec![TyRequirement::Val(dst_ty)]),
+                                    found_ty: operand_ty,
+                                    expr: operand,
+                                }
+                                .into(),
+                            );
+                        }
+                    }
+                } else {
+                    let expected = dst_ty.clone().map_or(TyRequirement::AnyVal, TyRequirement::Val);
+                    self.result.diagnostics.push(
+                        TypeMismatch {
+                            expected: Cow::Owned(vec![expected]),
+                            found_ty: operand_ty,
+                            expr: operand,
+                        }
+                        .into(),
+                    );
+                }
+            }
+        }
+
+        self.result.indirect_branch_constraints.insert(stmt, (lhs, rhs));
+    }
+
     pub fn infere_assignment_dst(
         &mut self,
         stmt: StmtId,
@@ -248,7 +321,10 @@ impl Ctx<'_> {
 
         // check that the correct operator is used
         match (&dst, assignment_kind) {
-            (AssignDst::Var(_) | AssignDst::FunVar { .. }, ast::AssignOp::Contribute) => {
+            (
+                AssignDst::Var(_) | AssignDst::FunVar { .. },
+                ast::AssignOp::Contribute | ast::AssignOp::IndirectBranch,
+            ) => {
                 self.result.diagnostics.push(InferenceDiagnostic::InvalidAssignDst {
                     e: expr,
                     maybe_different_operand: Some(ast::AssignOp::Assign),
@@ -283,43 +359,59 @@ impl Ctx<'_> {
                 Ty::PortFlow(port)
             }
 
-            Expr::Path { ref path, port: false } => match self.resolve_path(stmt, expr, path)? {
-                ScopeDefItem::BlockId(_) | ScopeDefItem::ModuleId(_) => Ty::Scope,
-                ScopeDefItem::NatureId(nature) => Ty::Nature(nature),
-                ScopeDefItem::DisciplineId(discipline) => Ty::Discipline(discipline),
-                ScopeDefItem::NodeId(node) => Ty::Node(node),
-                ScopeDefItem::VarId(var) => Ty::Var(self.db.var_data(var).ty.clone(), var),
-                ScopeDefItem::ParamId(param) => Ty::Param(self.db.param_ty(param), param),
-                ScopeDefItem::AliasParamId(param) => match self.db.resolve_alias(param)? {
-                    Alias::Cycel => return None,
-                    Alias::Param(param) => Ty::Param(self.db.param_ty(param), param),
-                    Alias::ParamSysFun(param) => {
-                        self.result.resolved_calls.insert(expr, ResolvedFun::Param(param));
-                        Ty::Val(Type::Real)
+            Expr::Path { ref path, port: false } => {
+                if let Some(name) = path.as_ident() {
+                    if self.find_bus(&name).is_some() || self.find_var_array(&name).is_some() {
+                        self.result
+                            .diagnostics
+                            .push(InferenceDiagnostic::BareBusReference { expr, name });
+                        return None;
                     }
-                },
-                ScopeDefItem::BranchId(branch) => Ty::Branch(branch),
-                ScopeDefItem::BuiltIn(_) | ScopeDefItem::NatureAccess(_) => Ty::BuiltInFunction,
+                }
+                match self.resolve_path(stmt, expr, path)? {
+                    ScopeDefItem::BlockId(_)
+                    | ScopeDefItem::ModuleId(_)
+                    | ScopeDefItem::InstantiationId(_) => Ty::Scope,
+                    ScopeDefItem::NatureId(nature) => Ty::Nature(nature),
+                    ScopeDefItem::DisciplineId(discipline) => Ty::Discipline(discipline),
+                    ScopeDefItem::NodeId(node) => Ty::Node(node),
+                    ScopeDefItem::VarId(var) => Ty::Var(self.db.var_data(var).ty.clone(), var),
+                    ScopeDefItem::ParamId(param) => Ty::Param(self.db.param_ty(param), param),
+                    ScopeDefItem::AliasParamId(param) => match self.db.resolve_alias(param)? {
+                        Alias::Cycel => return None,
+                        Alias::Param(param) => Ty::Param(self.db.param_ty(param), param),
+                        Alias::ParamSysFun(param) => {
+                            self.result.resolved_calls.insert(expr, ResolvedFun::Param(param));
+                            Ty::Val(Type::Real)
+                        }
+                    },
+                    ScopeDefItem::BranchId(branch) => Ty::Branch(branch),
+                    ScopeDefItem::BuiltIn(_) | ScopeDefItem::NatureAccess(_) => Ty::BuiltInFunction,
 
-                ScopeDefItem::FunctionId(fun) => Ty::UserFunction(fun),
-                ScopeDefItem::FunctionReturn(fun) => Ty::FunctionVar {
-                    fun,
-                    ty: self.db.function_data(fun).return_ty.clone(),
-                    arg: None,
-                },
-                ScopeDefItem::FunctionArgId(arg) => {
-                    let FunctionArgLoc { fun, id } = arg.lookup(self.db.upcast());
-                    Ty::FunctionVar {
+                    ScopeDefItem::FunctionId(fun) => Ty::UserFunction(fun),
+                    ScopeDefItem::FunctionReturn(fun) => Ty::FunctionVar {
                         fun,
-                        ty: self.db.function_data(fun).args[id].ty.clone(),
-                        arg: Some(id),
+                        ty: self.db.function_data(fun).return_ty.clone(),
+                        arg: None,
+                    },
+                    ScopeDefItem::FunctionArgId(arg) => {
+                        let FunctionArgLoc { fun, id } = arg.lookup(self.db.upcast());
+                        Ty::FunctionVar {
+                            fun,
+                            ty: self.db.function_data(fun).args[id].ty.clone(),
+                            arg: Some(id),
+                        }
                     }
+                    ScopeDefItem::NatureAttrId(attr) => {
+                        Ty::NatureAttr(self.db.nature_attr_ty(attr)?, attr)
+                    }
+                    ScopeDefItem::ParamSysFun(_) => Ty::Val(Type::Real),
                 }
-                ScopeDefItem::NatureAttrId(attr) => {
-                    Ty::NatureAttr(self.db.nature_attr_ty(attr)?, attr)
-                }
-                ScopeDefItem::ParamSysFun(_) => Ty::Val(Type::Real),
-            },
+            }
+
+            Expr::BitSelect { ref base, index } => {
+                self.infere_bit_select(stmt, expr, base, index)?
+            }
 
             Expr::BinaryOp { op: None, lhs, rhs } => {
                 self.infere_expr(stmt, lhs);
@@ -595,6 +687,13 @@ impl Ctx<'_> {
             BuiltIn::ddx => {
                 self.infere_ddx(stmt, expr, args[0], args[1]);
                 return (Some(Ty::Val(Type::Real)), true);
+            }
+
+            BuiltIn::laplace_nd
+            | BuiltIn::laplace_np
+            | BuiltIn::laplace_zd
+            | BuiltIn::laplace_zp => {
+                return self.infere_laplace(stmt, expr, args);
             }
 
             BuiltIn::limit => {
@@ -907,6 +1006,118 @@ impl Ctx<'_> {
         }
     }
 
+    /// Type-checks a `laplace_*(in, num, den[, tol|nature])` call. `num`/`den` are handled by
+    /// `infere_laplace_array_arg` (array literal *or* bare array-variable reference, see there);
+    /// this can't go through the generic `resolve_function_args` machinery (used by every other
+    /// builtin) because that always calls `infere_expr` on every argument, which would reject a
+    /// bare array-variable reference with `BareBusReference` before `infere_laplace_array_arg`
+    /// gets a chance to special-case it.
+    fn infere_laplace(
+        &mut self,
+        stmt: StmtId,
+        expr: ExprId,
+        args: &[ExprId],
+    ) -> (Option<Ty>, bool) {
+        let mut valid = true;
+
+        if let Some(ty) = self.infere_expr(stmt, args[0]) {
+            self.expect::<false>(
+                args[0],
+                None,
+                ty,
+                Cow::Borrowed(&[TyRequirement::Val(Type::Real)]),
+            );
+        } else {
+            valid = false;
+        }
+
+        for &arg in &args[1..3] {
+            if self.infere_laplace_array_arg(stmt, arg).is_none() {
+                valid = false;
+            }
+        }
+
+        // optional trailing tolerance (real) or nature argument; still required to be a
+        // constant expression (validated separately in hir_ty::validation::body), since unlike
+        // num/den it isn't used by the state-space realization at all (see Enhancement-4.md §1.3)
+        let signature = if let Some(&tol_or_nature) = args.get(3) {
+            match self.infere_expr(stmt, tol_or_nature) {
+                Some(ty @ Ty::Nature(_)) => {
+                    self.result.expr_types[tol_or_nature] = ty;
+                    LAPLACE_NATURE_TOL
+                }
+                Some(ty) => {
+                    self.expect::<false>(
+                        tol_or_nature,
+                        None,
+                        ty,
+                        Cow::Borrowed(&[TyRequirement::Val(Type::Real), TyRequirement::Nature]),
+                    );
+                    LAPALCE_TOL
+                }
+                None => {
+                    valid = false;
+                    LAPALCE_TOL
+                }
+            }
+        } else {
+            LAPLACE_NO_TOL
+        };
+        self.result.resolved_signatures.insert(expr, signature);
+
+        (Some(Ty::Val(Type::Real)), valid)
+    }
+
+    /// Type-checks a single `num`/`den` (or `zero`/`pole`) argument of a `laplace_*` call.
+    /// Accepts two shapes:
+    /// - an array-literal expression (`'{...}'`/`{...}`), handled exactly as before via
+    ///   `infere_array`;
+    /// - a bare reference to a module-body array variable (`coeffs` for `real [0:n] coeffs;`,
+    ///   declared via Enhancement-4's array-variable support) — equivalent to writing out
+    ///   `'{coeffs[0], coeffs[1], ..., coeffs[n]}'` by hand. The expanded `VarId`s (ascending
+    ///   declared-index order) are recorded in `InferenceResult::array_var_refs` for
+    ///   `hir_lower` to read directly via `coeffs[i]`-equivalent variable reads, with no MIR
+    ///   array-value representation needed (mirroring how literal-array elements are lowered).
+    ///
+    /// Anything else falls back to ordinary `infere_expr`, preserving the normal
+    /// "expected array" diagnostic from signature mismatch (e.g. a plain scalar argument, or a
+    /// genuine typo that doesn't name a known array variable).
+    fn infere_laplace_array_arg(&mut self, stmt: StmtId, arg: ExprId) -> Option<Ty> {
+        if let Expr::Array(ref elems) = self.body.exprs[arg] {
+            let elems = elems.clone();
+            let ty = if elems.is_empty() {
+                Ty::Val(Type::EmptyArray)
+            } else {
+                self.infere_array(stmt, &elems)?
+            };
+            self.result.expr_types[arg] = ty.clone();
+            return Some(ty);
+        }
+
+        if let Expr::Path { ref path, port: false } = self.body.exprs[arg] {
+            if let Some(name) = path.as_ident() {
+                if let Some(arr) = self.find_var_array(&name) {
+                    let (lo, hi) = arr.min_max();
+                    let mut vars = Vec::with_capacity((hi - lo + 1) as usize);
+                    for bit in lo..=hi {
+                        let synth_path = Path::new_ident(arr.bit_name(bit));
+                        match self.resolve_path(stmt, arg, &synth_path)? {
+                            ScopeDefItem::VarId(var) => vars.push(var),
+                            _ => return None,
+                        }
+                    }
+                    let len = vars.len() as u32;
+                    self.result.array_var_refs.insert(arg, vars);
+                    let ty = Ty::Val(Type::Array { ty: Box::new(Type::Real), len });
+                    self.result.expr_types[arg] = ty.clone();
+                    return Some(ty);
+                }
+            }
+        }
+
+        self.infere_expr(stmt, arg)
+    }
+
     fn infere_array(&mut self, stmt: StmtId, args: &[ExprId]) -> Option<Ty> {
         let infere_value_ty = |sel: &mut Self, arg| -> Option<Type> {
             sel.infere_expr(stmt, arg).and_then(|ty| {
@@ -967,7 +1178,7 @@ impl Ctx<'_> {
             }
         }
 
-        Some(Ty::Val(ty))
+        Some(Ty::Val(Type::Array { ty: Box::new(ty), len: args.len() as u32 }))
     }
 
     fn infere_bin_op(
@@ -1180,6 +1391,84 @@ impl Ctx<'_> {
         }
     }
 
+    /// Looks up a vectored net/port declaration by its base name in the module that owns the
+    /// current body. Returns `None` outside a module body or if `name` isn't a known bus.
+    fn find_bus(&self, name: &Name) -> Option<BusDecl> {
+        let DefWithBodyId::ModuleId { module, .. } = self.owner else { return None };
+        let loc = module.lookup(self.db.upcast());
+        let tree = loc.item_tree(self.db.upcast());
+        tree[loc.id].buses.iter().find(|bus| &bus.base_name == name).cloned()
+    }
+
+    /// Same as `find_bus`, but for module-body-scope array-variable declarations
+    /// (`real [msb:lsb] x;`) instead of vectored nets/ports.
+    fn find_var_array(&self, name: &Name) -> Option<BusDecl> {
+        let DefWithBodyId::ModuleId { module, .. } = self.owner else { return None };
+        let loc = module.lookup(self.db.upcast());
+        let tree = loc.item_tree(self.db.upcast());
+        tree[loc.id].var_arrays.iter().find(|arr| &arr.base_name == name).cloned()
+    }
+
+    fn infere_bit_select(
+        &mut self,
+        stmt: StmtId,
+        expr: ExprId,
+        base: &Path,
+        index: ExprId,
+    ) -> Option<Ty> {
+        let Some(base_name) = base.as_ident() else {
+            self.result.diagnostics.push(InferenceDiagnostic::InvalidBusReference { expr });
+            return None;
+        };
+
+        let bus = self.find_bus(&base_name).or_else(|| self.find_var_array(&base_name));
+        let Some(bus) = bus else {
+            // Not a known bus/array: resolve normally so an ordinary "unresolved identifier"
+            // diagnostic is produced (e.g. for a genuine typo), rather than a bus-specific one.
+            self.resolve_path(stmt, expr, base)?;
+            return None;
+        };
+
+        // The index is type-checked like any other expression (e.g. so a bad sub-expression
+        // still gets ordinary diagnostics), but it must also constant-fold to an integer.
+        self.infere_expr(stmt, index);
+        let idx = match self.body.exprs[index] {
+            Expr::Literal(Literal::Int(i)) => i,
+            Expr::UnaryOp { expr: inner, op: UnaryOp::Neg } => match self.body.exprs[inner] {
+                Expr::Literal(Literal::Int(i)) => -i,
+                _ => {
+                    self.result
+                        .diagnostics
+                        .push(InferenceDiagnostic::NonConstantBitSelectIndex { expr });
+                    return None;
+                }
+            },
+            _ => {
+                self.result
+                    .diagnostics
+                    .push(InferenceDiagnostic::NonConstantBitSelectIndex { expr });
+                return None;
+            }
+        };
+
+        if !bus.contains_bit(idx) {
+            self.result.diagnostics.push(InferenceDiagnostic::BitSelectOutOfRange {
+                expr,
+                index: idx,
+                msb: bus.msb,
+                lsb: bus.lsb,
+            });
+            return None;
+        }
+
+        let synth_path = Path::new_ident(bus.bit_name(idx));
+        match self.resolve_path(stmt, expr, &synth_path)? {
+            ScopeDefItem::NodeId(node) => Some(Ty::Node(node)),
+            ScopeDefItem::VarId(var) => Some(Ty::Var(self.db.var_data(var).ty.clone(), var)),
+            _ => None,
+        }
+    }
+
     fn resolve_item_path<T: ScopeDefItemKind>(
         &mut self,
         stmt: StmtId,
@@ -1220,6 +1509,34 @@ pub enum InferenceDiagnostic {
 
     ExpectedProbe {
         e: ExprId,
+    },
+
+    IndirectAssignRequiresEquality {
+        e: ExprId,
+    },
+
+    /// A bus bit-select (`bus[i]`) was used but `bus` is not a known vectored net/port.
+    InvalidBusReference {
+        expr: ExprId,
+    },
+
+    /// A bus bit-select index was not a compile-time-constant integer literal.
+    NonConstantBitSelectIndex {
+        expr: ExprId,
+    },
+
+    /// A bus bit-select index was outside the bus's declared `[msb:lsb]` width.
+    BitSelectOutOfRange {
+        expr: ExprId,
+        index: i32,
+        msb: i32,
+        lsb: i32,
+    },
+
+    /// A vectored net/port was referenced by its base name without a bit-select.
+    BareBusReference {
+        expr: ExprId,
+        name: Name,
     },
 
     InvalidLimitFunction {

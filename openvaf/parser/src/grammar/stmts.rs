@@ -47,7 +47,7 @@ fn expr_or_assign_stmt<const SEMICOLON: bool>(p: &mut Parser, m: Marker) {
 fn assign_or_expr(p: &mut Parser) -> bool {
     let m = p.start();
     expr(p);
-    if p.eat_ts(TokenSet::new(&[T![<+], T![=]])) {
+    if p.eat_ts(TokenSet::new(&[T![<+], T![=], T![:]])) {
         expr(p);
         m.complete(p, ASSIGN);
         true

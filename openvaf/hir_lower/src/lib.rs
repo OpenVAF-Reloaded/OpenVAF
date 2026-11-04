@@ -45,6 +45,16 @@ pub enum ImplicitEquationKind {
     Ddt,
     NoiseSrc,
     Idt(IdtKind),
+    /// Synthetic input node y_synth for absdelay slot `i`; enforces V(y_synth) = y_expr.
+    AbsDelayInput(u32),
+    /// Output node z for absdelay slot `i`; its equation row is stamped by the simulator.
+    AbsDelayOutput(u32),
+    /// Free unknown driven into the LHS branch of indirect branch assignment slot `i`
+    /// (`<dst> : <lhs> == <rhs>;`); its equation row enforces `lhs == rhs`.
+    IndirectBranch(u32),
+    /// State variable `i` of a `laplace_*` transfer-function realization (controllable
+    /// canonical form); its reactive/resistive residuals encode `dx_i/dt = ...`.
+    LaplaceState(u32),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -172,6 +182,10 @@ pub enum PlaceKind {
     ParamMin(Parameter),
     ParamMax(Parameter),
     BoundStep,
+    /// Stores the current value of `td` for absdelay slot `i` into instance data.
+    AbsDelayTime(u32),
+    /// Stores the raw (unclamped) value of `tdmax` for absdelay slot `i` into instance data.
+    AbsDelayMax(u32),
 }
 
 impl PlaceKind {
@@ -183,7 +197,9 @@ impl PlaceKind {
 
             PlaceKind::ImplicitResidual { .. }
             | PlaceKind::Contribute { .. }
-            | PlaceKind::BoundStep => Type::Real,
+            | PlaceKind::BoundStep
+            | PlaceKind::AbsDelayTime(_)
+            | PlaceKind::AbsDelayMax(_) => Type::Real,
             PlaceKind::ParamMin(param) | PlaceKind::ParamMax(param) | PlaceKind::Param(param) => {
                 param.ty(db)
             }
@@ -231,6 +247,11 @@ pub struct HirInterner {
     pub tagged_reads: IndexMap<Value, Variable, BuildHasherDefault<FxHasher>>,
     pub implicit_equations: TiVec<ImplicitEquation, ImplicitEquationKind>,
     pub lim_state: TiMap<LimitState, Value, Vec<(Value, bool)>>,
+    /// Per absdelay slot: (eq_y = synthetic input node, eq_z = output node,
+    /// has_maxdelay = whether the 3-arg `absdelay(y, td, tdmax)` form was used).
+    pub absdelay_equations: Vec<(ImplicitEquation, ImplicitEquation, bool)>,
+    /// Per indirect branch assignment slot: the free unknown's implicit equation.
+    pub indirect_branch_equations: Vec<ImplicitEquation>,
 }
 
 pub type LiveParams<'a> = FilterMap<
@@ -248,6 +269,8 @@ impl Default for HirInterner {
             tagged_reads: IndexMap::with_hasher(BuildHasherDefault::<FxHasher>::default()),
             implicit_equations: TiVec::default(),
             lim_state: TiMap::default(),
+            absdelay_equations: Vec::default(),
+            indirect_branch_equations: Vec::default(),
         }
     }
 }

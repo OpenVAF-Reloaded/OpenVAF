@@ -54,6 +54,14 @@ impl<'a> BodyRef<'a> {
         Some((src, dst))
     }
 
+    /// For a `laplace_*` `num`/`den` argument that is a bare reference to a module-body array
+    /// variable (rather than an array literal): the variable's expanded scalar elements, in
+    /// ascending declared-index order. See `hir_ty::inference::InferenceResult::array_var_refs`.
+    pub fn array_var_ref(&self, expr: ExprId) -> Option<Vec<Variable>> {
+        let ids = self.infere.array_var_refs.get(&expr)?;
+        Some(ids.iter().map(|&id| Variable { id }).collect())
+    }
+
     fn resolve_path(&self, expr: ExprId) -> Ref {
         match self.infere.expr_types[expr] {
             Ty::Var(_, id) => Ref::Variable(Variable { id }),
@@ -142,7 +150,9 @@ impl<'a> BodyRef<'a> {
 
     pub fn get_expr(&self, expr: ExprId) -> Expr<'a> {
         match self.body.exprs[expr] {
-            hir_def::Expr::Path { .. } => Expr::Read(self.resolve_path(expr)),
+            hir_def::Expr::Path { .. } | hir_def::Expr::BitSelect { .. } => {
+                Expr::Read(self.resolve_path(expr))
+            }
             hir_def::Expr::BinaryOp { lhs, rhs, op: Some(op) } => Expr::BinaryOp { lhs, rhs, op },
             hir_def::Expr::UnaryOp { expr, op } => Expr::UnaryOp { expr, op },
             hir_def::Expr::Select { cond, then_val, else_val } => {
@@ -188,6 +198,29 @@ impl<'a> BodyRef<'a> {
                 Some(Stmt::EventControl { event, body })
             }
             hir_def::Stmt::Assignment { val, .. } => {
+                if let Some(&(constraint_lhs, constraint_rhs)) =
+                    self.infere.indirect_branch_constraints.get(&stmnt)
+                {
+                    let stmt = match self.infere.assignment_destination[&stmnt] {
+                        inference::AssignDst::Flow(branch) => Stmt::IndirectContribute {
+                            kind: ContributeKind::Flow,
+                            branch: branch.into(),
+                            constraint_lhs,
+                            constraint_rhs,
+                        },
+                        inference::AssignDst::Potential(branch) => Stmt::IndirectContribute {
+                            kind: ContributeKind::Potential,
+                            branch: branch.into(),
+                            constraint_lhs,
+                            constraint_rhs,
+                        },
+                        _ => {
+                            unreachable!("invalid HIR: indirect branch dst must be a branch access")
+                        }
+                    };
+                    return Some(stmt);
+                }
+
                 let stmt = match self.infere.assignment_destination[&stmnt] {
                     inference::AssignDst::Var(id) => {
                         Stmt::Assignment { lhs: AssignmentLhs::Variable(Variable { id }), rhs: val }
@@ -242,14 +275,47 @@ pub enum ContributeKind {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Stmt<'a> {
     Expr(ExprId),
-    EventControl { event: &'a Event, body: StmtId },
-    Contribute { kind: ContributeKind, branch: BranchWrite, rhs: ExprId },
-    Assignment { lhs: AssignmentLhs, rhs: ExprId },
-    Block { body: &'a [StmtId] },
-    If { cond: ExprId, then_branch: StmtId, else_branch: StmtId },
-    ForLoop { init: StmtId, cond: ExprId, incr: StmtId, body: StmtId },
-    WhileLoop { cond: ExprId, body: StmtId },
-    Case { discr: ExprId, case_arms: &'a [Case] }, // TODO lint on unreachable
+    EventControl {
+        event: &'a Event,
+        body: StmtId,
+    },
+    Contribute {
+        kind: ContributeKind,
+        branch: BranchWrite,
+        rhs: ExprId,
+    },
+    IndirectContribute {
+        kind: ContributeKind,
+        branch: BranchWrite,
+        constraint_lhs: ExprId,
+        constraint_rhs: ExprId,
+    },
+    Assignment {
+        lhs: AssignmentLhs,
+        rhs: ExprId,
+    },
+    Block {
+        body: &'a [StmtId],
+    },
+    If {
+        cond: ExprId,
+        then_branch: StmtId,
+        else_branch: StmtId,
+    },
+    ForLoop {
+        init: StmtId,
+        cond: ExprId,
+        incr: StmtId,
+        body: StmtId,
+    },
+    WhileLoop {
+        cond: ExprId,
+        body: StmtId,
+    },
+    Case {
+        discr: ExprId,
+        case_arms: &'a [Case],
+    }, // TODO lint on unreachable
 }
 impl Stmt<'_> {
     #[inline]

@@ -37,7 +37,7 @@ use target::spec::Target;
 use typed_indexmap::TiSet;
 
 use crate::compilation_unit::{new_codegen, OsdiCompilationUnit, OsdiModule};
-use crate::metadata::osdi_0_4::OsdiTys;
+use crate::metadata::osdi_0_5::OsdiTys;
 use crate::metadata::OsdiLimFunction;
 
 mod access;
@@ -53,7 +53,7 @@ mod ndatable;
 mod noise;
 mod setup;
 
-const OSDI_VERSION: (u32, u32) = (0, 4);
+const OSDI_VERSION: (u32, u32) = (0, 5);
 
 use std::sync::Once;
 
@@ -277,7 +277,8 @@ pub fn compile<'a>(
             .iter()
             .map(|module| {
                 let cguint = OsdiCompilationUnit::new(&db, module, &cx, &tys, false);
-                let descriptor = cguint.descriptor(&NonNull::from(target_data).as_ptr(), &db);
+                let td_ptr = NonNull::from(target_data).as_ptr();
+                let descriptor = cguint.descriptor(&td_ptr, &db);
                 descriptor.to_ll_val(&cx, &tys)
             })
             .collect();

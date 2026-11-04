@@ -79,6 +79,9 @@ pub(super) fn decl_name(p: &mut Parser) -> bool {
 
 pub(super) fn var_decl(p: &mut Parser, m: Marker) {
     ty(p);
+    if p.at(T!['[']) {
+        width_range(p);
+    }
     decl_list(p, T![;], var, MODULE_ITEM_OR_ATTR_RECOVERY);
     p.eat(T![;]);
     m.complete(p, VAR_DECL);
@@ -132,6 +135,17 @@ fn constraint(p: &mut Parser) {
         range_or_expr(p);
     }
     m.complete(p, CONSTRAINT);
+}
+
+/// Parses a `[msb:lsb]` bus-width clause, used by net/port declarations.
+pub(super) fn width_range(p: &mut Parser) {
+    let m = p.start();
+    p.bump(T!['[']);
+    expr(p);
+    p.expect(T![:]);
+    expr(p);
+    p.expect(T![']']);
+    m.complete(p, RANGE);
 }
 
 fn range_or_expr(p: &mut Parser) {

@@ -1,0 +1,8 @@
+error: bus bit-select index must be a constant
+   --> /huge_int_literal.va:13:9
+   |
+13 |         coeffs[6134876650875544] = 1.0;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^ non-constant bit-select index
+   |
+   = help: bus bit-select indices must be a constant integer literal (optionally negated)
+

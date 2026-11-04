@@ -37,14 +37,30 @@ pub(crate) fn module(p: &mut Parser, m: Marker) {
 const MODULE_PORTS_RECOVERY: TokenSet = TokenSet::new(&[T![;], T![')'], ENDMODULE_KW, EOF]);
 
 fn module_ports(p: &mut Parser) {
+    const PORT_END: TokenSet = MODULE_PORTS_RECOVERY.union(TokenSet::unique(T![,]));
     while !p.at_ts(MODULE_PORTS_RECOVERY) {
-        let m = p.start();
-        if !eat_name(p) {
+        let expected = if p.at(IDENT) || p.at_ts(DIRECTION_TS) || p.at(T!["(*"]) {
             let m = p.start();
-            attrs(p, MODULE_PORTS_RECOVERY.union(DIRECTION_TS));
-            port_decl::<true>(p, m)
+            if !eat_name(p) {
+                let m = p.start();
+                attrs(p, MODULE_PORTS_RECOVERY.union(DIRECTION_TS));
+                port_decl::<true>(p, m)
+            }
+            m.complete(p, MODULE_PORT);
+            vec![T![,], T![')']]
+        } else {
+            vec![IDENT, T![input], T![output], T![inout]]
+        };
+        // Anything else (e.g. a bit-select `d[0]` or a literal) is not a port: report it
+        // once and skip to the next port instead of parsing it as a port declaration.
+        if !p.at_ts(PORT_END) {
+            let m = p.start();
+            p.error(p.unexpected_tokens_msg(expected));
+            while !p.at_ts(PORT_END) {
+                p.bump_any();
+            }
+            m.complete(p, ERROR);
         }
-        m.complete(p, MODULE_PORT);
         if !p.at(T![')']) {
             p.expect_with(T![,], &[T![,], T![')']]);
         }
@@ -82,6 +98,9 @@ fn port_decl<const MODULE_HEAD: bool>(p: &mut Parser, m: Marker) {
         eat_name_ref(p);
     }
     p.eat(NET_TYPE);
+    if p.at(T!['[']) {
+        width_range(p);
+    }
 
     if MODULE_HEAD {
         decl_list(p, T![')'], module_port, MODULE_PORT_RECOVERY);
@@ -118,6 +137,9 @@ fn module_items(p: &mut Parser) {
             }
             NET_TYPE => {
                 net_decl::<true>(p, m);
+            }
+            IDENT if is_instantiation(p) => {
+                instantiation(p, m);
             }
             IDENT => {
                 net_decl::<false>(p, m);
@@ -169,6 +191,10 @@ fn net_decl<const NET_TYPE_FIRST: bool>(p: &mut Parser, m: Marker) {
         }
     } else {
         name_ref_r(p, MODULE_ITEM_OR_ATTR_RECOVERY.union(TokenSet::unique(T![;])))
+    }
+
+    if p.at(T!['[']) {
+        width_range(p);
     }
 
     net_dec_list(p);
@@ -231,4 +257,96 @@ fn branch_decl(p: &mut Parser, m: Marker) {
     decl_list(p, T![;], decl_name, MODULE_ITEM_OR_ATTR_RECOVERY);
     p.eat(T![;]);
     m.complete(p, BRANCH_DECL);
+}
+
+/// Disambiguates a module-instantiation statement (`module_name [#(...)]
+/// instance_name [range] (ports);`) from an ordinary net declaration
+/// (`discipline_name name (',' name)* ;`), both of which start with a bare
+/// `IDENT`. A `#` right after the first identifier is an unambiguous
+/// instantiation marker; otherwise, a second `IDENT` followed by `(` or `[`
+/// (instance ports / an instance-array range) means instantiation, while a
+/// second `IDENT` followed by `,`/`;` means an (possibly single-net) net
+/// declaration.
+fn is_instantiation(p: &Parser) -> bool {
+    p.nth_at(1, T![#]) || (p.nth_at(1, IDENT) && (p.nth_at(2, T!['(']) || p.nth_at(2, T!['['])))
+}
+
+fn instantiation(p: &mut Parser, m: Marker) {
+    name_ref_r(p, TokenSet::new(&[T![#], IDENT, T!['(']]));
+
+    if p.at(T![#]) {
+        let m = p.start();
+        p.bump(T![#]);
+        p.expect(T!['(']);
+        if !p.at(T![')']) {
+            param_assign(p);
+            while p.eat(T![,]) {
+                param_assign(p);
+            }
+        }
+        p.expect(T![')']);
+        m.complete(p, PARAM_OVERRIDES);
+    }
+
+    instance_unit(p);
+    while p.eat(T![,]) {
+        instance_unit(p);
+    }
+    p.eat(T![;]);
+    m.complete(p, INSTANTIATION);
+}
+
+fn param_assign(p: &mut Parser) {
+    let m = p.start();
+    if p.eat(T![.]) {
+        name_r(p, TokenSet::unique(T!['(']));
+        p.expect(T!['(']);
+        expr(p);
+        p.expect(T![')']);
+    } else {
+        expr(p);
+    }
+    m.complete(p, PARAM_ASSIGN);
+}
+
+fn instance_unit(p: &mut Parser) {
+    let m = p.start();
+    name_r(p, TokenSet::new(&[T!['['], T!['(']]));
+    if p.at(T!['[']) {
+        width_range(p);
+    }
+    port_conns(p);
+    m.complete(p, INSTANCE_UNIT);
+}
+
+fn port_conns(p: &mut Parser) {
+    let m = p.start();
+    p.expect(T!['(']);
+    if !p.at(T![')']) {
+        port_conn(p);
+        while p.eat(T![,]) {
+            port_conn(p);
+        }
+    }
+    p.expect(T![')']);
+    m.complete(p, PORT_CONNS);
+}
+
+/// A single port actual: named (`.p(net)`), positional (`net`), or an empty
+/// slot (an open/unconnected port, e.g. the middle of `inst(a, , c)`).
+fn port_conn(p: &mut Parser) {
+    let m = p.start();
+    if p.at(T![,]) || p.at(T![')']) {
+        // open port: emit an empty PORT_CONN node, don't consume anything
+    } else if p.eat(T![.]) {
+        name_r(p, TokenSet::unique(T!['(']));
+        p.expect(T!['(']);
+        if !p.at(T![')']) {
+            super::super::expressions::port_expr(p);
+        }
+        p.expect(T![')']);
+    } else {
+        super::super::expressions::port_expr(p);
+    }
+    m.complete(p, PORT_CONN);
 }

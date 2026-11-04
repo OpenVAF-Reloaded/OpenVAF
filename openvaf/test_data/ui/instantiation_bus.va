@@ -1,0 +1,37 @@
+`include "disciplines.vams"
+
+module resistor(p, n);
+    inout p, n;
+    electrical p, n;
+    parameter real r = 1000;
+    analog begin
+        I(p, n) <+ V(p, n) / r;
+    end
+endmodule
+
+// A module whose *ports* are themselves a bus.
+module bus_resistor(p, n);
+    inout [1:0] p, n;
+    electrical [1:0] p, n;
+    parameter real r = 1000;
+    analog begin
+        I(p[0], n[0]) <+ V(p[0], n[0]) / r;
+        I(p[1], n[1]) <+ V(p[1], n[1]) / r;
+    end
+endmodule
+
+module top(a, b, c, d);
+    inout [1:0] a, b;
+    electrical [1:0] a, b;
+    inout c, d;
+    electrical c, d;
+
+    // bus-port instantiation: bit i of bus port p/n <-> bit i of a/b
+    bus_resistor #(.r(1e3)) br(a, b);
+
+    // instance-array with per-element bus slicing: rarr[i] <-> a[i], c
+    resistor rarr[0:1](a, c);
+
+    // instance-array with broadcast (c, d are plain scalars, not buses)
+    resistor rbroadcast[0:1](c, d);
+endmodule

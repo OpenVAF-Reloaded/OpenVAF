@@ -41,7 +41,9 @@ impl<'a> Context<'a> {
                 | PlaceKind::ImplicitResidual { .. }
                 | PlaceKind::CollapseImplicitEquation(_)
                 | PlaceKind::IsVoltageSrc(_)
-                | PlaceKind::BoundStep => true,
+                | PlaceKind::BoundStep
+                | PlaceKind::AbsDelayTime(_)
+                | PlaceKind::AbsDelayMax(_) => true,
                 PlaceKind::Var(var) => module.op_vars.contains_key(&var),
                 _ => false,
             },
@@ -116,7 +118,13 @@ impl<'a> Context<'a> {
         } else {
             for (kind, val) in self.intern.outputs.iter() {
                 if matches!(kind, PlaceKind::Var(var) if self.module.op_vars.contains_key(var))
-                    || matches!(kind, PlaceKind::CollapseImplicitEquation(_) | PlaceKind::BoundStep)
+                    || matches!(
+                        kind,
+                        PlaceKind::CollapseImplicitEquation(_)
+                            | PlaceKind::BoundStep
+                            | PlaceKind::AbsDelayTime(_)
+                            | PlaceKind::AbsDelayMax(_)
+                    )
                 {
                     self.output_values.insert(val.unwrap_unchecked());
                 }

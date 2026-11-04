@@ -171,3 +171,158 @@ fn opvars() {
     "#]]
     .assert_debug_eq(&params);
 }
+
+#[test]
+fn bus_port_order() {
+    let src = indoc! {r#"
+        `include "disciplines.vams"
+        module nonansi(d, out, e);
+            input [0:3] d;
+            output out;
+            inout [2:1] e;
+            electrical [0:3] d;
+            electrical out;
+            electrical [2:1] e;
+            analog V(out) <+ V(d[0]) + V(d[3]) + V(e[1], e[2]);
+        endmodule
+    "#};
+    let db = CompilationDB::new_virtual(src).unwrap();
+    let modules = super::collect_modules(&db, false, &mut ConsoleSink::new(&db)).unwrap();
+    let ports: Vec<_> =
+        modules[0].module.ports(&db).into_iter().map(|port| port.name(&db).to_string()).collect();
+    expect_test::expect![[r#"
+        [
+            "d[0]",
+            "d[1]",
+            "d[2]",
+            "d[3]",
+            "out",
+            "e[1]",
+            "e[2]",
+        ]
+    "#]]
+    .assert_debug_eq(&ports);
+}
+
+#[test]
+fn bus_port_classification() {
+    // Every bit of a bus port must be a port and every bit of an internal bus an internal
+    // node, independent of the order of the direction and discipline declarations.
+    let cases = [
+        "module m(d, out); electrical [0:3] d; electrical out; input [0:3] d; output out;
+            electrical x; analog begin V(out) <+ V(d[3]); I(x) <+ V(x); end endmodule",
+        "(*openvaf_allow=\"port_without_direction\"*) module m(d, out); electrical [0:3] d;
+            electrical out; electrical x; analog begin V(out) <+ V(d[3]); I(x) <+ V(x); end endmodule",
+        "module m(d, out); electrical [1:0] x; electrical [0:3] d; electrical out; input [0:3] d;
+            output out; analog begin V(out) <+ V(d[3]); I(x[0]) <+ V(x[1]); end endmodule",
+        "module m(a, out, b); electrical [0:1] a; electrical [0:2] b; electrical out;
+            inout [0:2] b; output out; input [0:1] a; electrical y;
+            analog begin V(out) <+ V(a[1]) + V(b[2]); I(y) <+ V(y); end endmodule",
+    ];
+    let mut res = String::new();
+    for body in cases {
+        let src = format!("`include \"disciplines.vams\"\n{body}\n");
+        let db = CompilationDB::new_virtual(&src).unwrap();
+        let modules = super::collect_modules(&db, false, &mut ConsoleSink::new(&db)).unwrap();
+        let module = modules[0].module;
+        let names = |nodes: Vec<hir::Node>| {
+            nodes.into_iter().map(|node| node.name(&db).to_string()).collect::<Vec<_>>().join(" ")
+        };
+        res += &format!(
+            "ports: {}; internal: {}\n",
+            names(module.ports(&db)),
+            names(module.internal_nodes(&db))
+        );
+    }
+    expect_test::expect![[r#"
+        ports: d[0] d[1] d[2] d[3] out; internal: x
+        ports: d[0] d[1] d[2] d[3] out; internal: x
+        ports: d[0] d[1] d[2] d[3] out; internal: x[0] x[1]
+        ports: a[0] a[1] out b[0] b[1] b[2]; internal: y
+    "#]]
+    .assert_eq(&res);
+}
+
+#[test]
+fn bus_port_forms() {
+    // Terminal order and port/internal classification for the supported ANSI and
+    // non-ANSI vector port forms. Bits are always listed from the lowest to the highest
+    // index, contiguously at the position of the port in the module head.
+    let analog = "analog V(out) <+ 0.0;";
+    let cases = [
+        // ANSI
+        "module m(input electrical [0:3] d, output electrical out);",
+        "module m(output electrical out, input electrical [0:3] d);",
+        "module m(output electrical out, input electrical [0:1] d, inout electrical y);",
+        "module m(input electrical [3:0] d, output electrical out);",
+        "module m(input electrical [0:1] a, b, output electrical out);",
+        "module m(input electrical [0:1] a, input electrical [2:0] b, output electrical out);",
+        "module m(input electrical [0:0] d, output electrical out);",
+        "module m(input electrical [-1:1] d, output electrical out);",
+        "module m(input [0:3] d, output out); electrical [0:3] d; electrical out;",
+        // non-ANSI
+        "module m(d, out); input [0:3] d; output out; electrical [0:3] d; electrical out;",
+        "module m(out, d); output out; input [0:3] d; electrical out; electrical [0:3] d;",
+        "module m(a, out, b); input [0:1] a, b; output out; electrical [0:1] a, b; electrical out;",
+        "module m(d, out); input electrical [0:3] d; output electrical out;",
+        "module m(d, out); input [3:0] d; output out; electrical [3:0] d; electrical out;",
+        "module m(d, out); input [0:0] d; output out; electrical [0:0] d; electrical out;",
+        "module m(d, out); input [-1:1] d; output out; electrical [-1:1] d; electrical out;",
+        "module m(d, out); input [0:1] d; output out; electrical [0:1] d, x; electrical out;",
+        "module m(out, d); output out; inout [1:0] d; electrical out; electrical [1:0] d;",
+    ];
+    let mut res = String::new();
+    for head in cases {
+        let src = format!("`include \"disciplines.vams\"\n{head} {analog} endmodule\n");
+        let db = CompilationDB::new_virtual(&src).unwrap();
+        let modules = super::collect_modules(&db, false, &mut ConsoleSink::new(&db)).unwrap();
+        let module = modules[0].module;
+        let names = |nodes: Vec<hir::Node>| {
+            nodes.into_iter().map(|node| node.name(&db).to_string()).collect::<Vec<_>>().join(" ")
+        };
+        res += &format!(
+            "{head}\n    ports: {}; internal: {}\n",
+            names(module.ports(&db)),
+            names(module.internal_nodes(&db))
+        );
+    }
+    expect_test::expect![[r#"
+        module m(input electrical [0:3] d, output electrical out);
+            ports: d[0] d[1] d[2] d[3] out; internal: 
+        module m(output electrical out, input electrical [0:3] d);
+            ports: out d[0] d[1] d[2] d[3]; internal: 
+        module m(output electrical out, input electrical [0:1] d, inout electrical y);
+            ports: out d[0] d[1] y; internal: 
+        module m(input electrical [3:0] d, output electrical out);
+            ports: d[0] d[1] d[2] d[3] out; internal: 
+        module m(input electrical [0:1] a, b, output electrical out);
+            ports: a[0] a[1] b[0] b[1] out; internal: 
+        module m(input electrical [0:1] a, input electrical [2:0] b, output electrical out);
+            ports: a[0] a[1] b[0] b[1] b[2] out; internal: 
+        module m(input electrical [0:0] d, output electrical out);
+            ports: d[0] out; internal: 
+        module m(input electrical [-1:1] d, output electrical out);
+            ports: d[-1] d[0] d[1] out; internal: 
+        module m(input [0:3] d, output out); electrical [0:3] d; electrical out;
+            ports: d[0] d[1] d[2] d[3] out; internal: 
+        module m(d, out); input [0:3] d; output out; electrical [0:3] d; electrical out;
+            ports: d[0] d[1] d[2] d[3] out; internal: 
+        module m(out, d); output out; input [0:3] d; electrical out; electrical [0:3] d;
+            ports: out d[0] d[1] d[2] d[3]; internal: 
+        module m(a, out, b); input [0:1] a, b; output out; electrical [0:1] a, b; electrical out;
+            ports: a[0] a[1] out b[0] b[1]; internal: 
+        module m(d, out); input electrical [0:3] d; output electrical out;
+            ports: d[0] d[1] d[2] d[3] out; internal: 
+        module m(d, out); input [3:0] d; output out; electrical [3:0] d; electrical out;
+            ports: d[0] d[1] d[2] d[3] out; internal: 
+        module m(d, out); input [0:0] d; output out; electrical [0:0] d; electrical out;
+            ports: d[0] out; internal: 
+        module m(d, out); input [-1:1] d; output out; electrical [-1:1] d; electrical out;
+            ports: d[-1] d[0] d[1] out; internal: 
+        module m(d, out); input [0:1] d; output out; electrical [0:1] d, x; electrical out;
+            ports: d[0] d[1] out; internal: x[0] x[1]
+        module m(out, d); output out; inout [1:0] d; electrical out; electrical [1:0] d;
+            ports: out d[0] d[1]; internal: 
+    "#]]
+    .assert_eq(&res);
+}

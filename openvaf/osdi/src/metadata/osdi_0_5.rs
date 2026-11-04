@@ -3,21 +3,21 @@
 use mir_llvm::CodegenCx;
 
 const STDLIB_BITCODE_X86_64_UNKNOWN_LINUX_GNU: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_4_x86_64-unknown-linux-gnu.bc"));
+    include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_5_x86_64-unknown-linux-gnu.bc"));
 const STDLIB_BITCODE_X86_64_PC_WINDOWS_MSVC: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_4_x86_64-pc-windows-msvc.bc"));
+    include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_5_x86_64-pc-windows-msvc.bc"));
 const STDLIB_BITCODE_X86_64_APPLE_MACOSX10_15_0: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_4_x86_64-apple-macosx10.15.0.bc"));
+    include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_5_x86_64-apple-macosx10.15.0.bc"));
 const STDLIB_BITCODE_AARCH64_UNKNOWN_LINUX_GNU: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_4_aarch64-unknown-linux-gnu.bc"));
+    include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_5_aarch64-unknown-linux-gnu.bc"));
 const STDLIB_BITCODE_AARCH64_PC_WINDOWS_MSVC: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_4_aarch64-pc-windows-msvc.bc"));
+    include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_5_aarch64-pc-windows-msvc.bc"));
 const STDLIB_BITCODE_ARM64_APPLE_MACOSX11_0_0: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_4_arm64-apple-macosx11.0.0.bc"));
+    include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_5_arm64-apple-macosx11.0.0.bc"));
 const STDLIB_BITCODE_X86_64_PC_WINDOWS_GNU: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_4_x86_64-pc-windows-gnu.bc"));
+    include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_5_x86_64-pc-windows-gnu.bc"));
 const STDLIB_BITCODE_RISCV64_UNKNOWN_LINUX_GNU: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_4_riscv64-unknown-linux-gnu.bc"));
+    include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_5_riscv64-unknown-linux-gnu.bc"));
 pub fn stdlib_bitcode(target: &target::spec::Target) -> &'static [u8] {
     match &*target.llvm_target {
         "x86_64-unknown-linux-gnu" => STDLIB_BITCODE_X86_64_UNKNOWN_LINUX_GNU,
@@ -32,7 +32,7 @@ pub fn stdlib_bitcode(target: &target::spec::Target) -> &'static [u8] {
     }
 }
 pub const OSDI_VERSION_MAJOR_CURR: u32 = 0;
-pub const OSDI_VERSION_MINOR_CURR: u32 = 4;
+pub const OSDI_VERSION_MINOR_CURR: u32 = 5;
 pub const PARA_TY_MASK: u32 = 3;
 pub const PARA_TY_REAL: u32 = 0;
 pub const PARA_TY_INT: u32 = 1;
@@ -236,6 +236,36 @@ impl OsdiTyBuilder<'_, '_, '_> {
         self.osdi_jacobian_entry = Some(ty);
     }
 }
+pub struct OsdiJacobianValue {
+    pub resist_flags: u32,
+    pub react_flags: u32,
+    pub resist_off: u32,
+    pub react_off: u32,
+}
+impl OsdiJacobianValue {
+    pub fn to_ll_val<'ll>(
+        &self,
+        ctx: &CodegenCx<'_, 'll>,
+        tys: &'ll OsdiTys,
+    ) -> &'ll llvm_sys::LLVMValue {
+        let fields = [
+            ctx.const_unsigned_int(self.resist_flags),
+            ctx.const_unsigned_int(self.react_flags),
+            ctx.const_unsigned_int(self.resist_off),
+            ctx.const_unsigned_int(self.react_off),
+        ];
+        let ty = tys.osdi_jacobian_value;
+        ctx.const_struct(ty, &fields)
+    }
+}
+impl OsdiTyBuilder<'_, '_, '_> {
+    fn osdi_jacobian_value(&mut self) {
+        let ctx = self.ctx;
+        let fields = [ctx.ty_int(), ctx.ty_int(), ctx.ty_int(), ctx.ty_int()];
+        let ty = ctx.ty_struct("OsdiJacobianValue", &fields);
+        self.osdi_jacobian_value = Some(ty);
+    }
+}
 pub struct OsdiNode {
     pub name: String,
     pub units: String,
@@ -365,6 +395,36 @@ impl OsdiTyBuilder<'_, '_, '_> {
         self.osdi_nature_ref = Some(ty);
     }
 }
+pub struct OsdiAbsDelay {
+    pub y_node: u32,
+    pub z_node: u32,
+    pub td_offset: u32,
+    pub maxdelay_offset: u32,
+}
+impl OsdiAbsDelay {
+    pub fn to_ll_val<'ll>(
+        &self,
+        ctx: &CodegenCx<'_, 'll>,
+        tys: &'ll OsdiTys,
+    ) -> &'ll llvm_sys::LLVMValue {
+        let fields = [
+            ctx.const_unsigned_int(self.y_node),
+            ctx.const_unsigned_int(self.z_node),
+            ctx.const_unsigned_int(self.td_offset),
+            ctx.const_unsigned_int(self.maxdelay_offset),
+        ];
+        let ty = tys.osdi_abs_delay;
+        ctx.const_struct(ty, &fields)
+    }
+}
+impl OsdiTyBuilder<'_, '_, '_> {
+    fn osdi_abs_delay(&mut self) {
+        let ctx = self.ctx;
+        let fields = [ctx.ty_int(), ctx.ty_int(), ctx.ty_int(), ctx.ty_int()];
+        let ty = ctx.ty_struct("OsdiAbsDelay", &fields);
+        self.osdi_abs_delay = Some(ty);
+    }
+}
 pub struct OsdiDescriptor<'ll> {
     pub name: String,
     pub num_nodes: u32,
@@ -417,6 +477,9 @@ pub struct OsdiDescriptor<'ll> {
     pub noise_source_type: Vec<u32>,
     pub load_noise_params: &'ll llvm_sys::LLVMValue,
     pub module_flags: u32,
+    pub absdelay_count: u32,
+    pub absdelays: Vec<OsdiAbsDelay>,
+    pub jacobian_values: Vec<OsdiJacobianValue>,
 }
 impl<'ll> OsdiDescriptor<'ll> {
     pub fn to_ll_val(
@@ -434,6 +497,8 @@ impl<'ll> OsdiDescriptor<'ll> {
         let arr_47: Vec<_> = self.residual_nature.iter().map(|it| it.to_ll_val(ctx, tys)).collect();
         let arr_48: Vec<_> =
             self.noise_source_type.iter().map(|it| ctx.const_unsigned_int(*it)).collect();
+        let arr_52: Vec<_> = self.absdelays.iter().map(|it| it.to_ll_val(ctx, tys)).collect();
+        let arr_53: Vec<_> = self.jacobian_values.iter().map(|it| it.to_ll_val(ctx, tys)).collect();
         let fields = [
             ctx.const_str_uninterned(&self.name),
             ctx.const_unsigned_int(self.num_nodes),
@@ -486,6 +551,9 @@ impl<'ll> OsdiDescriptor<'ll> {
             ctx.const_arr_ptr(ctx.ty_int(), &arr_48),
             self.load_noise_params,
             ctx.const_unsigned_int(self.module_flags),
+            ctx.const_unsigned_int(self.absdelay_count),
+            ctx.const_arr_ptr(tys.osdi_abs_delay, &arr_52),
+            ctx.const_arr_ptr(tys.osdi_jacobian_value, &arr_53),
         ];
         let ty = tys.osdi_descriptor;
         ctx.const_struct(ty, &fields)
@@ -546,6 +614,9 @@ impl OsdiTyBuilder<'_, '_, '_> {
             ctx.ty_ptr(),
             ctx.ty_ptr(),
             ctx.ty_int(),
+            ctx.ty_int(),
+            ctx.ty_ptr(),
+            ctx.ty_ptr(),
         ];
         let ty = ctx.ty_struct("OsdiDescriptor", &fields);
         self.osdi_descriptor = Some(ty);
@@ -730,10 +801,12 @@ pub struct OsdiTys<'ll> {
     pub osdi_init_info: &'ll llvm_sys::LLVMType,
     pub osdi_node_pair: &'ll llvm_sys::LLVMType,
     pub osdi_jacobian_entry: &'ll llvm_sys::LLVMType,
+    pub osdi_jacobian_value: &'ll llvm_sys::LLVMType,
     pub osdi_node: &'ll llvm_sys::LLVMType,
     pub osdi_param_opvar: &'ll llvm_sys::LLVMType,
     pub osdi_noise_source: &'ll llvm_sys::LLVMType,
     pub osdi_nature_ref: &'ll llvm_sys::LLVMType,
+    pub osdi_abs_delay: &'ll llvm_sys::LLVMType,
     pub osdi_descriptor: &'ll llvm_sys::LLVMType,
     pub osdi_nature: &'ll llvm_sys::LLVMType,
     pub osdi_discipline: &'ll llvm_sys::LLVMType,
@@ -753,10 +826,12 @@ impl<'ll> OsdiTys<'ll> {
             osdi_init_info: None,
             osdi_node_pair: None,
             osdi_jacobian_entry: None,
+            osdi_jacobian_value: None,
             osdi_node: None,
             osdi_param_opvar: None,
             osdi_noise_source: None,
             osdi_nature_ref: None,
+            osdi_abs_delay: None,
             osdi_descriptor: None,
             osdi_nature: None,
             osdi_discipline: None,
@@ -771,10 +846,12 @@ impl<'ll> OsdiTys<'ll> {
         builder.osdi_init_info();
         builder.osdi_node_pair();
         builder.osdi_jacobian_entry();
+        builder.osdi_jacobian_value();
         builder.osdi_node();
         builder.osdi_param_opvar();
         builder.osdi_noise_source();
         builder.osdi_nature_ref();
+        builder.osdi_abs_delay();
         builder.osdi_descriptor();
         builder.osdi_nature();
         builder.osdi_discipline();
@@ -794,10 +871,12 @@ struct OsdiTyBuilder<'a, 'b, 'll> {
     osdi_init_info: Option<&'ll llvm_sys::LLVMType>,
     osdi_node_pair: Option<&'ll llvm_sys::LLVMType>,
     osdi_jacobian_entry: Option<&'ll llvm_sys::LLVMType>,
+    osdi_jacobian_value: Option<&'ll llvm_sys::LLVMType>,
     osdi_node: Option<&'ll llvm_sys::LLVMType>,
     osdi_param_opvar: Option<&'ll llvm_sys::LLVMType>,
     osdi_noise_source: Option<&'ll llvm_sys::LLVMType>,
     osdi_nature_ref: Option<&'ll llvm_sys::LLVMType>,
+    osdi_abs_delay: Option<&'ll llvm_sys::LLVMType>,
     osdi_descriptor: Option<&'ll llvm_sys::LLVMType>,
     osdi_nature: Option<&'ll llvm_sys::LLVMType>,
     osdi_discipline: Option<&'ll llvm_sys::LLVMType>,
@@ -815,10 +894,12 @@ impl<'ll> OsdiTyBuilder<'_, '_, 'll> {
             osdi_init_info: self.osdi_init_info.unwrap(),
             osdi_node_pair: self.osdi_node_pair.unwrap(),
             osdi_jacobian_entry: self.osdi_jacobian_entry.unwrap(),
+            osdi_jacobian_value: self.osdi_jacobian_value.unwrap(),
             osdi_node: self.osdi_node.unwrap(),
             osdi_param_opvar: self.osdi_param_opvar.unwrap(),
             osdi_noise_source: self.osdi_noise_source.unwrap(),
             osdi_nature_ref: self.osdi_nature_ref.unwrap(),
+            osdi_abs_delay: self.osdi_abs_delay.unwrap(),
             osdi_descriptor: self.osdi_descriptor.unwrap(),
             osdi_nature: self.osdi_nature.unwrap(),
             osdi_discipline: self.osdi_discipline.unwrap(),

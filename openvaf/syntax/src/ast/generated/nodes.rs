@@ -191,6 +191,7 @@ pub struct VarDecl {
 impl ast::AttrsOwner for VarDecl {}
 impl VarDecl {
     pub fn ty(&self) -> Option<Type> { support::child(&self.syntax) }
+    pub fn width(&self) -> Option<Range> { support::child(&self.syntax) }
     pub fn vars(&self) -> AstChildren<Var> { support::children(&self.syntax) }
     pub fn semicolon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![;]) }
 }
@@ -268,6 +269,24 @@ impl SelectExpr {
     pub fn colon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![:]) }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BitSelectExpr {
+    pub(crate) syntax: SyntaxNode,
+}
+impl BitSelectExpr {
+    pub fn base(&self) -> Option<Path> { support::child(&self.syntax) }
+    pub fn l_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['[']) }
+    pub fn index(&self) -> Option<Expr> { support::child(&self.syntax) }
+    pub fn r_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![']']) }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PartSelectExpr {
+    pub(crate) syntax: SyntaxNode,
+}
+impl PartSelectExpr {
+    pub fn base(&self) -> Option<Path> { support::child(&self.syntax) }
+    pub fn range(&self) -> Option<Range> { support::child(&self.syntax) }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PathExpr {
     pub(crate) syntax: SyntaxNode,
 }
@@ -282,6 +301,17 @@ impl PortFlow {
     pub fn l_angle_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![<]) }
     pub fn port(&self) -> Option<Path> { support::child(&self.syntax) }
     pub fn r_angle_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![>]) }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Range {
+    pub(crate) syntax: SyntaxNode,
+}
+impl Range {
+    pub fn l_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['(']) }
+    pub fn l_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['[']) }
+    pub fn colon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![:]) }
+    pub fn r_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![')']) }
+    pub fn r_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![']']) }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ArgList {
@@ -402,6 +432,7 @@ impl NetDecl {
     pub fn net_type_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![net_type])
     }
+    pub fn width(&self) -> Option<Range> { support::child(&self.syntax) }
     pub fn names(&self) -> AstChildren<Name> { support::children(&self.syntax) }
     pub fn semicolon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![;]) }
 }
@@ -459,6 +490,17 @@ impl AliasParam {
     pub fn semicolon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![;]) }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Instantiation {
+    pub(crate) syntax: SyntaxNode,
+}
+impl ast::AttrsOwner for Instantiation {}
+impl Instantiation {
+    pub fn module(&self) -> Option<NameRef> { support::child(&self.syntax) }
+    pub fn param_overrides(&self) -> Option<ParamOverrides> { support::child(&self.syntax) }
+    pub fn instance_units(&self) -> AstChildren<InstanceUnit> { support::children(&self.syntax) }
+    pub fn semicolon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![;]) }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ModulePort {
     pub(crate) syntax: SyntaxNode,
 }
@@ -474,6 +516,7 @@ impl PortDecl {
     pub fn net_type_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, T![net_type])
     }
+    pub fn width(&self) -> Option<Range> { support::child(&self.syntax) }
     pub fn names(&self) -> AstChildren<Name> { support::children(&self.syntax) }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -506,17 +549,6 @@ impl Constraint {
     pub fn range(&self) -> Option<Range> { support::child(&self.syntax) }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Range {
-    pub(crate) syntax: SyntaxNode,
-}
-impl Range {
-    pub fn l_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['(']) }
-    pub fn l_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['[']) }
-    pub fn colon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![:]) }
-    pub fn r_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![')']) }
-    pub fn r_brack_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![']']) }
-}
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Direction {
     pub(crate) syntax: SyntaxNode,
 }
@@ -536,6 +568,56 @@ impl FunctionArg {
     pub fn semicolon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![;]) }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ParamOverrides {
+    pub(crate) syntax: SyntaxNode,
+}
+impl ParamOverrides {
+    pub fn pound_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![#]) }
+    pub fn l_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['(']) }
+    pub fn param_assigns(&self) -> AstChildren<ParamAssign> { support::children(&self.syntax) }
+    pub fn r_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![')']) }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct InstanceUnit {
+    pub(crate) syntax: SyntaxNode,
+}
+impl InstanceUnit {
+    pub fn name(&self) -> Option<Name> { support::child(&self.syntax) }
+    pub fn width(&self) -> Option<Range> { support::child(&self.syntax) }
+    pub fn port_conns(&self) -> Option<PortConns> { support::child(&self.syntax) }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ParamAssign {
+    pub(crate) syntax: SyntaxNode,
+}
+impl ParamAssign {
+    pub fn dot_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![.]) }
+    pub fn name(&self) -> Option<Name> { support::child(&self.syntax) }
+    pub fn l_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['(']) }
+    pub fn val(&self) -> Option<Expr> { support::child(&self.syntax) }
+    pub fn r_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![')']) }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PortConns {
+    pub(crate) syntax: SyntaxNode,
+}
+impl PortConns {
+    pub fn l_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['(']) }
+    pub fn port_conns(&self) -> AstChildren<PortConn> { support::children(&self.syntax) }
+    pub fn r_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![')']) }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PortConn {
+    pub(crate) syntax: SyntaxNode,
+}
+impl PortConn {
+    pub fn dot_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![.]) }
+    pub fn name(&self) -> Option<Name> { support::child(&self.syntax) }
+    pub fn l_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T!['(']) }
+    pub fn net(&self) -> Option<Expr> { support::child(&self.syntax) }
+    pub fn r_paren_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![')']) }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
     PrefixExpr(PrefixExpr),
     BinExpr(BinExpr),
@@ -543,6 +625,8 @@ pub enum Expr {
     ArrayExpr(ArrayExpr),
     Call(Call),
     SelectExpr(SelectExpr),
+    BitSelectExpr(BitSelectExpr),
+    PartSelectExpr(PartSelectExpr),
     PathExpr(PathExpr),
     PortFlow(PortFlow),
     Literal(Literal),
@@ -589,6 +673,7 @@ pub enum ModuleItem {
     VarDecl(VarDecl),
     ParamDecl(ParamDecl),
     AliasParam(AliasParam),
+    Instantiation(Instantiation),
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ModulePortKind {
@@ -905,6 +990,28 @@ impl AstNode for SelectExpr {
     }
     fn syntax(&self) -> &SyntaxNode { &self.syntax }
 }
+impl AstNode for BitSelectExpr {
+    fn can_cast(kind: SyntaxKind) -> bool { kind == BIT_SELECT_EXPR }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode { &self.syntax }
+}
+impl AstNode for PartSelectExpr {
+    fn can_cast(kind: SyntaxKind) -> bool { kind == PART_SELECT_EXPR }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode { &self.syntax }
+}
 impl AstNode for PathExpr {
     fn can_cast(kind: SyntaxKind) -> bool { kind == PATH_EXPR }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
@@ -918,6 +1025,17 @@ impl AstNode for PathExpr {
 }
 impl AstNode for PortFlow {
     fn can_cast(kind: SyntaxKind) -> bool { kind == PORT_FLOW }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode { &self.syntax }
+}
+impl AstNode for Range {
+    fn can_cast(kind: SyntaxKind) -> bool { kind == RANGE }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
             Some(Self { syntax })
@@ -1092,6 +1210,17 @@ impl AstNode for AliasParam {
     }
     fn syntax(&self) -> &SyntaxNode { &self.syntax }
 }
+impl AstNode for Instantiation {
+    fn can_cast(kind: SyntaxKind) -> bool { kind == INSTANTIATION }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode { &self.syntax }
+}
 impl AstNode for ModulePort {
     fn can_cast(kind: SyntaxKind) -> bool { kind == MODULE_PORT }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
@@ -1147,17 +1276,6 @@ impl AstNode for Constraint {
     }
     fn syntax(&self) -> &SyntaxNode { &self.syntax }
 }
-impl AstNode for Range {
-    fn can_cast(kind: SyntaxKind) -> bool { kind == RANGE }
-    fn cast(syntax: SyntaxNode) -> Option<Self> {
-        if Self::can_cast(syntax.kind()) {
-            Some(Self { syntax })
-        } else {
-            None
-        }
-    }
-    fn syntax(&self) -> &SyntaxNode { &self.syntax }
-}
 impl AstNode for Direction {
     fn can_cast(kind: SyntaxKind) -> bool { kind == DIRECTION }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
@@ -1171,6 +1289,61 @@ impl AstNode for Direction {
 }
 impl AstNode for FunctionArg {
     fn can_cast(kind: SyntaxKind) -> bool { kind == FUNCTION_ARG }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode { &self.syntax }
+}
+impl AstNode for ParamOverrides {
+    fn can_cast(kind: SyntaxKind) -> bool { kind == PARAM_OVERRIDES }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode { &self.syntax }
+}
+impl AstNode for InstanceUnit {
+    fn can_cast(kind: SyntaxKind) -> bool { kind == INSTANCE_UNIT }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode { &self.syntax }
+}
+impl AstNode for ParamAssign {
+    fn can_cast(kind: SyntaxKind) -> bool { kind == PARAM_ASSIGN }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode { &self.syntax }
+}
+impl AstNode for PortConns {
+    fn can_cast(kind: SyntaxKind) -> bool { kind == PORT_CONNS }
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Self { syntax })
+        } else {
+            None
+        }
+    }
+    fn syntax(&self) -> &SyntaxNode { &self.syntax }
+}
+impl AstNode for PortConn {
+    fn can_cast(kind: SyntaxKind) -> bool { kind == PORT_CONN }
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
             Some(Self { syntax })
@@ -1198,6 +1371,12 @@ impl From<Call> for Expr {
 impl From<SelectExpr> for Expr {
     fn from(node: SelectExpr) -> Expr { Expr::SelectExpr(node) }
 }
+impl From<BitSelectExpr> for Expr {
+    fn from(node: BitSelectExpr) -> Expr { Expr::BitSelectExpr(node) }
+}
+impl From<PartSelectExpr> for Expr {
+    fn from(node: PartSelectExpr) -> Expr { Expr::PartSelectExpr(node) }
+}
 impl From<PathExpr> for Expr {
     fn from(node: PathExpr) -> Expr { Expr::PathExpr(node) }
 }
@@ -1210,8 +1389,8 @@ impl From<Literal> for Expr {
 impl AstNode for Expr {
     fn can_cast(kind: SyntaxKind) -> bool {
         match kind {
-            PREFIX_EXPR | BIN_EXPR | PAREN_EXPR | ARRAY_EXPR | CALL | SELECT_EXPR | PATH_EXPR
-            | PORT_FLOW => true,
+            PREFIX_EXPR | BIN_EXPR | PAREN_EXPR | ARRAY_EXPR | CALL | SELECT_EXPR
+            | BIT_SELECT_EXPR | PART_SELECT_EXPR | PATH_EXPR | PORT_FLOW => true,
             _ => Literal::can_cast(kind),
         }
     }
@@ -1223,6 +1402,8 @@ impl AstNode for Expr {
             ARRAY_EXPR => Expr::ArrayExpr(ArrayExpr { syntax }),
             CALL => Expr::Call(Call { syntax }),
             SELECT_EXPR => Expr::SelectExpr(SelectExpr { syntax }),
+            BIT_SELECT_EXPR => Expr::BitSelectExpr(BitSelectExpr { syntax }),
+            PART_SELECT_EXPR => Expr::PartSelectExpr(PartSelectExpr { syntax }),
             PATH_EXPR => Expr::PathExpr(PathExpr { syntax }),
             PORT_FLOW => Expr::PortFlow(PortFlow { syntax }),
             _ => Expr::Literal(Literal::cast(syntax)?),
@@ -1237,6 +1418,8 @@ impl AstNode for Expr {
             Expr::ArrayExpr(it) => &it.syntax,
             Expr::Call(it) => &it.syntax,
             Expr::SelectExpr(it) => &it.syntax,
+            Expr::BitSelectExpr(it) => &it.syntax,
+            Expr::PartSelectExpr(it) => &it.syntax,
             Expr::PathExpr(it) => &it.syntax,
             Expr::PortFlow(it) => &it.syntax,
             Expr::Literal(it) => it.syntax(),
@@ -1424,11 +1607,14 @@ impl From<ParamDecl> for ModuleItem {
 impl From<AliasParam> for ModuleItem {
     fn from(node: AliasParam) -> ModuleItem { ModuleItem::AliasParam(node) }
 }
+impl From<Instantiation> for ModuleItem {
+    fn from(node: Instantiation) -> ModuleItem { ModuleItem::Instantiation(node) }
+}
 impl AstNode for ModuleItem {
     fn can_cast(kind: SyntaxKind) -> bool {
         match kind {
             BODY_PORT_DECL | NET_DECL | ANALOG_BEHAVIOUR | FUNCTION | BRANCH_DECL | VAR_DECL
-            | PARAM_DECL | ALIAS_PARAM => true,
+            | PARAM_DECL | ALIAS_PARAM | INSTANTIATION => true,
             _ => false,
         }
     }
@@ -1442,6 +1628,7 @@ impl AstNode for ModuleItem {
             VAR_DECL => ModuleItem::VarDecl(VarDecl { syntax }),
             PARAM_DECL => ModuleItem::ParamDecl(ParamDecl { syntax }),
             ALIAS_PARAM => ModuleItem::AliasParam(AliasParam { syntax }),
+            INSTANTIATION => ModuleItem::Instantiation(Instantiation { syntax }),
             _ => return None,
         };
         Some(res)
@@ -1456,6 +1643,7 @@ impl AstNode for ModuleItem {
             ModuleItem::VarDecl(it) => &it.syntax,
             ModuleItem::ParamDecl(it) => &it.syntax,
             ModuleItem::AliasParam(it) => &it.syntax,
+            ModuleItem::Instantiation(it) => &it.syntax,
         }
     }
 }
@@ -1732,12 +1920,27 @@ impl std::fmt::Display for SelectExpr {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
+impl std::fmt::Display for BitSelectExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for PartSelectExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
 impl std::fmt::Display for PathExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
 impl std::fmt::Display for PortFlow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for Range {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }
@@ -1817,6 +2020,11 @@ impl std::fmt::Display for AliasParam {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
+impl std::fmt::Display for Instantiation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
 impl std::fmt::Display for ModulePort {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
@@ -1842,17 +2050,37 @@ impl std::fmt::Display for Constraint {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
-impl std::fmt::Display for Range {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(self.syntax(), f)
-    }
-}
 impl std::fmt::Display for Direction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }
 }
 impl std::fmt::Display for FunctionArg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for ParamOverrides {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for InstanceUnit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for ParamAssign {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for PortConns {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.syntax(), f)
+    }
+}
+impl std::fmt::Display for PortConn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.syntax(), f)
     }

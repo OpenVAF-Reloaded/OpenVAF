@@ -378,6 +378,9 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
         unsafe { builder.store(ret_flags, cx.const_int(0)) };
         // Debug: ret_flags initialized
 
+        // Fill constants section of instance data
+        unsafe { inst_data.store_consts(cx, instance, builder.llbuilder) };
+
         builder.params = vec![BuilderVal::Undef; intern.params.len()].into();
 
         let true_ = cx.const_bool(true);

@@ -60,8 +60,8 @@ ExprStmt =
 AssignStmt =
   AttrList* Assign ';'?
 
-Assign = 
-  lval: Expr op: ('<+' | '=') rval: Expr
+Assign =
+  lval: Expr op: ('<+' | '=' | ':') rval: Expr
 
 IfStmt =
   AttrList* 'if' '(' condition:Expr ')'
@@ -110,11 +110,15 @@ Expr =
 | ArrayExpr
 | Call
 | SelectExpr
+| BitSelectExpr
+| PartSelectExpr
 | PathExpr
 | PortFlow
 
 
 PathExpr = Path // Required to allow
+BitSelectExpr = base: Path '[' index: Expr ']'
+PartSelectExpr = base: Path range: Range
 PortFlow = '<' port: Path '>'
 
 SelectExpr =
@@ -195,6 +199,7 @@ ModuleItem =
 | VarDecl
 | ParamDecl
 | AliasParam
+| Instantiation
 
 ModulePorts = '('ports: (ModulePort (',' ModulePort)*)? ')'
 ModulePort = kind: ModulePortKind
@@ -204,7 +209,7 @@ AnalogBehaviour =
   AttrList* 'analog' 'initial'? Stmt
 
 VarDecl =
-  AttrList* Type (Var (',' Var)*) ';'
+  AttrList* Type width:Range? (Var (',' Var)*) ';'
 
 Var =
   Name ('=' default:Expr)?
@@ -230,13 +235,13 @@ Range =
 
 
 NetDecl =
-  AttrList*  discipline:NameRef?  'net_type'? (Name (',' Name)*)';'
+  AttrList*  discipline:NameRef?  'net_type'? width:Range? (Name (',' Name)*)';'
 
 BodyPortDecl =
   PortDecl ';'
 
 PortDecl =
-  AttrList* Direction discipline:NameRef?  'net_type'? (Name (',' Name)*)
+  AttrList* Direction discipline:NameRef?  'net_type'? width:Range? (Name (',' Name)*)
 
 Direction =
   'inout' | 'input' | 'output'
@@ -257,3 +262,26 @@ FunctionArg =
 
 BranchDecl =
   AttrList* 'branch' ArgList (Name (',' Name)*)';'
+
+// Sub-module instantiation, e.g. `resistor #(.r(1e3)) r1(in, out);`
+// or an instance array `resistor #(.r(1e3)) r[0:3](p, gnd);`.
+Instantiation =
+  AttrList* module:NameRef ParamOverrides?
+  (InstanceUnit (',' InstanceUnit)*) ';'
+
+ParamOverrides =
+  '#' '(' (ParamAssign (',' ParamAssign)*)? ')'
+
+ParamAssign =
+  ('.' name:Name '(' val:Expr ')') | val:Expr
+
+InstanceUnit =
+  name:Name width:Range? PortConns
+
+PortConns =
+  '(' (PortConn (',' PortConn)*)? ')'
+
+// A single port actual. Named (`.p(net)`), positional (`net`), or entirely
+// empty (an open/unconnected port, e.g. the middle slot in `inst(a, , c)`).
+PortConn =
+  ('.' name:Name '(' net:Expr ')') | net:Expr

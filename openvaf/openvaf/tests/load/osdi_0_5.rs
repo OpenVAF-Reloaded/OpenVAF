@@ -170,6 +170,7 @@ pub struct OsdiTransition {
     pub tr_offset: u32,
     pub tf_offset: u32,
     pub time_tol_offset: u32,
+    pub input_pending_offset: u32,
     pub input_accepted_offset: u32,
     pub output_offset: u32,
 }

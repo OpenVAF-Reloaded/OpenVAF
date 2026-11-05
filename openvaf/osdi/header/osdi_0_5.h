@@ -187,6 +187,7 @@ typedef struct OsdiTransition {
   uint32_t tr_offset;
   uint32_t tf_offset;
   uint32_t time_tol_offset;
+  uint32_t input_pending_offset;
   uint32_t input_accepted_offset;
   uint32_t output_offset;
 } OsdiTransition;

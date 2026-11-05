@@ -586,15 +586,18 @@ fn transition_test() -> Result<()> {
     }
 
     const SRC: &str = r#"`include "disciplines.vams"
-module transition_test(a, b, c);
-    inout a, b, c;
-    electrical a, b, c;
+module transition_test(a, b, c, d);
+    inout a, b, c, d;
+    electrical a, b, c, d;
     parameter real td = 1e-6;
+    parameter real tneg = -1e-6;
     analog begin
         I(a) <+ transition(V(a), td, 2e-6, 3e-6, 1e-9);
         // tf defaults to tr
         I(b) <+ transition(V(b), 0, 4e-6);
         I(c) <+ transition(V(c));
+        // negative arguments are clamped to 0
+        I(d) <+ transition(V(d), tneg, -2e-6, 2 * tneg, -1e-9);
     end
 endmodule
 "#;
@@ -604,13 +607,13 @@ endmodule
     let libs = compile_and_load_modules(&root_file, false);
     assert_eq!(libs.len(), 1);
     let desc = &libs[0];
-    assert_eq!(desc.transitions().len(), 3);
+    assert_eq!(desc.transitions().len(), 4);
     let model = desc.new_model();
     model.process_params()?;
     let mut instance = model.new_instance();
     let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
-    let nodes = ["a", "b", "c"];
-    // (tbegin, tr, tf, time_tol, input_accepted) of every call site
+    let nodes = ["a", "b", "c", "d"];
+    // (tbegin, tr, tf, time_tol) of every call site
     let slots = |instance: &OsdiInstance| {
         desc.transitions()
             .iter()
@@ -623,19 +626,30 @@ endmodule
     let accepted = |instance: &OsdiInstance| -> Vec<f64> {
         desc.transitions().iter().map(|t| instance.read_f64(t.input_accepted_offset)).collect()
     };
+    let pending = |instance: &OsdiInstance| -> Vec<f64> {
+        desc.transitions().iter().map(|t| instance.read_f64(t.input_pending_offset)).collect()
+    };
 
     // initialized by setup_instance: no transition posted
-    assert_eq!(slots(&instance), vec![[-1.0, 0.0, 0.0, 0.0]; 3]);
-    assert_eq!(accepted(&instance), vec![0.0; 3]);
+    assert_eq!(slots(&instance), vec![[-1.0, 0.0, 0.0, 0.0]; 4]);
+    assert_eq!(accepted(&instance), vec![0.0; 4]);
 
     // (abstime, dt, input, output slots, expected output, derivative, tbegin after accept)
     let steps = [
         // operating point: follows the input, tbegin is cleared
-        (0.0, 0.0, 1.0, [9.0; 3], [1.0; 3], 1.0, [-1.0; 3]),
+        (0.0, 0.0, 1.0, [9.0; 4], [1.0; 4], 1.0, [-1.0; 4]),
         // input changed: output from the simulator, the transition stays posted
-        (1e-6, 1e-6, 2.0, [1.25, 1.5, 1.75], [1.25, 1.5, 1.75], 0.0, [2e-6, 1e-6, 1e-6]),
+        (
+            1e-6,
+            1e-6,
+            2.0,
+            [1.25, 1.5, 1.75, 1.875],
+            [1.25, 1.5, 1.75, 1.875],
+            0.0,
+            [2e-6, 1e-6, 1e-6, 1e-6],
+        ),
         // input unchanged: tbegin is cleared
-        (2e-6, 1e-6, 2.0, [1.5, 2.0, 2.0], [1.5, 2.0, 2.0], 0.0, [-1.0; 3]),
+        (2e-6, 1e-6, 2.0, [1.5, 2.0, 2.0, 2.0], [1.5, 2.0, 2.0, 2.0], 0.0, [-1.0; 4]),
     ];
     for (abstime, dt, v, outputs, expected, deriv, tbegin) in steps {
         sim.abstime = abstime;
@@ -655,12 +669,14 @@ endmodule
             [abstime + 1e-6, 2e-6, 3e-6, 1e-9],
             [abstime, 4e-6, 4e-6, 0.0],
             [abstime, 0.0, 0.0, 0.0],
+            [abstime, 0.0, 0.0, 0.0],
         ];
         assert_eq!(slots(&instance), expected_slots, "t={abstime} before accept");
+        assert_eq!(pending(&instance), vec![v; 4], "t={abstime} before accept");
         instance.accept(&model, abstime, dt);
         let after: Vec<f64> = slots(&instance).iter().map(|s| s[0]).collect();
         assert_eq!(after, tbegin, "t={abstime} after accept");
-        assert_eq!(accepted(&instance), vec![v; 3], "t={abstime}");
+        assert_eq!(accepted(&instance), vec![v; 4], "t={abstime}");
     }
 
     // without -s transition() is a passthrough (a new file, the library is loaded only once)

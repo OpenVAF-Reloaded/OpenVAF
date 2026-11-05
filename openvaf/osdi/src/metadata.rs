@@ -409,13 +409,20 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             .map(|i| {
                 let [tbegin_offset, tr_offset, tf_offset, time_tol_offset, output_offset] =
                     inst_data.transition_offsets(i, target_data);
+                let input = |pending| {
+                    inst_data.hidden_state_offset(
+                        HiddenStateKey::Transition(i),
+                        pending,
+                        target_data,
+                    )
+                };
                 OsdiTransition {
                     tbegin_offset,
                     tr_offset,
                     tf_offset,
                     time_tol_offset,
-                    input_accepted_offset: inst_data
-                        .hidden_state_offset(HiddenStateKey::Transition(i), target_data),
+                    input_pending_offset: input(true),
+                    input_accepted_offset: input(false),
                     output_offset,
                 }
             })

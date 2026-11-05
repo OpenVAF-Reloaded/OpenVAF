@@ -793,6 +793,7 @@ impl BodyLoweringCtx<'_, '_, '_> {
     /// waveform. If `dt > 0` the output is read from the slot written by the
     /// simulator (its derivative with respect to `x` is zero). Otherwise the output
     /// is `x`. `td`, `tr`, and `time_tol` default to 0, `tf` defaults to `tr`.
+    /// Negative values are clamped to 0.
     fn lower_transition(&mut self, args: &[ExprId]) -> Value {
         let x = self.lower_expr(args[0]);
         let mut arg = |i: usize| args.get(i).map(|&arg| self.lower_expr(arg));
@@ -800,6 +801,11 @@ impl BodyLoweringCtx<'_, '_, '_> {
         let tr = arg(2).unwrap_or(F_ZERO);
         let tf = arg(3).unwrap_or(tr);
         let time_tol = arg(4).unwrap_or(F_ZERO);
+        // negative delays, transition times and tolerances are treated as 0
+        let [td, tr, tf, time_tol] = [td, tr, tf, time_tol].map(|val| {
+            let positive = self.ctx.ins().fgt(val, F_ZERO);
+            self.lower_select_with(positive, |_| val, |_| F_ZERO)
+        });
 
         let idx = self.ctx.num_transitions;
         self.ctx.num_transitions += 1;

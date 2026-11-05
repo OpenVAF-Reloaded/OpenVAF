@@ -438,6 +438,7 @@ pub struct OsdiTransition {
     pub tr_offset: u32,
     pub tf_offset: u32,
     pub time_tol_offset: u32,
+    pub input_pending_offset: u32,
     pub input_accepted_offset: u32,
     pub output_offset: u32,
 }
@@ -452,6 +453,7 @@ impl OsdiTransition {
             ctx.const_unsigned_int(self.tr_offset),
             ctx.const_unsigned_int(self.tf_offset),
             ctx.const_unsigned_int(self.time_tol_offset),
+            ctx.const_unsigned_int(self.input_pending_offset),
             ctx.const_unsigned_int(self.input_accepted_offset),
             ctx.const_unsigned_int(self.output_offset),
         ];
@@ -462,8 +464,15 @@ impl OsdiTransition {
 impl OsdiTyBuilder<'_, '_, '_> {
     fn osdi_transition(&mut self) {
         let ctx = self.ctx;
-        let fields =
-            [ctx.ty_int(), ctx.ty_int(), ctx.ty_int(), ctx.ty_int(), ctx.ty_int(), ctx.ty_int()];
+        let fields = [
+            ctx.ty_int(),
+            ctx.ty_int(),
+            ctx.ty_int(),
+            ctx.ty_int(),
+            ctx.ty_int(),
+            ctx.ty_int(),
+            ctx.ty_int(),
+        ];
         let ty = ctx.ty_struct("OsdiTransition", &fields);
         self.osdi_transition = Some(ty);
     }

@@ -10,7 +10,10 @@ use openvaf::{CompilationDestination, CompilationTermination, LLVMCodeGenOptLeve
 use stdx::{ignore_dev_tests, openvaf_test_data, project_root};
 use target::spec::Target;
 
-use crate::load::{load_osdi_lib, EvalFlags, OsdiDescriptor};
+use crate::load::{
+    load_osdi_lib, EvalFlags, EvalRetFlags, OsdiDescriptor, OsdiInstance, MODULEFLAG_COMPACT,
+    MODULEFLAG_FINAL_STEP, MODULEFLAG_INITIAL_STEP,
+};
 use crate::mock_sim::{MockSimulation, ALPHA};
 
 mod laplace;
@@ -63,12 +66,13 @@ endmodule
 }
 
 fn compile_and_load(root_file: &Utf8Path) -> &'static OsdiDescriptor {
-    let libs = compile_and_load_modules(root_file);
+    let libs = compile_and_load_modules(root_file, true);
     assert_eq!(libs.len(), 1);
     &libs[0]
 }
 
-fn compile_and_load_modules(root_file: &Utf8Path) -> &'static [OsdiDescriptor] {
+/// `compact` disables full Verilog-A (`-s`)
+fn compile_and_load_modules(root_file: &Utf8Path, compact: bool) -> &'static [OsdiDescriptor] {
     let openvaf_opts = openvaf::Opts {
         defines: Vec::new(),
         codegen_opts: Vec::new(),
@@ -87,6 +91,8 @@ fn compile_and_load_modules(root_file: &Utf8Path) -> &'static [OsdiDescriptor] {
         dump_unopt_mir: false,
         dump_ir: false,
         dump_unopt_ir: false,
+        compact,
+        dump_hs: false,
     };
 
     let res = openvaf::compile(&openvaf_opts).unwrap();
@@ -361,6 +367,491 @@ endmodule
     Ok(())
 }
 
+// With full Verilog-A (`-s`) `@(initial_step)` / `@(final_step)` run their body only when the
+// INITIAL_STEP / FINAL_STEP eval flag is set, and with a phase list only when one of the phases
+// is the current analysis. With compact-model Verilog-A (no `-s`) the bodies run in every
+// evaluation.
+fn step_events_test() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    const SRC: &str = r#"`include "disciplines.vams"
+module step_events(a, b, c, e, d);
+    inout a, b, c, e, d;
+    electrical a, b, c, e, d;
+    real x_any, x_ph, x_keep, x_fin;
+    analog begin
+        x_any = 1.0;
+        x_ph = 1.0;
+        x_fin = 1.0;
+        @(initial_step)
+            x_any = 2.0;
+        @(initial_step("dc", "tran"))
+            x_ph = 3.0;
+        // hidden state with -s: set only in the initial step
+        @(initial_step)
+            x_keep = 5.0;
+        @(final_step("tran"))
+            x_fin = 7.0;
+        I(a, d) <+ x_any * V(a, d);
+        I(b, d) <+ x_ph * V(b, d);
+        I(c, d) <+ x_keep * V(c, d);
+        I(e, d) <+ x_fin * V(e, d);
+    end
+endmodule
+"#;
+    // (flags, expected x_any, expected x_ph, expected x_fin)
+    let cases = [
+        (EvalFlags::empty(), 1.0, 1.0, 1.0),
+        (EvalFlags::ANALYSIS_TRAN, 1.0, 1.0, 1.0),
+        (EvalFlags::INITIAL_STEP, 2.0, 1.0, 1.0),
+        (EvalFlags::INITIAL_STEP | EvalFlags::ANALYSIS_DC, 2.0, 3.0, 1.0),
+        (EvalFlags::INITIAL_STEP | EvalFlags::ANALYSIS_TRAN, 2.0, 3.0, 1.0),
+        (EvalFlags::INITIAL_STEP | EvalFlags::ANALYSIS_NOISE, 2.0, 1.0, 1.0),
+        (EvalFlags::FINAL_STEP, 1.0, 1.0, 1.0),
+        (EvalFlags::FINAL_STEP | EvalFlags::ANALYSIS_DC, 1.0, 1.0, 1.0),
+        (EvalFlags::FINAL_STEP | EvalFlags::ANALYSIS_TRAN, 1.0, 1.0, 7.0),
+    ];
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+
+    for compact in [false, true] {
+        let root_file = tmp_dir.join(format!("openvaf_step_events_compact_{compact}_test.va"));
+        std::fs::write(&root_file, SRC)?;
+        let libs = compile_and_load_modules(&root_file, compact);
+        assert_eq!(libs.len(), 1);
+        let desc = &libs[0];
+        // set regardless of -s: without it the simulator may still signal the steps
+        let step_flags = MODULEFLAG_INITIAL_STEP | MODULEFLAG_FINAL_STEP;
+        assert_eq!(desc.module_flags & step_flags, step_flags, "compact={compact}");
+        let compact_flag = if compact { MODULEFLAG_COMPACT } else { 0 };
+        assert_eq!(desc.module_flags & MODULEFLAG_COMPACT, compact_flag, "compact={compact}");
+        let model = desc.new_model();
+        model.process_params()?;
+        let mut instance = model.new_instance();
+        let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+        let mut eval = |flags: EvalFlags| {
+            sim.clear();
+            instance.eval(&model, &mut sim, flags);
+            instance.load_dae(&model, &mut sim);
+            ["a", "b", "c", "e"].map(|node| sim.read_jacobian(node, node))
+        };
+
+        if !compact {
+            // the accepted state starts at the initializer (0) and is never accepted here
+            for (flags, x_any, x_ph, x_fin) in cases {
+                let x_keep = if flags.contains(EvalFlags::INITIAL_STEP) { 5.0 } else { 0.0 };
+                let expected = [(x_any, 0.0), (x_ph, 0.0), (x_keep, 0.0), (x_fin, 0.0)];
+                assert_eq!(eval(flags), expected, "-s, {flags:?}");
+            }
+            // the value set in the initial step persists once it is accepted
+            eval(EvalFlags::INITIAL_STEP);
+            instance.accept(&model, 0.0, 0.0);
+            assert_eq!(eval(EvalFlags::ANALYSIS_TRAN)[2], (5.0, 0.0), "-s, x_keep accepted");
+        } else {
+            for (flags, ..) in cases {
+                let expected = [(2.0, 0.0), (3.0, 0.0), (5.0, 0.0), (7.0, 0.0)];
+                assert_eq!(eval(flags), expected, "no -s, {flags:?}");
+            }
+        }
+    }
+    Ok(())
+}
+
+// With full Verilog-A (`-s`) the output of each slew() call site is hidden state. If dt != 0
+// and $abstime != 0 its change from the accepted output is limited to [neg_rate*dt,
+// pos_rate*dt] and its derivative is zero while limited. Otherwise it follows the input.
+fn slew_test() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    const SRC: &str = r#"`include "disciplines.vams"
+module slew_test(a, b);
+    inout a, b;
+    electrical a, b;
+    analog begin
+        I(a) <+ slew(V(a), 1e3);
+        I(b) <+ slew(V(b), 1e3, -2e3);
+    end
+endmodule
+"#;
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+    let root_file = tmp_dir.join("openvaf_slew_test.va");
+    std::fs::write(&root_file, SRC)?;
+    let libs = compile_and_load_modules(&root_file, false);
+    assert_eq!(libs.len(), 1);
+    let desc = &libs[0];
+    let model = desc.new_model();
+    model.process_params()?;
+    let mut instance = model.new_instance();
+    let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+
+    // (abstime, dt, V(a) = V(b), expected I(a), dI(a)/dV(a), expected I(b), dI(b)/dV(b))
+    let steps = [
+        // operating point: follows the input
+        (0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0),
+        // rising by at most 1e3 * 1e-4 = 0.1
+        (1e-4, 1e-4, 2.0, 1.1, 0.0, 1.1, 0.0),
+        (2e-4, 1e-4, 2.0, 1.2, 0.0, 1.2, 0.0),
+        // within the limits: follows the input
+        (3e-4, 1e-4, 1.25, 1.25, 1.0, 1.25, 1.0),
+        // falling by at most 1e3 * 1e-4 = 0.1 (a) and 2e3 * 1e-4 = 0.2 (b)
+        (4e-4, 1e-4, 0.0, 1.15, 0.0, 1.05, 0.0),
+    ];
+    for (abstime, dt, v, ia, ga, ib, gb) in steps {
+        sim.abstime = abstime;
+        sim.dt = dt;
+        sim.set_voltage("a", v);
+        sim.set_voltage("b", v);
+        sim.clear();
+        instance.eval(&model, &mut sim, EvalFlags::ANALYSIS_TRAN);
+        instance.load_dae(&model, &mut sim);
+        assert_approx_eq!(sim.read_residual("a").0, ia);
+        assert_approx_eq!(sim.read_residual("b").0, ib);
+        assert_eq!(sim.read_jacobian("a", "a").0, ga, "t={abstime}");
+        assert_eq!(sim.read_jacobian("b", "b").0, gb, "t={abstime}");
+        instance.accept(&model, abstime, dt);
+    }
+    Ok(())
+}
+
+// With full Verilog-A (`-s`) each last_crossing() call site keeps the times of the last
+// rising/falling crossings (-1 if none) as hidden state. A crossing is detected if dt > 0 and
+// the input changed its sign since the last accepted point (a zero has the sign of the last
+// nonzero value). Its time is interpolated linearly.
+fn last_crossing_test() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    const SRC: &str = r#"`include "disciplines.vams"
+module last_crossing_test(a, r, f);
+    inout a, r, f;
+    electrical a, r, f;
+    analog begin
+        I(a) <+ last_crossing(V(a));
+        I(r) <+ last_crossing(V(r), 1);
+        I(f) <+ last_crossing(V(f), -1);
+    end
+endmodule
+"#;
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+    let root_file = tmp_dir.join("openvaf_last_crossing_test.va");
+    std::fs::write(&root_file, SRC)?;
+    let libs = compile_and_load_modules(&root_file, false);
+    assert_eq!(libs.len(), 1);
+    let desc = &libs[0];
+    let model = desc.new_model();
+    model.process_params()?;
+    let mut instance = model.new_instance();
+    let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+
+    // (abstime, dt, input, expected any, rising, falling crossing time)
+    let steps = [
+        // operating point: no crossings
+        (0.0, 0.0, -1.0, -1.0, -1.0, -1.0),
+        // rising from -1 to 1, crossing halfway
+        (1e-4, 1e-4, 1.0, 0.5e-4, 0.5e-4, -1.0),
+        // zero is not a crossing
+        (2e-4, 1e-4, 0.0, 0.5e-4, 0.5e-4, -1.0),
+        // falling from zero (last nonzero value positive), crossing at the last point
+        (3e-4, 1e-4, -3.0, 2e-4, 0.5e-4, 2e-4),
+        (4e-4, 1e-4, -1.0, 2e-4, 0.5e-4, 2e-4),
+    ];
+    for (abstime, dt, v, any, rising, falling) in steps {
+        sim.abstime = abstime;
+        sim.dt = dt;
+        sim.set_voltage("a", v);
+        sim.set_voltage("r", v);
+        sim.set_voltage("f", v);
+        sim.clear();
+        instance.eval(&model, &mut sim, EvalFlags::ANALYSIS_TRAN);
+        instance.load_dae(&model, &mut sim);
+        assert_approx_eq!(sim.read_residual("a").0, any);
+        assert_approx_eq!(sim.read_residual("r").0, rising);
+        assert_approx_eq!(sim.read_residual("f").0, falling);
+        instance.accept(&model, abstime, dt);
+    }
+    Ok(())
+}
+
+// With full Verilog-A (`-s`) the input of each transition() call site is hidden state. Eval
+// stores $abstime + td, tr, tf, and time_tol for the simulator. If dt > 0 the output is read
+// from the slot written by the simulator (derivative zero), otherwise it is the input. Accept
+// clears tbegin (-1) if dt == 0 or the input did not change.
+fn transition_test() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    const SRC: &str = r#"`include "disciplines.vams"
+module transition_test(a, b, c, d);
+    inout a, b, c, d;
+    electrical a, b, c, d;
+    parameter real td = 1e-6;
+    parameter real tneg = -1e-6;
+    analog begin
+        I(a) <+ transition(V(a), td, 2e-6, 3e-6, 1e-9);
+        // tf defaults to tr
+        I(b) <+ transition(V(b), 0, 4e-6);
+        I(c) <+ transition(V(c));
+        // negative arguments are clamped to 0
+        I(d) <+ transition(V(d), tneg, -2e-6, 2 * tneg, -1e-9);
+    end
+endmodule
+"#;
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+    let root_file = tmp_dir.join("openvaf_transition_test.va");
+    std::fs::write(&root_file, SRC)?;
+    let libs = compile_and_load_modules(&root_file, false);
+    assert_eq!(libs.len(), 1);
+    let desc = &libs[0];
+    assert_eq!(desc.transitions().len(), 4);
+    let model = desc.new_model();
+    model.process_params()?;
+    let mut instance = model.new_instance();
+    let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+    let nodes = ["a", "b", "c", "d"];
+    // (tbegin, tr, tf, time_tol) of every call site
+    let slots = |instance: &OsdiInstance| {
+        desc.transitions()
+            .iter()
+            .map(|t| {
+                [t.tbegin_offset, t.tr_offset, t.tf_offset, t.time_tol_offset]
+                    .map(|off| instance.read_f64(off))
+            })
+            .collect::<Vec<_>>()
+    };
+    let accepted = |instance: &OsdiInstance| -> Vec<f64> {
+        desc.transitions().iter().map(|t| instance.read_f64(t.input_accepted_offset)).collect()
+    };
+    let pending = |instance: &OsdiInstance| -> Vec<f64> {
+        desc.transitions().iter().map(|t| instance.read_f64(t.input_pending_offset)).collect()
+    };
+
+    // initialized by setup_instance: no transition posted
+    assert_eq!(slots(&instance), vec![[-1.0, 0.0, 0.0, 0.0]; 4]);
+    assert_eq!(accepted(&instance), vec![0.0; 4]);
+
+    // (abstime, dt, input, output slots, expected output, derivative, tbegin after accept)
+    let steps = [
+        // operating point: follows the input, tbegin is cleared
+        (0.0, 0.0, 1.0, [9.0; 4], [1.0; 4], 1.0, [-1.0; 4]),
+        // input changed: output from the simulator, the transition stays posted
+        (
+            1e-6,
+            1e-6,
+            2.0,
+            [1.25, 1.5, 1.75, 1.875],
+            [1.25, 1.5, 1.75, 1.875],
+            0.0,
+            [2e-6, 1e-6, 1e-6, 1e-6],
+        ),
+        // input unchanged: tbegin is cleared
+        (2e-6, 1e-6, 2.0, [1.5, 2.0, 2.0, 2.0], [1.5, 2.0, 2.0, 2.0], 0.0, [-1.0; 4]),
+    ];
+    for (abstime, dt, v, outputs, expected, deriv, tbegin) in steps {
+        sim.abstime = abstime;
+        sim.dt = dt;
+        for (i, node) in nodes.iter().enumerate() {
+            sim.set_voltage(node, v);
+            instance.set_transition_output(i, outputs[i]);
+        }
+        sim.clear();
+        instance.eval(&model, &mut sim, EvalFlags::ANALYSIS_TRAN);
+        instance.load_dae(&model, &mut sim);
+        for (i, node) in nodes.iter().enumerate() {
+            assert_approx_eq!(sim.read_residual(node).0, expected[i]);
+            assert_eq!(sim.read_jacobian(node, node).0, deriv, "t={abstime} {node}");
+        }
+        let expected_slots = vec![
+            [abstime + 1e-6, 2e-6, 3e-6, 1e-9],
+            [abstime, 4e-6, 4e-6, 0.0],
+            [abstime, 0.0, 0.0, 0.0],
+            [abstime, 0.0, 0.0, 0.0],
+        ];
+        assert_eq!(slots(&instance), expected_slots, "t={abstime} before accept");
+        assert_eq!(pending(&instance), vec![v; 4], "t={abstime} before accept");
+        instance.accept(&model, abstime, dt);
+        let after: Vec<f64> = slots(&instance).iter().map(|s| s[0]).collect();
+        assert_eq!(after, tbegin, "t={abstime} after accept");
+        assert_eq!(accepted(&instance), vec![v; 4], "t={abstime}");
+    }
+
+    // without -s transition() is a passthrough (a new file, the library is loaded only once)
+    let root_file = tmp_dir.join("openvaf_transition_compact_test.va");
+    std::fs::write(&root_file, SRC)?;
+    let libs = compile_and_load_modules(&root_file, true);
+    let desc = &libs[0];
+    assert!(desc.transitions().is_empty());
+    let model = desc.new_model();
+    model.process_params()?;
+    let mut instance = model.new_instance();
+    let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+    sim.abstime = 1e-6;
+    sim.dt = 1e-6;
+    for node in nodes {
+        sim.set_voltage(node, 2.0);
+    }
+    instance.eval(&model, &mut sim, EvalFlags::ANALYSIS_TRAN);
+    instance.load_dae(&model, &mut sim);
+    for node in nodes {
+        assert_eq!(sim.read_residual(node).0, 2.0, "no -s, {node}");
+        assert_eq!(sim.read_jacobian(node, node).0, 1.0, "no -s, {node}");
+    }
+    Ok(())
+}
+
+fn discontinuity_test() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    const SRC: &str = r#"`include "disciplines.vams"
+module discontinuity_test(a, b);
+    inout a, b;
+    electrical a, b;
+    parameter integer deg = -1;
+    analog function real mylim;
+        input vnew, vold, vmax;
+        real vnew, vold, vmax;
+        begin
+            mylim = vnew;
+            if (vnew > vmax) begin
+                mylim = vmax;
+                $discontinuity(-1);
+            end
+        end
+    endfunction
+    analog begin
+        if (V(a, b) > 1)
+            $discontinuity(2);
+        // larger than the slot: ignored
+        if (V(a, b) > 1)
+            $discontinuity(4);
+        if (V(a, b) > 2)
+            $discontinuity;
+        if (V(a, b) > 3)
+            $discontinuity(deg);
+        // ignored: negative and not inside $limit
+        $discontinuity(-1);
+        $discontinuity(-3);
+        I(a, b) <+ $limit(V(a, b), mylim, 5.0);
+    end
+endmodule
+
+// only -1 inside $limit sets the limiting flag
+module discontinuity_lim_test(a, b);
+    inout a, b;
+    electrical a, b;
+    analog function real lim_p1;
+        input vnew, vold, vmax;
+        real vnew, vold, vmax;
+        begin
+            lim_p1 = vnew;
+            if (vnew > vmax)
+                $discontinuity(1);
+        end
+    endfunction
+    analog function real lim_m2;
+        input vnew, vold, vmax;
+        real vnew, vold, vmax;
+        begin
+            lim_m2 = vnew;
+            if (vnew > vmax)
+                $discontinuity(-2);
+        end
+    endfunction
+    analog function real lim_m1;
+        input vnew, vold, vmax;
+        real vnew, vold, vmax;
+        begin
+            lim_m1 = vnew;
+            if (vnew > vmax)
+                $discontinuity(-1);
+        end
+    endfunction
+    analog begin
+        I(a, b) <+ $limit(V(a, b), lim_p1, 1.0) + $limit(V(a, b), lim_m2, 2.0)
+            + $limit(V(a, b), lim_m1, 3.0);
+    end
+endmodule
+
+// no slot: only negative constants, -1 inside $limit sets just the limiting flag
+module no_discontinuity_test(a, b);
+    inout a, b;
+    electrical a, b;
+    analog function real lim_m1;
+        input vnew, vold, vmax;
+        real vnew, vold, vmax;
+        begin
+            lim_m1 = vnew;
+            if (vnew > vmax)
+                $discontinuity(-1);
+        end
+    endfunction
+    analog begin
+        $discontinuity(-1);
+        $discontinuity(-2 - 1);
+        I(a, b) <+ $limit(V(a, b), lim_m1, 1.0);
+    end
+endmodule
+"#;
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+    let root_file = tmp_dir.join("openvaf_discontinuity_test.va");
+    std::fs::write(&root_file, SRC)?;
+    let libs = compile_and_load_modules(&root_file, false);
+    assert_eq!(libs.len(), 3);
+    let find = |name: &str| libs.iter().find(|desc| unsafe { load::osdi_str(desc.name) } == name);
+
+    // evaluates the steps (voltage, slot after eval, limited) in order
+    let run = |name: &str, steps: &[(f64, i32, bool)]| -> Result<()> {
+        let desc = find(name).unwrap();
+        let offset = desc.discontinuity_offset;
+        assert_ne!(offset, u32::MAX, "{name}");
+        let model = desc.new_model();
+        model.process_params()?;
+        let mut instance = model.new_instance();
+        let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+        for &(v, slot, limited) in steps {
+            sim.next_iter();
+            sim.set_voltage("a", v);
+            let ret = instance.eval(&model, &mut sim, EvalFlags::ENABLE_LIM);
+            assert_eq!(instance.read_i32(offset), slot, "{name} V={v}");
+            let lim = ret.contains(EvalRetFlags::EVAL_RET_FLAG_LIM);
+            assert_eq!(lim, limited, "{name} V={v}");
+        }
+        Ok(())
+    };
+    // the last step checks that the slot is reset at every eval
+    let steps = [
+        (0.0, -1, false),
+        (1.5, 2, false),
+        (2.5, 0, false),
+        (3.5, 0, false),
+        (6.0, 0, true),
+        (0.0, -1, false),
+    ];
+    run("discontinuity_test", &steps)?;
+    let steps = [(0.0, -1, false), (1.5, 1, false), (2.5, 1, false), (3.5, 1, true)];
+    run("discontinuity_lim_test", &steps)?;
+
+    let desc = find("no_discontinuity_test").unwrap();
+    assert_eq!(desc.discontinuity_offset, u32::MAX);
+    let model = desc.new_model();
+    model.process_params()?;
+    let mut instance = model.new_instance();
+    let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+    for (v, limited) in [(0.0, false), (2.0, true)] {
+        sim.next_iter();
+        sim.set_voltage("a", v);
+        let ret = instance.eval(&model, &mut sim, EvalFlags::ENABLE_LIM);
+        assert_eq!(ret.contains(EvalRetFlags::EVAL_RET_FLAG_LIM), limited, "V={v}");
+    }
+    Ok(())
+}
+
 // Enhancement-3: vector ports. A 4-bit DAC with a bus port followed by a scalar port, in
 // non-ANSI and ANSI style. The OSDI terminals must be `d[0] d[1] d[2] d[3] out` (simulators
 // bind instance terminals by position) and the output must be computed from the right bits.
@@ -458,7 +949,7 @@ endmodule
     let root_file =
         Utf8PathBuf::try_from(std::env::temp_dir())?.join("openvaf_hierarchy_bus_slices_test.va");
     std::fs::write(&root_file, SRC)?;
-    let libs = compile_and_load_modules(&root_file);
+    let libs = compile_and_load_modules(&root_file, true);
     let desc = libs.iter().find(|desc| unsafe { load::osdi_str(desc.name) } == "top").unwrap();
     assert_eq!(desc.num_terminals, 7);
     let model = desc.new_model();
@@ -514,7 +1005,7 @@ endmodule
         let root_file = Utf8PathBuf::try_from(std::env::temp_dir())?
             .join(format!("openvaf_hierarchy_slice_width_{width}_test.va"));
         std::fs::write(&root_file, src)?;
-        let libs = compile_and_load_modules(&root_file);
+        let libs = compile_and_load_modules(&root_file, true);
         let desc = libs.iter().find(|desc| unsafe { load::osdi_str(desc.name) } == "top").unwrap();
         assert_eq!(desc.num_terminals, 33);
         let model = desc.new_model();
@@ -553,6 +1044,11 @@ harness! {
         Test::new("noise", &test_noise),
         Test::new("absdelay_maxdelay_offset", &absdelay_maxdelay_offset_test),
         Test::new("indirect_opamp", &indirect_opamp_test),
+        Test::new("step_events", &step_events_test),
+        Test::new("slew", &slew_test),
+        Test::new("last_crossing", &last_crossing_test),
+        Test::new("transition", &transition_test),
+        Test::new("discontinuity", &discontinuity_test),
         Test::new("bus_port_dac", &bus_port_dac_test),
         Test::new("hierarchy_bus_slices", &hierarchy_bus_slices_test),
         Test::new("hierarchy_variable_width_slices", &hierarchy_variable_width_slices_test),

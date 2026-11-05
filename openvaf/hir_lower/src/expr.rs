@@ -16,10 +16,11 @@ use stdx::iter::zip;
 use syntax::ast::{BinaryOp, UnaryOp};
 
 use crate::body::BodyLoweringCtx;
+use crate::ctx::LoweringCtx;
 use crate::fmt::DisplayKind;
 use crate::{
-    CallBackKind, CurrentKind, IdtKind, ImplicitEquationKind, NoiseTable, ParamKind, PlaceKind,
-    RetFlag,
+    CallBackKind, CrossingSlot, CurrentKind, HiddenStateKey, IdtKind, ImplicitEquationKind,
+    NoiseTable, ParamKind, PlaceKind, RetFlag, TransitionSlot,
 };
 
 impl BodyLoweringCtx<'_, '_, '_> {
@@ -666,13 +667,10 @@ impl BodyLoweringCtx<'_, '_, '_> {
                 self.ctx.finish_limit(state, res)
             }
             BuiltIn::discontinuity => {
-                // AB: Negative literals are represented as UnaryOp::Neg(Literal)
-                //     We have a function for that now.
-                if self.ctx.inside_lim && Some(-1) == self.body.as_literalsignedint(&args[0]) {
-                    self.ctx.call(CallBackKind::LimDiscontinuity, &[]);
-                } else {
-                    // TODO implement support for discontinuity?
-                }
+                // without an argument it behaves as $discontinuity(0)
+                let degree = args.first().map_or(ZERO, |&arg| self.lower_expr(arg));
+                let in_limit = self.ctx.inside_lim;
+                self.ctx.call(CallBackKind::Discontinuity { in_limit }, &[degree]);
                 GRAVESTONE
             }
             BuiltIn::finish => {
@@ -721,7 +719,12 @@ impl BodyLoweringCtx<'_, '_, '_> {
                 // The absdelay result is V(z); eq_z's equation is handled by the simulator
                 z_val
             }
+            BuiltIn::slew if !self.ctx.compact && args.len() > 1 => self.lower_slew(args),
+            BuiltIn::transition if !self.ctx.compact => self.lower_transition(args),
             BuiltIn::slew | BuiltIn::transition | BuiltIn::limit => self.lower_expr(args[0]),
+            BuiltIn::last_crossing if !self.ctx.compact => self.lower_last_crossing(args),
+            // compact models have no crossings
+            BuiltIn::last_crossing => self.ctx.fconst(-1.0),
 
             BuiltIn::laplace_nd
             | BuiltIn::laplace_np
@@ -730,6 +733,175 @@ impl BodyLoweringCtx<'_, '_, '_> {
 
             _ => unreachable!(),
         }
+    }
+
+    /// Lowers `slew(x, max_pos_slew_rate [, max_neg_slew_rate])`.
+    ///
+    /// The output of each call site is hidden state (`last_x`). If `dt != 0` and
+    /// `$abstime != 0` the change `x - last_x` is limited to
+    /// `[max_neg_slew_rate * dt, max_pos_slew_rate * dt]`. Otherwise the output is
+    /// `x`. The negative rate defaults to `-max_pos_slew_rate`. While slewing the
+    /// derivative of the output with respect to `x` is zero.
+    fn lower_slew(&mut self, args: &[ExprId]) -> Value {
+        let x = self.lower_expr(args[0]);
+        let max_slew = self.lower_expr(args[1]);
+        let min_slew = if let Some(&arg) = args.get(2) {
+            self.lower_expr(arg)
+        } else {
+            self.ctx.ins().fneg(max_slew)
+        };
+
+        let idx = self.ctx.num_slews;
+        self.ctx.num_slews += 1;
+        let last_x = self.ctx.use_param(ParamKind::HiddenState(HiddenStateKey::Slew(idx)));
+        let dt = self.ctx.use_param(ParamKind::TimeStep);
+        let t = self.ctx.use_param(ParamKind::Abstime);
+
+        let dt_nonzero = self.ctx.ins().fne(dt, F_ZERO);
+        let t_nonzero = self.ctx.ins().fne(t, F_ZERO);
+        let limit = self.lower_select_with(dt_nonzero, |_| t_nonzero, |_| FALSE);
+        let x = self.lower_select_with(
+            limit,
+            |mut ctx| {
+                let delta = ctx.ctx.ins().fsub(x, last_x);
+                let max_delta = ctx.ctx.ins().fmul(max_slew, dt);
+                let rising = ctx.ctx.ins().fgt(delta, max_delta);
+                ctx.lower_select_with(
+                    rising,
+                    |ctx| ctx.ctx.ins().fadd(last_x, max_delta),
+                    |mut ctx| {
+                        let min_delta = ctx.ctx.ins().fmul(min_slew, dt);
+                        let falling = ctx.ctx.ins().flt(delta, min_delta);
+                        ctx.lower_select_with(
+                            falling,
+                            |ctx| ctx.ctx.ins().fadd(last_x, min_delta),
+                            |_| x,
+                        )
+                    },
+                )
+            },
+            |_| x,
+        );
+        self.ctx.def_place(PlaceKind::SlewOutput(idx), x);
+        x
+    }
+
+    /// Lowers `transition(x [, td [, tr [, tf [, time_tol]]]])`.
+    ///
+    /// The input of each call site is hidden state. Eval stores `$abstime + td`,
+    /// `tr`, `tf`, and `time_tol` for the simulator, which computes the output
+    /// waveform. If `dt > 0` the output is read from the slot written by the
+    /// simulator (its derivative with respect to `x` is zero). Otherwise the output
+    /// is `x`. `td`, `tr`, and `time_tol` default to 0, `tf` defaults to `tr`.
+    /// Negative values are clamped to 0.
+    fn lower_transition(&mut self, args: &[ExprId]) -> Value {
+        let x = self.lower_expr(args[0]);
+        let mut arg = |i: usize| args.get(i).map(|&arg| self.lower_expr(arg));
+        let td = arg(1).unwrap_or(F_ZERO);
+        let tr = arg(2).unwrap_or(F_ZERO);
+        let tf = arg(3).unwrap_or(tr);
+        let time_tol = arg(4).unwrap_or(F_ZERO);
+        // negative delays, transition times and tolerances are treated as 0
+        let [td, tr, tf, time_tol] = [td, tr, tf, time_tol].map(|val| {
+            let positive = self.ctx.ins().fgt(val, F_ZERO);
+            self.lower_select_with(positive, |_| val, |_| F_ZERO)
+        });
+
+        let idx = self.ctx.num_transitions;
+        self.ctx.num_transitions += 1;
+        let t = self.ctx.use_param(ParamKind::Abstime);
+        let begin = self.ctx.ins().fadd(t, td);
+        for (slot, val) in [
+            (TransitionSlot::Input, x),
+            (TransitionSlot::Begin, begin),
+            (TransitionSlot::Rise, tr),
+            (TransitionSlot::Fall, tf),
+            (TransitionSlot::TimeTol, time_tol),
+        ] {
+            self.ctx.def_place(PlaceKind::Transition(idx, slot), val);
+        }
+
+        let dt = self.ctx.use_param(ParamKind::TimeStep);
+        let advanced = self.ctx.ins().fgt(dt, F_ZERO);
+        self.lower_select_with(
+            advanced,
+            |ctx| ctx.ctx.use_param(ParamKind::TransitionOutput(idx)),
+            |_| x,
+        )
+    }
+
+    /// Lowers `last_crossing(x [, direction])`.
+    ///
+    /// Each call site keeps the times of the last rising and falling zero crossings
+    /// (-1 if none), the last nonzero value of `x`, and `x` as hidden state. If
+    /// `dt > 0` and `x` changed its sign since the last accepted point (a zero
+    /// counts as the sign of the last nonzero value) the crossing time is
+    /// interpolated linearly. Returns the time of the last falling (`direction < 0`),
+    /// rising (`direction > 0`), or any (`direction == 0`, default) crossing.
+    fn lower_last_crossing(&mut self, args: &[ExprId]) -> Value {
+        let x = self.lower_expr(args[0]);
+        let dir = args.get(1).map(|&arg| self.lower_expr(arg));
+
+        let idx = self.ctx.num_last_crossings;
+        self.ctx.num_last_crossings += 1;
+        let state = |ctx: &mut LoweringCtx, slot| {
+            ctx.use_param(ParamKind::HiddenState(HiddenStateKey::LastCrossing(idx, slot)))
+        };
+        let rising_t = state(self.ctx, CrossingSlot::Rising);
+        let falling_t = state(self.ctx, CrossingSlot::Falling);
+        let last_nz = state(self.ctx, CrossingSlot::LastNonZero);
+        let last_x = state(self.ctx, CrossingSlot::Input);
+        let dt = self.ctx.use_param(ParamKind::TimeStep);
+        let t = self.ctx.use_param(ParamKind::Abstime);
+
+        let x_zero = self.ctx.ins().feq(x, F_ZERO);
+        let new_nz = self.lower_select_with(x_zero, |_| last_nz, |_| x);
+        self.ctx.def_place(PlaceKind::LastCrossingOutput(idx, CrossingSlot::LastNonZero), new_nz);
+        self.ctx.def_place(PlaceKind::LastCrossingOutput(idx, CrossingSlot::Input), x);
+
+        // sign of the last point, a zero has the sign of the last nonzero value
+        let last_zero = self.ctx.ins().feq(last_x, F_ZERO);
+        let last_sign = self.lower_select_with(last_zero, |_| last_nz, |_| last_x);
+
+        let crossing_time = |ctx: &mut LoweringCtx| {
+            // t - x / (x - last_x) * dt
+            let dx = ctx.ins().fsub(x, last_x);
+            let frac = ctx.ins().fdiv(x, dx);
+            let back = ctx.ins().fmul(frac, dt);
+            ctx.ins().fsub(t, back)
+        };
+        let advanced = self.ctx.ins().fgt(dt, F_ZERO);
+        let x_pos = self.ctx.ins().fgt(x, F_ZERO);
+        let x_neg = self.ctx.ins().flt(x, F_ZERO);
+        let last_pos = self.ctx.ins().fgt(last_sign, F_ZERO);
+        let last_neg = self.ctx.ins().flt(last_sign, F_ZERO);
+        let rises = self.lower_select_with(
+            advanced,
+            |mut ctx| ctx.lower_select_with(x_pos, |_| last_neg, |_| FALSE),
+            |_| FALSE,
+        );
+        let falls = self.lower_select_with(
+            advanced,
+            |mut ctx| ctx.lower_select_with(x_neg, |_| last_pos, |_| FALSE),
+            |_| FALSE,
+        );
+        let rising_t = self.lower_select_with(rises, |ctx| crossing_time(ctx.ctx), |_| rising_t);
+        let falling_t = self.lower_select_with(falls, |ctx| crossing_time(ctx.ctx), |_| falling_t);
+        self.ctx.def_place(PlaceKind::LastCrossingOutput(idx, CrossingSlot::Rising), rising_t);
+        self.ctx.def_place(PlaceKind::LastCrossingOutput(idx, CrossingSlot::Falling), falling_t);
+
+        let falling_later = self.ctx.ins().fgt(falling_t, rising_t);
+        let any_t = self.lower_select_with(falling_later, |_| falling_t, |_| rising_t);
+        let Some(dir) = dir else { return any_t };
+        let falling = self.ctx.ins().ilt(dir, ZERO);
+        self.lower_select_with(
+            falling,
+            |_| falling_t,
+            |mut ctx| {
+                let rising = ctx.ctx.ins().igt(dir, ZERO);
+                ctx.lower_select_with(rising, |_| rising_t, |_| any_t)
+            },
+        )
     }
 
     /// Lowers `laplace_nd`/`laplace_np`/`laplace_zd`/`laplace_zp(in, num_or_zero, den_or_pole

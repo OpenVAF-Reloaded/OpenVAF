@@ -1,8 +1,10 @@
 use core::ptr::NonNull;
 
-use hir_lower::{CallBackKind, ParamInfoKind, ParamKind, PlaceKind};
+use hir_lower::{
+    CallBackKind, HiddenStateKey, ParamInfoKind, ParamKind, PlaceKind, TransitionSlot,
+};
 use llvm_sys::core::{
-    LLVMAppendBasicBlockInContext, LLVMBuildBr, LLVMBuildCondBr, LLVMBuildRetVoid,
+    LLVMAppendBasicBlockInContext, LLVMBuildBr, LLVMBuildCondBr, LLVMBuildRetVoid, LLVMConstNull,
     LLVMCreateBuilderInContext, LLVMDisposeBuilder, LLVMGetInsertBlock, LLVMGetLastInstruction,
     LLVMGetParam, LLVMPositionBuilder, LLVMPositionBuilderAtEnd,
 };
@@ -15,8 +17,10 @@ use mir_llvm::{
 };
 use sim_back::SimUnknownKind;
 
+use crate::bitfield::is_flag_set;
 use crate::compilation_unit::{general_callbacks, OsdiCompilationUnit};
-use crate::inst_data::OsdiInstanceParam;
+use crate::inst_data::{OsdiInstanceParam, TRANSITION_SLOTS};
+use crate::metadata::osdi_0_5::INIT_HIDDEN_STATE;
 
 use std::collections::HashMap;
 
@@ -378,6 +382,41 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
         unsafe { builder.store(ret_flags, cx.const_int(0)) };
         // Debug: ret_flags initialized
 
+        // Hidden state is initialized only if INIT_HIDDEN_STATE is set in res->flags.
+        // Must be read before res->flags is cleared.
+        let init_hidden = unsafe {
+            let flags = builder.struct_gep(tys.osdi_init_info, &*res, 0);
+            let flags = builder.load(cx.ty_int(), flags);
+            is_flag_set(cx, INIT_HIDDEN_STATE, flags, builder.llbuilder)
+        };
+
+        // Default initialization of the hidden state
+        for &key in inst_data.hidden_state.keys() {
+            let (ptr, ty) = inst_data.hidden_state_ptr(builder.llbuilder, key, false, instance);
+            unsafe {
+                let old = builder.load(ty, ptr);
+                let init = match key.init_value() {
+                    Some(val) => cx.const_real(val),
+                    None => &*LLVMConstNull(NonNull::from(ty).as_ptr()),
+                };
+                let val = builder.select(init_hidden, init, old);
+                builder.store(ptr, val)
+            };
+        }
+
+        // transition() slots: no transition posted (tbegin = -1), everything else 0
+        for i in 0..inst_data.num_transitions {
+            for (pos, slot) in TRANSITION_SLOTS.iter().enumerate() {
+                let init = if *slot == Some(TransitionSlot::Begin) { -1.0 } else { 0.0 };
+                let ptr = inst_data.transition_ptr(builder.llbuilder, i, pos, instance);
+                unsafe {
+                    let old = builder.load(cx.ty_double(), ptr);
+                    let val = builder.select(init_hidden, cx.const_real(init), old);
+                    builder.store(ptr, val)
+                };
+            }
+        }
+
         // Fill constants section of instance data
         unsafe { inst_data.store_consts(cx, instance, builder.llbuilder) };
 
@@ -634,6 +673,31 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                 }
                 let val = builder.values[val].get(&builder);
                 inst_data.store_cache_slot(module, builder.llbuilder, slot, instance, val)
+            }
+        }
+
+        // Values of the hidden state variables after the analog initial blocks
+        for (&kind, val) in module.init.intern.outputs.iter() {
+            let PlaceKind::HiddenStateInit(var) = kind else { continue };
+            let val = val.unwrap_unchecked();
+            let inst = func.dfg.value_def(val).unwrap_inst();
+            let bb = func.layout.inst_block(inst).unwrap();
+            builder.select_bb_before_terminator(bb);
+            unsafe {
+                if let BuilderVal::Undef = builder.values[val] {
+                    // Unconditional $fatal() in analog initial blocks
+                    continue;
+                }
+                let val = builder.values[val].get(&builder);
+                let (ptr, ty) = inst_data.hidden_state_ptr(
+                    builder.llbuilder,
+                    HiddenStateKey::Var(var),
+                    false,
+                    instance,
+                );
+                let old = builder.load(ty, ptr);
+                let val = builder.select(init_hidden, val, old);
+                builder.store(ptr, val)
             }
         }
 

@@ -45,12 +45,15 @@
 #define ANALYSIS_IC 16384
 #define ANALYSIS_STATIC 32768
 #define ANALYSIS_NODESET 65536
+#define INITIAL_STEP 131072
+#define FINAL_STEP 262144
 
 #define EVAL_RET_FLAG_LIM 1
 #define EVAL_RET_FLAG_FATAL 2
 #define EVAL_RET_FLAG_FINISH 4
 #define EVAL_RET_FLAG_STOP 8
 
+#define INIT_HIDDEN_STATE 1
 
 #define LOG_LVL_MASK 7
 #define LOG_LVL_DEBUG 0
@@ -81,6 +84,10 @@
 #define NOISE_TYPE_TABLE 2
 
 #define MODULEFLAG_ABSTIME 1
+#define MODULEFLAG_HIDDEN_STATE 2
+#define MODULEFLAG_INITIAL_STEP 4
+#define MODULEFLAG_FINAL_STEP 8
+#define MODULEFLAG_COMPACT 16
 
 typedef struct OsdiLimFunction {
   char *name;
@@ -102,6 +109,7 @@ typedef struct OsdiSimInfo {
     double *prev_state;
     double *next_state;
     uint32_t flags;
+    double dt;
 }OsdiSimInfo;
 
 typedef union OsdiInitErrorPayload {
@@ -173,6 +181,16 @@ typedef struct OsdiAbsDelay {
   uint32_t td_offset;
   uint32_t maxdelay_offset;
 } OsdiAbsDelay;
+
+typedef struct OsdiTransition {
+  uint32_t tbegin_offset;
+  uint32_t tr_offset;
+  uint32_t tf_offset;
+  uint32_t time_tol_offset;
+  uint32_t input_pending_offset;
+  uint32_t input_accepted_offset;
+  uint32_t output_offset;
+} OsdiTransition;
 
 typedef struct OsdiDescriptor {
   char *name;
@@ -246,6 +264,10 @@ typedef struct OsdiDescriptor {
   uint32_t absdelay_count;
   OsdiAbsDelay *absdelays;
   OsdiJacobianValue *jacobian_values;
+  void (*accept)(void *inst, void *model, OsdiSimInfo *info);
+  uint32_t transition_count;
+  OsdiTransition *transitions;
+  uint32_t discontinuity_offset;
 }OsdiDescriptor;
 
 typedef struct OsdiNature {

@@ -25,6 +25,7 @@ pub enum IllegalCtxAccessKind {
     NatureAccess,
     AnalogOperator { name: Name, is_standard: bool, non_const_dominator: Box<[ExprId]> },
     AnalysisFun { name: Name },
+    Builtin { name: Name },
     Var(VarId),
 }
 
@@ -51,6 +52,10 @@ pub enum BodyValidationDiagnostic {
         branch: Option<BranchId>,
     },
     IllegalContribute {
+        stmt: StmtId,
+        ctx: BodyCtx,
+    },
+    IllegalEventControl {
         stmt: StmtId,
         ctx: BodyCtx,
     },
@@ -168,6 +173,11 @@ impl BodyCtx {
         !matches!(self, Self::Const)
     }
 
+    /// `$stop`, `$abstime`, `analysis()` and `$discontinuity` require a running analysis
+    fn allow_analysis_state(self) -> bool {
+        !matches!(self, Self::AnalogInitialBlock)
+    }
+
     fn allow_var_ref(self) -> bool {
         !matches!(self, Self::Const | Self::ConstOrAnalysis)
     }
@@ -215,6 +225,15 @@ impl BodyValidator<'_> {
                 return;
             }
             Stmt::EventControl { body, .. } => {
+                // keep the analog initial context so that its body is still checked
+                if self.ctx == BodyCtx::AnalogInitialBlock {
+                    self.diagnostics.push(BodyValidationDiagnostic::IllegalEventControl {
+                        stmt,
+                        ctx: self.ctx,
+                    });
+                    self.validate_stmt(body);
+                    return;
+                }
                 let old = replace(&mut self.ctx, BodyCtx::EventControl);
                 self.validate_stmt(body);
                 self.ctx = old;
@@ -585,6 +604,16 @@ impl ExprValidator<'_, '_> {
                     },
                     expr,
                 ),
+            BuiltIn::stop | BuiltIn::abstime | BuiltIn::analysis | BuiltIn::discontinuity
+                if !self.parent.ctx.allow_analysis_state() =>
+            {
+                self.report_illegal_access(
+                    IllegalCtxAccessKind::Builtin {
+                        name: name.as_ref().and_then(|p| p.as_ident()).unwrap(),
+                    },
+                    expr,
+                )
+            }
             _ => (),
         }
 
@@ -683,6 +712,7 @@ impl ExprValidator<'_, '_> {
                 BuiltIn::noise_table | BuiltIn::noise_table_log,
                 Some(NOISE_TABLE_INLINE | NOISE_TABLE_INLINE_NAME),
             ) => self.validate_const_expr(args[0]),
+            (BuiltIn::discontinuity, _) if !args.is_empty() => self.validate_const_expr(args[0]),
             (func @ (BuiltIn::simparam | BuiltIn::simparam_str), _) => {
                 if self.parent.ctx == BodyCtx::Const {
                     let known = if let Expr::Literal(Literal::String(name)) =

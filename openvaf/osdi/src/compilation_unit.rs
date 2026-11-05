@@ -3,7 +3,7 @@ use std::ptr::NonNull;
 
 use hir::CompilationDB;
 use hir_lower::fmt::{DisplayKind, FmtArg, FmtArgKind};
-use hir_lower::{CallBackKind, HirInterner, RetFlag};
+use hir_lower::{CallBackKind, HiddenStateKey, HirInterner, RetFlag};
 use lasso::Rodeo;
 use llvm_sys::core::{
     LLVMAddIncoming, LLVMAppendBasicBlockInContext, LLVMBuildAdd, LLVMBuildArrayMalloc,
@@ -139,6 +139,10 @@ pub struct OsdiModule<'a> {
     pub model_param_intern: &'a HirInterner,
     pub lim_table: &'a TiSet<OsdiLimId, OsdiLimFunction>,
     pub node_collapse: &'a NodeCollapse,
+    /// Values carried from one evaluation to the next
+    pub hidden_state: &'a [HiddenStateKey],
+    /// Compiled as a compact model (without full Verilog-A semantics, `-s`)
+    pub compact: bool,
     pub sym: String,
 }
 
@@ -158,6 +162,9 @@ impl<'a> OsdiModule<'a> {
             model_param_setup,
             model_param_intern,
             node_collapse,
+            hidden_state,
+            compact,
+            ..
         } = module;
         OsdiModule {
             sym,
@@ -170,6 +177,8 @@ impl<'a> OsdiModule<'a> {
             model_param_setup,
             model_param_intern,
             node_collapse,
+            hidden_state,
+            compact: *compact,
         }
     }
 }
@@ -247,7 +256,7 @@ pub fn general_callbacks<'ll>(
                 | CallBackKind::CollapseHint(_, _)
                 | CallBackKind::BuiltinLimit { .. }
                 | CallBackKind::StoreLimit(_)
-                | CallBackKind::LimDiscontinuity
+                | CallBackKind::Discontinuity { .. }
                 | CallBackKind::Analysis
                 | CallBackKind::NoiseTable(_)
                 | CallBackKind::WhiteNoise { .. }

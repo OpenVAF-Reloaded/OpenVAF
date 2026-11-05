@@ -3,7 +3,9 @@ use std::borrow::Borrow;
 
 use camino::Utf8Path;
 use hir::Type;
-use hir_lower::{CallBackKind, CurrentKind, HirInterner, ParamInfoKind, ParamKind, PlaceKind};
+use hir_lower::{
+    CallBackKind, CurrentKind, HiddenStateKey, HirInterner, ParamInfoKind, ParamKind, PlaceKind,
+};
 use lasso::Rodeo;
 use llvm_sys::target_machine::LLVMCodeGenOptLevel;
 use mir::{ControlFlowGraph, FuncRef, Function};
@@ -70,7 +72,7 @@ pub fn stub_callbacks<'ll>(
                 | CallBackKind::ParamInfo(_, _)
                 | CallBackKind::BuiltinLimit { .. }
                 | CallBackKind::StoreLimit(_)
-                | CallBackKind::LimDiscontinuity
+                | CallBackKind::Discontinuity { .. }
                 | CallBackKind::CollapseHint(_, _)
                 | CallBackKind::SetRetFlag { .. } => return None,
                 CallBackKind::Analysis => {
@@ -110,7 +112,9 @@ impl<'ll> Codegen<'_, '_, 'll> {
             self.spec.dependency_breaking.iter().copied().filter(|var| var.ty(self.db) == ty);
         let llty = lltype(&ty, self.builder.cx);
         for (i, var) in vars.clone().enumerate() {
-            if let Some(id) = self.intern.params.index(&ParamKind::HiddenState(var)) {
+            if let Some(id) =
+                self.intern.params.index(&ParamKind::HiddenState(HiddenStateKey::Var(var)))
+            {
                 self.builder.params[id] = self.read_fat_ptr_at(i, offset, ptr, llty).into();
             }
         }
@@ -377,10 +381,16 @@ impl CodegenCtx<'_, '_> {
                     }
                     ParamKind::ImplicitUnknown(_)
                     | ParamKind::Abstime
+                    | ParamKind::TimeStep
+                    | ParamKind::TransitionOutput(_)
                     | ParamKind::PrevState(_)
                     | ParamKind::NewState(_) => codegen.builder.cx.const_real(0.0),
                     ParamKind::EnableIntegration | ParamKind::EnableLim => {
                         codegen.builder.cx.const_bool(false)
+                    }
+                    // A single evaluation behaves like the first and the last step
+                    ParamKind::InitialStep | ParamKind::FinalStep => {
+                        codegen.builder.cx.const_bool(true)
                     }
                 };
 
@@ -723,11 +733,15 @@ impl CodegenCtx<'_, '_> {
                     ParamKind::ParamSysFun(param) => builder.cx.const_real(param.default_value()),
                     ParamKind::ImplicitUnknown(_)
                     | ParamKind::Abstime
+                    | ParamKind::TimeStep
+                    | ParamKind::TransitionOutput(_)
                     | ParamKind::PrevState(_)
                     | ParamKind::NewState(_) => builder.cx.const_real(0.0),
                     ParamKind::EnableIntegration | ParamKind::EnableLim => {
                         builder.cx.const_bool(false)
                     }
+                    // A single evaluation behaves like the first and the last step
+                    ParamKind::InitialStep | ParamKind::FinalStep => builder.cx.const_bool(true),
                 };
 
                 val.into()

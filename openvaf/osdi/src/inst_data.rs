@@ -1335,14 +1335,20 @@ impl<'ll> OsdiInstanceData<'ll> {
         }
     }
 
-    /// Byte offset of the accepted slot of the hidden state `key`
-    pub fn hidden_state_offset(&self, key: HiddenStateKey, target_data: &LLVMTargetDataRef) -> u32 {
+    /// Byte offset of the accepted (`pending == false`) or the pending
+    /// (`pending == true`) slot of the hidden state `key`
+    pub fn hidden_state_offset(
+        &self,
+        key: HiddenStateKey,
+        pending: bool,
+        target_data: &LLVMTargetDataRef,
+    ) -> u32 {
         let pos = self.hidden_state.get_index_of(&key).unwrap() as u32;
         unsafe {
             LLVMOffsetOfElement(
                 *target_data,
                 NonNull::from(self.ty).as_ptr(),
-                self.hidden_state_elem(pos, false),
+                self.hidden_state_elem(pos, pending),
             ) as u32
         }
     }

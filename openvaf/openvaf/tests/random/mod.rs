@@ -133,6 +133,51 @@ pub fn generators() -> Result<()> {
     Ok(())
 }
 
+/// A voltage contribution that is zero after optimization but not a literal zero (a
+/// typed `$arandom`, `1 - 1`) has no collapse hint. It keeps its branch equation
+/// `V = 0` with the branch current as unknown.
+pub fn zero_voltage() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    const SRC: &str = r#"`include "disciplines.vams"
+module zero_voltage(d, e);
+    output d, e;
+    electrical d, e;
+    analog begin
+        V(d) <+ $arandom(12345, "instance");
+        V(e) <+ 1 - 1;
+    end
+endmodule
+"#;
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+    let root_file = tmp_dir.join("openvaf_random_zero_voltage_test.va");
+    std::fs::write(&root_file, SRC)?;
+    let libs = compile_and_load_modules(&root_file, true);
+    assert_eq!(libs.len(), 1);
+    let desc = &libs[0];
+    let model = desc.new_model();
+    model.process_params()?;
+    let mut instance = model.new_instance();
+    let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+
+    for (node, v) in [("d", 0.3), ("e", 0.2)] {
+        sim.set_voltage(node, v);
+    }
+    instance.eval(&model, &mut sim, EvalFlags::empty());
+    instance.load_dae(&model, &mut sim);
+    for (node, v) in [("d", 0.3), ("e", 0.2)] {
+        let flow = format!("flow({node})");
+        // branch equation: 0 - V(node)
+        assert_eq!(sim.read_residual(&flow), (-v, 0.0), "{node}");
+        assert_eq!(sim.read_jacobian(&flow, node), (-1.0, 0.0), "{node}");
+        // KCL: the branch current flows out of the node
+        assert_eq!(sim.read_jacobian(node, &flow), (1.0, 0.0), "{node}");
+    }
+    Ok(())
+}
+
 fn module(name: &str, decls: &str, initial: &str, analog: &str) -> String {
     format!(
         r#"`include "disciplines.vams"

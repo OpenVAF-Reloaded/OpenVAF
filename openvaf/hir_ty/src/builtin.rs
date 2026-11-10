@@ -305,17 +305,19 @@ bultins! {
 
     const fn SIMPARAM_STR(Literal(String)) -> Real;
 
-    RANDOM = const {
+    RANDOM = {
         fn RANDOM_NO_SEED() -> Integer;
         fn RANDOM_SEED(Var(Integer)) -> Integer;
     }
 
-    ARANDOM = const {
+    // The variable seed comes before the constant seed: an integer variable
+    // matches both, the first candidate wins.
+    // The seed of the typed form is ignored.
+    ARANDOM = {
         fn ARANDOM_NO_SEED() -> Integer;
         fn ARANDOM_SEED(Var(Integer)) -> Integer;
-        fn ARANDOM_SEED_NAME(Var(Integer),Literal(String)) -> Integer;
-        fn ARNADOM_CONST_SEED(Param(Integer)) -> Integer;
-        fn ARNADOM_CONST_SEED_NAME(Param(Integer),Literal(String)) -> Integer;
+        fn ARANDOM_CONST_SEED(Val(Integer)) -> Integer;
+        fn ARANDOM_TYPED(Val(Integer),Literal(String)) -> Integer;
     }
 
 

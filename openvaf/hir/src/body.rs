@@ -39,11 +39,16 @@ impl Body {
 
 #[derive(Debug, Clone, Copy)]
 pub struct BodyRef<'a> {
-    body: &'a hir_def::body::Body,
-    infere: &'a inference::InferenceResult,
+    body: &'a Arc<hir_def::body::Body>,
+    infere: &'a Arc<inference::InferenceResult>,
 }
 
 impl<'a> BodyRef<'a> {
+    /// The body this reference points to
+    pub fn to_body(&self) -> Body {
+        Body { body: self.body.clone(), infere: self.infere.clone() }
+    }
+
     pub fn entry(&self) -> &'a [StmtId] {
         &self.body.entry_stmts
     }

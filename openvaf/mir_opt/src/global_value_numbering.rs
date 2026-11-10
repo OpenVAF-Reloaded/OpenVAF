@@ -237,7 +237,7 @@ impl GVNExpression {
             }
             Opcode::Call => {
                 let CallExprPayLoad { func_ref: func_ref_1, args: args1 } = self.payload.call();
-                let CallExprPayLoad { func_ref: func_ref_2, args: args2 } = self.payload.call();
+                let CallExprPayLoad { func_ref: func_ref_2, args: args2 } = other.payload.call();
                 if func_ref_1 != func_ref_2 {
                     return false;
                 }

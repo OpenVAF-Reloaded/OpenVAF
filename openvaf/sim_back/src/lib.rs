@@ -178,11 +178,14 @@ impl<'a> CompiledModule<'a> {
         // Build MIR for the module
         let mut cx = Context::new(db, literals, module, &hidden_vars, compact);
 
-        // slew(), last_crossing(), and transition() state is always hidden state
+        // slew(), last_crossing(), transition(), and random number generator state
+        // is always hidden state
         let mut hidden_state: Vec<_> = hidden_vars.into_iter().map(HiddenStateKey::Var).collect();
         hidden_state.extend(cx.intern.params.raw.keys().filter_map(|kind| match *kind {
             ParamKind::HiddenState(
-                key @ (HiddenStateKey::Slew(_) | HiddenStateKey::LastCrossing(..)),
+                key @ (HiddenStateKey::Slew(_)
+                | HiddenStateKey::LastCrossing(..)
+                | HiddenStateKey::Random(_)),
             ) => Some(key),
             _ => None,
         }));
@@ -201,6 +204,7 @@ impl<'a> CompiledModule<'a> {
                         println!("  last_crossing #{i} {slot:?}")
                     }
                     HiddenStateKey::Transition(i) => println!("  transition #{i}"),
+                    HiddenStateKey::Random(i) => println!("  random generator #{i}"),
                 }
             }
         }

@@ -207,8 +207,6 @@ impl BuiltIn {
             | BuiltIn::dist_erlang
             | BuiltIn::dist_normal
             | BuiltIn::dist_t
-            | BuiltIn::random
-            | BuiltIn::arandom
             | BuiltIn::rdist_chi_square
             | BuiltIn::rdist_exponential
             | BuiltIn::rdist_poisson

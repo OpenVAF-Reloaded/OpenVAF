@@ -165,7 +165,8 @@ impl OsdiModel {
             vals_str: ptr::null_mut(),
         };
 
-        let mut res = OsdiInitInfo { flags: 0, num_errors: 0, errors: ptr::null_mut() };
+        let mut res =
+            OsdiInitInfo { flags: 0, num_errors: 0, errors: ptr::null_mut(), entity_seed: 0 };
         self.descriptor.setup_model(
             b"foo\0".as_ptr() as *mut c_void,
             self.data,
@@ -188,6 +189,7 @@ impl OsdiModel {
         OsdiInstance {
             descriptor: self.descriptor,
             data: alloc(self.descriptor.instance_size as usize),
+            entity_seed: 0,
         }
     }
 }
@@ -195,6 +197,8 @@ impl OsdiModel {
 pub struct OsdiInstance {
     pub descriptor: &'static OsdiDescriptor,
     pub data: *mut c_void,
+    /// Passed to `setup_instance()` (seeds the random number generators)
+    pub entity_seed: u32,
 }
 
 impl Drop for OsdiInstance {
@@ -303,8 +307,12 @@ impl OsdiInstance {
             vals_str: ptr::null_mut(),
         };
 
-        let mut res =
-            OsdiInitInfo { flags: INIT_HIDDEN_STATE, num_errors: 0, errors: ptr::null_mut() };
+        let mut res = OsdiInitInfo {
+            flags: INIT_HIDDEN_STATE,
+            num_errors: 0,
+            errors: ptr::null_mut(),
+            entity_seed: self.entity_seed,
+        };
         self.descriptor.setup_instance(
             b"foo\0".as_ptr() as *mut c_void,
             self.data,

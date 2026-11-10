@@ -138,6 +138,58 @@ void push_invalid_param_err(void **dst, uint32_t *len, uint32_t *cap,
 
 void bound_step(double *dst, double val) { *dst = val; }
 
+// Random number generation ($random, $arandom)
+
+// MurmurHash3 finalizer
+static uint32_t vams_fmix32(uint32_t h) {
+  h ^= h >> 16;
+  h *= 0x85ebca6bu;
+  h ^= h >> 13;
+  h *= 0xc2b2ae35u;
+  h ^= h >> 16;
+  return h;
+}
+
+// 0x9e3779b9 = 2^32/golden ratio
+uint32_t vams_mix32(uint32_t base, uint32_t site_id) {
+  return vams_fmix32(base ^ vams_fmix32(site_id + 0x9e3779b9u));
+}
+
+int32_t vams_random(int32_t *seed) {
+  uint32_t s = (uint32_t)*seed;
+  // same substitution as uniform() in IEEE 1364-2005, so a shared
+  // seed variable gives the same state sequence
+  if (s == 0)
+    s = 259341593;
+  s = 69069u * s + 1u;
+  *seed = (int32_t)s;
+  // full 32 bits, all bits well mixed
+  return (int32_t)vams_fmix32(s);
+}
+
+// vams_random() split into the new state and its value (pure functions)
+int32_t vams_random_next(int32_t seed) {
+  vams_random(&seed);
+  return seed;
+}
+
+int32_t vams_random_value(int32_t state) {
+  return (int32_t)vams_fmix32((uint32_t)state);
+}
+
+// Initial state of the random number generator with site id site_id that is
+// seeded by the simulator. Reads entity_seed only if INIT_HIDDEN_STATE is set
+// (older simulators pass a shorter OsdiInitInfo).
+int32_t vams_site_seed(OsdiInitInfo *info, uint32_t site_id) {
+  if (!(info->flags & INIT_HIDDEN_STATE))
+    return 0;
+  uint32_t seed = vams_mix32(info->entity_seed, site_id);
+  // avoid collision with the 0 -> 259341593 substitution
+  if (seed == 0)
+    seed = 1;
+  return (int32_t)seed;
+}
+
 #define FMT_OFF 6
 #define NUM_FMT 11
 const char FMT_CHARS[NUM_FMT] = {'a', 'f', 'p', 'n', 'u', 'm',

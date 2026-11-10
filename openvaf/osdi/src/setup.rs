@@ -390,14 +390,32 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             is_flag_set(cx, INIT_HIDDEN_STATE, flags, builder.llbuilder)
         };
 
+        // Random number generators without a constant seed are seeded with the
+        // entity seed (read only if INIT_HIDDEN_STATE is set) mixed with the site id
+        let site_seed = || {
+            let fun = cx
+                .get_func_by_name("vams_site_seed")
+                .expect("stdlib function vams_site_seed is missing");
+            let fun_ty = cx.ty_func(&[cx.ty_ptr(), cx.ty_int()], cx.ty_int());
+            (fun, fun_ty)
+        };
+
         // Default initialization of the hidden state
         for &key in inst_data.hidden_state.keys() {
             let (ptr, ty) = inst_data.hidden_state_ptr(builder.llbuilder, key, false, instance);
             unsafe {
                 let old = builder.load(ty, ptr);
-                let init = match key.init_value() {
-                    Some(val) => cx.const_real(val),
-                    None => &*LLVMConstNull(NonNull::from(ty).as_ptr()),
+                let init = match key {
+                    HiddenStateKey::Random(i)
+                        if !intern.outputs.contains_key(&PlaceKind::RandomInit(i)) =>
+                    {
+                        let (fun, fun_ty) = site_seed();
+                        builder.call(fun_ty, fun, &[&*res, cx.const_unsigned_int(i)])
+                    }
+                    _ => match key.init_value() {
+                        Some(val) => cx.const_real(val),
+                        None => &*LLVMConstNull(NonNull::from(ty).as_ptr()),
+                    },
                 };
                 let val = builder.select(init_hidden, init, old);
                 builder.store(ptr, val)
@@ -677,8 +695,13 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
         }
 
         // Values of the hidden state variables after the analog initial blocks
+        // and constant seeds of the random number generators
         for (&kind, val) in module.init.intern.outputs.iter() {
-            let PlaceKind::HiddenStateInit(var) = kind else { continue };
+            let key = match kind {
+                PlaceKind::HiddenStateInit(var) => HiddenStateKey::Var(var),
+                PlaceKind::RandomInit(i) => HiddenStateKey::Random(i),
+                _ => continue,
+            };
             let val = val.unwrap_unchecked();
             let inst = func.dfg.value_def(val).unwrap_inst();
             let bb = func.layout.inst_block(inst).unwrap();
@@ -689,12 +712,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                     continue;
                 }
                 let val = builder.values[val].get(&builder);
-                let (ptr, ty) = inst_data.hidden_state_ptr(
-                    builder.llbuilder,
-                    HiddenStateKey::Var(var),
-                    false,
-                    instance,
-                );
+                let (ptr, ty) = inst_data.hidden_state_ptr(builder.llbuilder, key, false, instance);
                 let old = builder.load(ty, ptr);
                 let val = builder.select(init_hidden, val, old);
                 builder.store(ptr, val)

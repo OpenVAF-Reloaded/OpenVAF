@@ -263,6 +263,20 @@ pub fn general_callbacks<'ll>(
                 | CallBackKind::FlickerNoise { .. }
                 | CallBackKind::TimeDerivative => return None,
 
+                CallBackKind::RandomNext | CallBackKind::RandomValue => {
+                    let name = call.signature().name;
+                    let fun = builder
+                        .cx
+                        .get_func_by_name(&name)
+                        .unwrap_or_else(|| panic!("stdlib function {name} is missing"));
+                    let fun_ty = builder.cx.ty_func(&[builder.cx.ty_int()], builder.cx.ty_int());
+                    CallbackFun::Prebuilt(BuiltCallbackFun {
+                        fun_ty,
+                        fun,
+                        state: Box::new([]),
+                        num_state: 0,
+                    })
+                }
                 CallBackKind::Print { kind, arg_tys } => {
                     let (fun, fun_ty) = print_callback(builder.cx, *kind, arg_tys);
                     CallbackFun::Prebuilt(BuiltCallbackFun {

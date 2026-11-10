@@ -8,7 +8,7 @@ use anyhow::{bail, Result};
 use basedb::lints::{Lint, LintLevel};
 use basedb::{AbsPathBuf, BaseDB, BaseDatabase, FileId, Vfs, VfsPath, VfsStorage, STANDARD_FLAGS};
 use hir_def::db::{HirDefDB, HirDefDatabase, InternDatabase};
-use hir_ty::db::HirTyDatabase;
+use hir_ty::db::{HirTyDB, HirTyDatabase};
 use parking_lot::RwLock;
 use salsa::ParallelDatabase;
 use stdx::Upcast;
@@ -64,6 +64,12 @@ impl CompilationDB {
         )
     }
 
+    /// Selects full Verilog-A semantics (`-s`, hidden state allowed) or a compact
+    /// model (default). Validation depends on it.
+    pub fn set_full_semantics_flag(&mut self, full: bool) {
+        self.set_full_semantics(full)
+    }
+
     pub fn compilation_unit(&self) -> CompilationUnit {
         CompilationUnit { root_file: self.root_file }
     }
@@ -101,6 +107,7 @@ impl CompilationDB {
         res.set_macro_flags(root_file, macro_flags);
 
         res.set_plugin_lints(&[]);
+        res.set_full_semantics(false);
         let mut overwrites = res.empty_global_lint_overwrites();
         let registry = res.lint_registry();
 

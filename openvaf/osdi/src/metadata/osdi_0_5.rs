@@ -188,7 +188,7 @@ impl OsdiTyBuilder<'_, '_, '_> {
 impl OsdiTyBuilder<'_, '_, '_> {
     fn osdi_init_info(&mut self) {
         let ctx = self.ctx;
-        let fields = [ctx.ty_int(), ctx.ty_int(), ctx.ty_ptr()];
+        let fields = [ctx.ty_int(), ctx.ty_int(), ctx.ty_ptr(), ctx.ty_int()];
         let ty = ctx.ty_struct("OsdiInitInfo", &fields);
         self.osdi_init_info = Some(ty);
     }

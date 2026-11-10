@@ -46,7 +46,9 @@ impl Initialization {
             .intern
             .outputs
             .iter_mut()
-            .filter(|(kind, _)| matches!(kind, PlaceKind::HiddenStateInit(_)))
+            .filter(|(kind, _)| {
+                matches!(kind, PlaceKind::HiddenStateInit(_) | PlaceKind::RandomInit(_))
+            })
             .filter_map(|(&kind, val)| Some((kind, val.take()?)))
             .collect();
         for &(_, val) in &hidden_state_init {

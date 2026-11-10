@@ -1,6 +1,6 @@
 use bitset::BitSet;
 use hir::{BranchWrite, CompilationDB, Node, ParamSysFun};
-use hir_lower::{CurrentKind, HirInterner, ImplicitEquation, ParamKind};
+use hir_lower::{CallBackKind, CurrentKind, HirInterner, ImplicitEquation, ParamKind};
 use indexmap::IndexSet;
 use mir::builder::InstBuilder;
 use mir::cursor::{Cursor, FuncCursor};
@@ -401,6 +401,21 @@ impl<'a> Builder<'a> {
         res
     }
 
+    /// Whether a zero voltage contribution (`V(br) <+ 0` with a literal zero) to
+    /// `branch` emitted a collapse hint for its nodes
+    fn has_collapse_hint(&self, branch: BranchWrite) -> bool {
+        let node = |node: Node| (!node.is_gnd(self.db)).then_some(node);
+        let (hi, lo) = branch.nodes(self.db);
+        let (hi, lo) = (node(hi), lo.and_then(node));
+        self.intern.callbacks.iter().any(|kind| match *kind {
+            CallBackKind::CollapseHint(hint_hi, hint_lo) => {
+                let hint_hi = Some(hint_hi);
+                (hint_hi, hint_lo) == (hi, lo) || (hint_hi, hint_lo) == (lo, hi)
+            }
+            _ => false,
+        })
+    }
+
     pub(super) fn build_branch(&mut self, branch: BranchWrite, contributions: &BranchInfo) {
         let current = branch.into();
         // contributions.is_voltage_src is a Value that is used for choosing the branch type (voltage, current)
@@ -432,10 +447,15 @@ impl<'a> Builder<'a> {
             // If it is constant TRUE; this is a voltage branch
             TRUE => {
                 // branches only used for node collapsing look like pure current
-                // sources, make sure to ignore these branches
+                // sources, make sure to ignore these branches. A zero contribution
+                // that is not a literal (e.g. folded by the optimizer) has no collapse
+                // hint, so it still needs its equation (V = 0).
                 let requires_unknown =
                     self.intern.is_param_live(&self.cursor, &ParamKind::Current(current));
-                if requires_unknown || !contributions.voltage_src.is_trivial() {
+                if requires_unknown
+                    || !contributions.voltage_src.is_trivial()
+                    || !self.has_collapse_hint(branch)
+                {
                     let contrib = self.voltage_branch(contributions);
                     // A branch with voltage contributions only, we need a nextra equation
                     // because its current must be an unknown in the DAE system
@@ -467,6 +487,7 @@ impl<'a> Builder<'a> {
                 if op_dependent
                     || requires_current_unknown
                     || !contributions.voltage_src.is_trivial()
+                    || !self.has_collapse_hint(branch)
                 {
                     // An actual switch branch
                     let start_bb = self.cursor.current_block().unwrap();

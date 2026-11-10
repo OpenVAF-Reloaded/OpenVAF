@@ -1060,6 +1060,7 @@ harness! {
         Test::new("discontinuity", &discontinuity_test),
         Test::new("random", &random::generators),
         Test::new("random_errors", &random::errors),
+        Test::new("random_zero_voltage", &random::zero_voltage),
         Test::new("bus_port_dac", &bus_port_dac_test),
         Test::new("hierarchy_bus_slices", &hierarchy_bus_slices_test),
         Test::new("hierarchy_variable_width_slices", &hierarchy_variable_width_slices_test),

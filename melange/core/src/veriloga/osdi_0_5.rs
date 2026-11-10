@@ -108,6 +108,7 @@ pub struct OsdiInitInfo {
     pub flags: u32,
     pub num_errors: u32,
     pub errors: *mut OsdiInitError,
+    pub entity_seed: u32,
 }
 #[repr(C)]
 pub struct OsdiNodePair {

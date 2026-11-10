@@ -125,6 +125,7 @@ typedef struct OsdiInitInfo {
   uint32_t flags;
   uint32_t num_errors;
   OsdiInitError *errors;
+  uint32_t entity_seed;
 }OsdiInitInfo;
 
 typedef struct OsdiNodePair {

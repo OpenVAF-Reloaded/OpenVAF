@@ -9,7 +9,9 @@ use hir::signatures::{
     NATURE_ACCESS_NODES, NATURE_ACCESS_NODE_GND, NATURE_ACCESS_PORT_FLOW, REAL_EQ, REAL_OP,
     SIMPARAM_DEFAULT, SIMPARAM_NO_DEFAULT, STR_EQ,
 };
-use hir::{Body, BuiltIn, Expr, ExprId, Literal, /*ParamSysFun,*/ Ref, ResolvedFun, Type};
+use hir::{
+    Body, BuiltIn, Expr, ExprId, Literal, /*ParamSysFun,*/ RandomForm, Ref, ResolvedFun, Type,
+};
 use mir::builder::InstBuilder;
 use mir::{Opcode, Value, FALSE, F_ONE, F_ZERO, GRAVESTONE, INFINITY, TRUE, ZERO};
 use stdx::iter::zip;
@@ -731,7 +733,57 @@ impl BodyLoweringCtx<'_, '_, '_> {
             | BuiltIn::laplace_zd
             | BuiltIn::laplace_zp => self.lower_laplace(builtin, args),
 
+            BuiltIn::random | BuiltIn::arandom => self.lower_random(builtin, signature, args),
+
             _ => unreachable!(),
+        }
+    }
+
+    /// Lowers `$random`/`$arandom`.
+    ///
+    /// - `$arandom(seed, type)` returns the mean of the distribution (0), the seed
+    ///   is ignored.
+    /// - `$random(var)`, `$arandom(var)`: the generator state is the variable.
+    /// - In initializers `$arandom(constant)` is pure: it returns the first value
+    ///   of the sequence of the seed.
+    /// - `$random()`, `$arandom()`, `$arandom(constant)`: the generator state is
+    ///   hidden state. Each call site gets a site id. Init seeds the state with the
+    ///   constant or (without one) with the entity seed mixed with the site id.
+    ///
+    /// A generator call computes the next state and returns its random value.
+    fn lower_random(
+        &mut self,
+        builtin: BuiltIn,
+        signature: hir::signatures::Signature,
+        args: &[ExprId],
+    ) -> Value {
+        match RandomForm::new(builtin, signature).unwrap() {
+            RandomForm::Typed => ZERO,
+            RandomForm::VarSeed => {
+                let state = self.lower_expr(args[0]);
+                let state = self.ctx.call1(CallBackKind::RandomNext, &[state]);
+                let dst = self.body.get_expr(args[0]).as_assignment_lhs();
+                self.ctx.def_place(dst.into(), state);
+                self.ctx.call1(CallBackKind::RandomValue, &[state])
+            }
+            RandomForm::ConstSeed if self.ctx.pure_random => {
+                let seed = self.lower_expr(args[0]);
+                let state = self.ctx.call1(CallBackKind::RandomNext, &[seed]);
+                self.ctx.call1(CallBackKind::RandomValue, &[state])
+            }
+            // rejected by validation (requires full Verilog-A semantics)
+            _ if self.ctx.compact || self.ctx.pure_random => ZERO,
+            _ => {
+                let idx = self.ctx.num_randoms;
+                self.ctx.num_randoms += 1;
+                if let Some(&seed) = args.first() {
+                    self.ctx.random_seeds.push((idx, self.body.to_body(), seed));
+                }
+                let state = self.ctx.use_param(ParamKind::HiddenState(HiddenStateKey::Random(idx)));
+                let state = self.ctx.call1(CallBackKind::RandomNext, &[state]);
+                self.ctx.def_place(PlaceKind::RandomOutput(idx), state);
+                self.ctx.call1(CallBackKind::RandomValue, &[state])
+            }
         }
     }
 

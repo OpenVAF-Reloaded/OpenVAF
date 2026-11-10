@@ -175,7 +175,8 @@ pub fn compile(opts: &Opts) -> Result<CompilationTermination> {
     let input =
         opts.input.canonicalize().with_context(|| format!("failed to resolve {}", opts.input))?;
     let input = AbsPathBuf::assert(input);
-    let db = CompilationDB::new_fs(input, &opts.include, &opts.defines, &opts.lints)?;
+    let mut db = CompilationDB::new_fs(input, &opts.include, &opts.defines, &opts.lints)?;
+    db.set_full_semantics_flag(!opts.compact);
 
     let lib_file = match &opts.output {
         CompilationDestination::Cache { cache_dir } => {

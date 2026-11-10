@@ -34,6 +34,12 @@ pub struct LoweringCtx<'a, 'c> {
     pub num_last_crossings: u32,
     /// Number of `transition()` call sites with hidden state lowered so far
     pub num_transitions: u32,
+    /// Number of random number generators with hidden state (site ids) so far
+    pub num_randoms: u32,
+    /// Lowering an initializer: random number generators are pure
+    pub pure_random: bool,
+    /// Site id, body and seed of each `$arandom(constant)` with hidden state
+    pub random_seeds: Vec<(u32, hir::Body, hir::ExprId)>,
 }
 
 impl<'a, 'c> LoweringCtx<'a, 'c> {
@@ -56,6 +62,9 @@ impl<'a, 'c> LoweringCtx<'a, 'c> {
             num_slews: 0,
             num_last_crossings: 0,
             num_transitions: 0,
+            num_randoms: 0,
+            pure_random: false,
+            random_seeds: Vec::new(),
         }
     }
 
@@ -102,6 +111,9 @@ impl<'a, 'c> LoweringCtx<'a, 'c> {
                 PlaceKind::LastCrossingOutput(i, slot) => {
                     self.use_param(ParamKind::HiddenState(HiddenStateKey::LastCrossing(i, slot)))
                 }
+                PlaceKind::RandomOutput(i) => {
+                    self.use_param(ParamKind::HiddenState(HiddenStateKey::Random(i)))
+                }
                 PlaceKind::ImplicitResidual { .. } | PlaceKind::Contribute { .. } => F_ZERO,
                 PlaceKind::CollapseImplicitEquation(_) => TRUE,
                 PlaceKind::IsVoltageSrc(_) => FALSE,
@@ -110,7 +122,9 @@ impl<'a, 'c> LoweringCtx<'a, 'c> {
                 PlaceKind::AbsDelayMax(_) => F_ZERO,
                 // transition() is never called conditionally
                 PlaceKind::Transition(..) => F_ZERO,
-                PlaceKind::HiddenStateInit(_) => unreachable!("{kind:?} is not a place"),
+                PlaceKind::HiddenStateInit(_) | PlaceKind::RandomInit(_) => {
+                    unreachable!("{kind:?} is not a place")
+                }
             };
             let entry = self.func.func.layout.entry_block().unwrap();
             self.func.def_var_at(place, init, entry);

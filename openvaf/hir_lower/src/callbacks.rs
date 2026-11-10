@@ -73,6 +73,10 @@ pub enum CallBackKind {
     },
     NoiseTable(Box<NoiseTable>),
     SetRetFlag(RetFlag),
+    /// Next state of the random number generator (`vams_random_next` in stdlib)
+    RandomNext,
+    /// Random value of a generator state (`vams_random_value` in stdlib)
+    RandomValue,
 }
 
 impl CallBackKind {
@@ -184,6 +188,18 @@ impl CallBackKind {
                 params: 0,
                 returns: 0,
                 has_sideeffects: true,
+            },
+            CallBackKind::RandomNext => FunctionSignature {
+                name: "vams_random_next".to_owned(),
+                params: 1,
+                returns: 1,
+                has_sideeffects: false,
+            },
+            CallBackKind::RandomValue => FunctionSignature {
+                name: "vams_random_value".to_owned(),
+                params: 1,
+                returns: 1,
+                has_sideeffects: false,
             },
         }
     }

@@ -51,6 +51,36 @@ fn expected_hidden_state(module: &str) -> &'static [&'static str] {
     }
 }
 
+/// A variable used as the seed of `$random(seed)` is hidden state, also next to an
+/// unseeded `$random`. GVN used to merge different pure calls (the two random
+/// callbacks), which disconnected `seed` from the output.
+#[test]
+fn hidden_state_random_seed() {
+    let src = r#"`include "disciplines.vams"
+module rnd(a, c);
+    output a, c;
+    electrical a, c;
+    integer seed;
+    analog initial begin
+        seed = 12345;
+    end
+    analog begin
+        V(a) <+ $random;
+        V(c) <+ $random(seed);
+    end
+endmodule
+"#;
+    let mut db = CompilationDB::new_virtual(src).unwrap();
+    db.set_full_semantics_flag(true);
+    let modules = crate::collect_modules(&db, false, &mut ConsoleSink::new(&db)).unwrap();
+    let mut literals = Rodeo::new();
+    let found: Vec<String> = Context::detect_hidden_state(&db, &mut literals, &modules[0])
+        .into_iter()
+        .map(|var| var.name(&db).to_string())
+        .collect();
+    assert_eq!(found, ["seed"]);
+}
+
 #[test]
 fn hidden_state() {
     let src =

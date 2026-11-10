@@ -27,6 +27,7 @@ use hir_def::{
 };
 pub use hir_def::{BuiltIn, Case, Literal, ParamSysFun, Path, Type};
 pub use hir_ty::builtin;
+pub use hir_ty::validation::RandomForm;
 use hir_ty::db::HirTyDB as HirDatabase;
 use hir_ty::inference;
 pub use rec_declarations::RecDeclarations;
@@ -57,7 +58,7 @@ pub mod signatures {
         LIMIT_BUILTIN_FUNCTION, MAX_INT, MAX_REAL, NATURE_ACCESS_BRANCH, NATURE_ACCESS_NODES,
         NATURE_ACCESS_NODE_GND, NATURE_ACCESS_PORT_FLOW, SIMPARAM_DEFAULT, SIMPARAM_NO_DEFAULT,
     };
-    pub use hir_ty::types::{BOOL_EQ, INT_EQ, INT_OP, REAL_EQ, REAL_OP, STR_EQ};
+    pub use hir_ty::types::{Signature, BOOL_EQ, INT_EQ, INT_OP, REAL_EQ, REAL_OP, STR_EQ};
 }
 
 /// A root file represents a compilation root file.

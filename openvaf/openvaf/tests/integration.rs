@@ -19,6 +19,7 @@ use crate::mock_sim::{MockSimulation, ALPHA};
 mod laplace;
 mod load;
 mod mock_sim;
+mod random;
 
 fn absdelay_maxdelay_offset_test() -> Result<()> {
     const SRC: &str = r#"`include "constants.vams"
@@ -73,7 +74,24 @@ fn compile_and_load(root_file: &Utf8Path) -> &'static OsdiDescriptor {
 
 /// `compact` disables full Verilog-A (`-s`)
 fn compile_and_load_modules(root_file: &Utf8Path, compact: bool) -> &'static [OsdiDescriptor] {
-    let openvaf_opts = openvaf::Opts {
+    let res = openvaf::compile(&compile_opts(root_file, compact)).unwrap();
+    let lib_file = match res {
+        CompilationTermination::Compiled { lib_file } => lib_file,
+        CompilationTermination::FatalDiagnostic => {
+            panic!("openvaf: compilation of {root_file} failed");
+        }
+    };
+    unsafe { load_osdi_lib(&lib_file).unwrap() }
+}
+
+/// Whether `root_file` compiles without errors (`compact` disables `-s`)
+fn compiles(root_file: &Utf8Path, compact: bool) -> bool {
+    let res = openvaf::compile(&compile_opts(root_file, compact)).unwrap();
+    matches!(res, CompilationTermination::Compiled { .. })
+}
+
+fn compile_opts(root_file: &Utf8Path, compact: bool) -> openvaf::Opts {
+    openvaf::Opts {
         defines: Vec::new(),
         codegen_opts: Vec::new(),
         lints: Vec::new(),
@@ -93,16 +111,7 @@ fn compile_and_load_modules(root_file: &Utf8Path, compact: bool) -> &'static [Os
         dump_unopt_ir: false,
         compact,
         dump_hs: false,
-    };
-
-    let res = openvaf::compile(&openvaf_opts).unwrap();
-    let lib_file = match res {
-        CompilationTermination::Compiled { lib_file } => lib_file,
-        CompilationTermination::FatalDiagnostic => {
-            panic!("openvaf: compilation of {root_file} failed");
-        }
-    };
-    unsafe { load_osdi_lib(&lib_file).unwrap() }
+    }
 }
 
 // fn integration_test(dir: &str) -> Result {
@@ -1049,6 +1058,8 @@ harness! {
         Test::new("last_crossing", &last_crossing_test),
         Test::new("transition", &transition_test),
         Test::new("discontinuity", &discontinuity_test),
+        Test::new("random", &random::generators),
+        Test::new("random_errors", &random::errors),
         Test::new("bus_port_dac", &bus_port_dac_test),
         Test::new("hierarchy_bus_slices", &hierarchy_bus_slices_test),
         Test::new("hierarchy_variable_width_slices", &hierarchy_variable_width_slices_test),

@@ -94,6 +94,9 @@ pub enum HiddenStateKey {
     LastCrossing(u32, CrossingSlot),
     /// Input of the `i`-th `transition()` call site
     Transition(u32),
+    /// Generator state of the random number generator with site id `i`
+    /// (`$random()`, `$arandom()`, `$arandom(constant)`)
+    Random(u32),
 }
 
 /// Slot of a `transition()` call site written by eval
@@ -143,6 +146,7 @@ impl HiddenStateKey {
             HiddenStateKey::Slew(_)
             | HiddenStateKey::LastCrossing(..)
             | HiddenStateKey::Transition(_) => Type::Real,
+            HiddenStateKey::Random(_) => Type::Integer,
         }
     }
 
@@ -153,6 +157,7 @@ impl HiddenStateKey {
             HiddenStateKey::Slew(i) => PlaceKind::SlewOutput(i),
             HiddenStateKey::LastCrossing(i, slot) => PlaceKind::LastCrossingOutput(i, slot),
             HiddenStateKey::Transition(i) => PlaceKind::Transition(i, TransitionSlot::Input),
+            HiddenStateKey::Random(i) => PlaceKind::RandomOutput(i),
         }
     }
 
@@ -297,6 +302,13 @@ pub enum PlaceKind {
     LastCrossingOutput(u32, CrossingSlot),
     /// Slot of the `i`-th `transition()` call site written by eval
     Transition(u32, TransitionSlot),
+    /// New generator state of the random number generator with site id `i`,
+    /// stored in the pending slot of its hidden state
+    RandomOutput(u32),
+    /// Seed of the random number generator with site id `i` given as a constant
+    /// (`$arandom(constant)`). Only an output (never a place), init stores it in
+    /// the accepted state slot.
+    RandomInit(u32),
 }
 
 impl PlaceKind {
@@ -318,11 +330,15 @@ impl PlaceKind {
                 param.ty(db)
             }
             PlaceKind::IsVoltageSrc(_) | PlaceKind::CollapseImplicitEquation(_) => Type::Bool,
+            PlaceKind::RandomOutput(_) | PlaceKind::RandomInit(_) => Type::Integer,
         }
     }
 
     pub fn is_init_only(&self) -> bool {
-        matches!(self, Self::CollapseImplicitEquation(_) | Self::HiddenStateInit(_))
+        matches!(
+            self,
+            Self::CollapseImplicitEquation(_) | Self::HiddenStateInit(_) | Self::RandomInit(_)
+        )
     }
 }
 
@@ -698,6 +714,15 @@ impl<'a> MirBuilder<'a> {
         // ... and normal analog blocks afterwards
         body_ctx.body = analog_body.borrow();
         body_ctx.lower_entry_stmts();
+
+        // Seeds of $arandom(constant), lowered at the end so that they are
+        // computed unconditionally (by init, they depend only on parameters)
+        for (i, body, expr) in std::mem::take(&mut ctx.random_seeds) {
+            let mut val = BodyLoweringCtx { ctx: &mut ctx, body: body.borrow(), path: &path }
+                .lower_expr(expr);
+            val = ctx.func.ins().optbarrier(val);
+            hidden_state_init.push((PlaceKind::RandomInit(i), val.into()));
+        }
 
         for var in self.required_vars {
             ctx.dec_place(PlaceKind::Var(var));

@@ -134,9 +134,7 @@ fn hidden_state() -> Arg {
 fn ieee1364() -> Arg {
     flag(IEEE1364, "ieee1364")
         .help("IEEE 1364-2005 random number generator.")
-        .long_help(
-            "Use the IEEE 1364-2005 random number generator.",
-        )
+        .long_help("Use the IEEE 1364-2005 random number generator.")
 }
 
 fn dump_hs() -> Arg {

@@ -128,12 +128,16 @@ pub enum IllegalRandomKind {
     InvalidType,
 }
 
-/// Form of a `$random`/`$arandom` call
+/// Signature of a call whose signature inference does not record (builtins with a
+/// single signature), the same as `BodyRef::get_call_signature` returns
+const NO_SIGNATURE: Signature = Signature(u32::MAX);
+
+/// Form of a `$random`/`$arandom`/`$dist_uniform` call
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum RandomForm {
     /// `$random()`, `$arandom()`
     NoSeed,
-    /// `$random(var)`, `$arandom(var)`
+    /// `$random(var)`, `$arandom(var)`, `$dist_uniform(var, start, end)`
     VarSeed,
     /// `$arandom(constant)`
     ConstSeed,
@@ -142,14 +146,16 @@ pub enum RandomForm {
 }
 
 impl RandomForm {
+    /// `signature` is ignored for builtins with a single signature (inference does
+    /// not record it for them)
     pub fn new(call: BuiltIn, signature: Signature) -> Option<RandomForm> {
         let form = match (call, signature) {
             (BuiltIn::random, RANDOM_NO_SEED) | (BuiltIn::arandom, ARANDOM_NO_SEED) => {
                 RandomForm::NoSeed
             }
-            (BuiltIn::random, RANDOM_SEED) | (BuiltIn::arandom, ARANDOM_SEED) => {
-                RandomForm::VarSeed
-            }
+            (BuiltIn::random, RANDOM_SEED)
+            | (BuiltIn::arandom, ARANDOM_SEED)
+            | (BuiltIn::dist_uniform, _) => RandomForm::VarSeed,
             (BuiltIn::arandom, ARANDOM_CONST_SEED) => RandomForm::ConstSeed,
             (BuiltIn::arandom, ARANDOM_TYPED) => RandomForm::Typed,
             _ => return None,
@@ -614,7 +620,7 @@ impl ExprValidator<'_, '_> {
         self.parent.body.exprs[expr].walk_child_exprs(|child| self.validate_expr(child))
     }
 
-    /// Checks a `$random`/`$arandom` call. Typed calls (`$arandom(seed, type)`)
+    /// Checks a `$random`/`$arandom`/`$dist_uniform` call. Typed calls (`$arandom(seed, type)`)
     /// are allowed everywhere. Untyped calls need full Verilog-A semantics and are
     /// not allowed in analog initial blocks. In initializers only a constant seed is
     /// allowed (only `$arandom` in parameter initializers).
@@ -625,7 +631,8 @@ impl ExprValidator<'_, '_> {
         call: BuiltIn,
         signature: Option<Signature>,
     ) {
-        let Some(form) = signature.and_then(|sig| RandomForm::new(call, sig)) else { return };
+        let signature = signature.unwrap_or(NO_SIGNATURE);
+        let Some(form) = RandomForm::new(call, signature) else { return };
         let kind = match form {
             RandomForm::Typed => {
                 let valid = matches!(
@@ -708,7 +715,7 @@ impl ExprValidator<'_, '_> {
         call: BuiltIn,
         signature: Option<Signature>,
     ) {
-        if matches!(call, BuiltIn::random | BuiltIn::arandom) {
+        if matches!(call, BuiltIn::random | BuiltIn::arandom | BuiltIn::dist_uniform) {
             self.validate_random(expr, args, call, signature.clone());
         }
 
@@ -952,7 +959,7 @@ impl ExprValidator<'_, '_> {
 }
 
 /// Whether `fun` or a function it calls contains an untyped `$random`/`$arandom`
-/// call (other than a constant seed if `allow_const` is set)
+/// or a `$dist_uniform` call (other than a constant seed if `allow_const` is set)
 fn calls_untyped_random(
     db: &dyn HirTyDB,
     fun: FunctionId,
@@ -964,11 +971,11 @@ fn calls_untyped_random(
     }
     let infer = db.inference_result(DefWithBodyId::FunctionId(fun));
     infer.resolved_calls.iter().any(|(expr, call)| match *call {
-        ResolvedFun::BuiltIn(builtin @ (BuiltIn::random | BuiltIn::arandom)) => {
-            let form = infer
-                .resolved_signatures
-                .get(expr)
-                .and_then(|sig| RandomForm::new(builtin, sig.clone()));
+        ResolvedFun::BuiltIn(
+            builtin @ (BuiltIn::random | BuiltIn::arandom | BuiltIn::dist_uniform),
+        ) => {
+            let sig = infer.resolved_signatures.get(expr).cloned().unwrap_or(NO_SIGNATURE);
+            let form = RandomForm::new(builtin, sig);
             match form {
                 Some(RandomForm::Typed) | None => false,
                 Some(RandomForm::ConstSeed) => !allow_const,

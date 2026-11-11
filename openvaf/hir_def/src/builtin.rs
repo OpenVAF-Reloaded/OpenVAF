@@ -203,7 +203,6 @@ impl BuiltIn {
             | BuiltIn::dist_chi_square
             | BuiltIn::dist_exponential
             | BuiltIn::dist_poisson
-            | BuiltIn::dist_uniform
             | BuiltIn::dist_erlang
             | BuiltIn::dist_normal
             | BuiltIn::dist_t

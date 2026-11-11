@@ -154,6 +154,110 @@ fn ieee_random(seed: i32) -> (i32, i32) {
     (new as i32, i as u32 as i32)
 }
 
+/// `rtl_dist_uniform_alt`: uniform integer on `[lo, hi]` by rejection, returns the
+/// new seed and the value
+fn uniform_int(mut seed: i32, lo: i32, hi: i32) -> (i32, i32) {
+    if lo >= hi {
+        return (seed, lo);
+    }
+    let n = (hi as u32).wrapping_sub(lo as u32).wrapping_add(1);
+    let thresh = 0u32.wrapping_sub(n) % n;
+    loop {
+        seed = next(seed);
+        let m = value(seed) as u32 as u64 * n as u64;
+        if m as u32 >= thresh {
+            return (seed, (lo as u32).wrapping_add((m >> 32) as u32) as i32);
+        }
+    }
+}
+
+/// IEEE 1364-2005 `rtl_dist_uniform(seed, start, end)` for `end != INT32_MAX`,
+/// returns the new seed and the value
+fn ieee_uniform_int(seed: i32, start: i32, end: i32) -> (i32, i32) {
+    if start >= end {
+        return (seed, start);
+    }
+    let e = end as i64 + 1;
+    let old = match seed as u32 {
+        0 => 259_341_593,
+        seed => seed,
+    };
+    let new = 69069u32.wrapping_mul(old).wrapping_add(1);
+    // uniform(seed, start, e)
+    let (a, b) = (start as f64, e as i32 as f64);
+    let d = 0.00000011920928955078125;
+    let c = 1.0 + (new >> 9) as f64 * 0.00000011920928955078125;
+    let c = c + c * d;
+    let r = (b - a) * (c - 1.0) + a;
+    let mut i = if r >= 0.0 { r as i64 } else { (r - 1.0) as i64 };
+    i = i.max(start as i64).min(e - 1);
+    (new as i32, i as i32)
+}
+
+const DIST_UNIFORM_SRC: &str = r#"`include "disciplines.vams"
+module dist_uniform_test(a, b, c);
+    inout a, b, c;
+    electrical a, b, c;
+    integer s1 = 3, s2 = 0, s3 = 9;
+    analog begin
+        I(a) <+ $dist_uniform(s1, -5, 7);
+        I(b) <+ $dist_uniform(s2, 0, 1);
+        // start >= end returns start without advancing the seed
+        I(c) <+ $dist_uniform(s3, 4, 4) + $dist_uniform(s3, -3, 100);
+    end
+endmodule
+"#;
+
+/// `$dist_uniform(var, start, end)` advances the seed variable once per call and
+/// returns a uniform integer on `[start, end]`, with both generators.
+pub fn dist_uniform() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+    for ieee in [false, true] {
+        let gen = if ieee { ieee_uniform_int } else { uniform_int };
+        let root_file = tmp_dir.join(format!("openvaf_dist_uniform_{ieee}.va"));
+        std::fs::write(&root_file, DIST_UNIFORM_SRC)?;
+        let mut opts = compile_opts(&root_file, false);
+        opts.ieee1364 = ieee;
+        let libs = compile_and_load_modules_with(&opts);
+        assert_eq!(libs.len(), 1);
+        let desc = &libs[0];
+        let model = desc.new_model();
+        model.process_params()?;
+        let mut instance = model.new_instance();
+        let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+
+        let (mut s1, mut s2, mut s3) = (3, 0, 9);
+        for step in 1..=20 {
+            let t = step as f64 * 1e-6;
+            sim.abstime = t;
+            sim.dt = 1e-6;
+            sim.clear();
+            instance.eval(&model, &mut sim, EvalFlags::ANALYSIS_TRAN);
+            instance.load_dae(&model, &mut sim);
+
+            let (next, a) = gen(s1, -5, 7);
+            s1 = next;
+            assert!((-5..=7).contains(&a));
+            assert_eq!(sim.read_residual("a").0, a as f64, "ieee {ieee} a step {step}");
+            let (next, b) = gen(s2, 0, 1);
+            s2 = next;
+            assert_eq!(sim.read_residual("b").0, b as f64, "ieee {ieee} b step {step}");
+            let (next, c1) = gen(s3, 4, 4);
+            assert_eq!(c1, 4);
+            assert_eq!(next, s3);
+            let (next, c2) = gen(next, -3, 100);
+            s3 = next;
+            assert_eq!(sim.read_residual("c").0, (c1 + c2) as f64, "ieee {ieee} c step {step}");
+            instance.accept(&model, t, 1e-6);
+        }
+    }
+    Ok(())
+}
+
 /// With `--ieee1364` `$random(var)` and `$arandom(constant)` use the IEEE 1364-2005
 /// generator.
 pub fn ieee1364() -> Result<()> {
@@ -314,6 +418,11 @@ pub fn errors() -> Result<()> {
         ("integer x = $arandom(seed * 2);", "", "I(a) <+ x;", false, true),
         ("integer x = $arandom();", "", "I(a) <+ x;", false, false),
         (RND_X, "", "I(a) <+ x;", false, false),
+        ("", "", "I(a) <+ $dist_uniform(s, 0, 3);", false, true),
+        ("", "", "I(a) <+ $dist_uniform(seed, 0, 3);", false, false),
+        ("", "s = $dist_uniform(s, 0, 3);", "I(a) <+ s;", false, false),
+        ("integer x = $dist_uniform(s, 0, 3);", "", "I(a) <+ x;", false, false),
+        ("parameter integer p = $dist_uniform(seed, 0, 3);", "", "I(a) <+ p;", false, false),
     ];
 
     let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;

@@ -80,7 +80,8 @@ pub fn stub_callbacks<'ll>(
                 }
                 // compact models have no untyped random number generators
                 CallBackKind::RandomNext { .. } | CallBackKind::RandomValue { .. } => {
-                    CallbackFun::Prebuilt(cx.const_callback(&[cx.ty_int()], cx.const_int(0)))
+                    let params = vec![cx.ty_int(); kind.signature().params as usize];
+                    CallbackFun::Prebuilt(cx.const_callback(&params, cx.const_int(0)))
                 }
             };
 

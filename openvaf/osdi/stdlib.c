@@ -293,7 +293,7 @@ static int32_t rtl_dist_uniform_alt(int32_t *seed, int32_t lo, int32_t hi) {
 //   prefix_value(seed, ...)  the generated value
 // params are the declarations of the arguments after the seed, args their
 // names. Both lists start with a comma, () if there are none, e.g.
-//   VAMS_RANDOM_PAIR(vams_uniform, int32_t, rtl_dist_uniform_alt,
+//   VAMS_RANDOM_PAIR(vams_uniform_int, int32_t, rtl_dist_uniform_alt,
 //                    (, int32_t lo, int32_t hi), (, lo, hi))
 #define VAMS_UNPAREN(...) __VA_ARGS__
 #define VAMS_RANDOM_PAIR(prefix, ret_t, gen, params, args)                     \
@@ -308,10 +308,16 @@ static int32_t rtl_dist_uniform_alt(int32_t *seed, int32_t lo, int32_t hi) {
 // Alternative generator wrappers
 // $random/$arandom
 VAMS_RANDOM_PAIR(vams_random, int32_t, random_alt, (), ())
+// Uniformly distributed integer on [lo, hi]
+VAMS_RANDOM_PAIR(vams_uniform_int, int32_t, rtl_dist_uniform_alt,
+                 (, int32_t lo, int32_t hi), (, lo, hi))
 
 // IEEE 1364-2005 generator wrappers
 // $random/$arandom
 VAMS_RANDOM_PAIR(vams_random_ieee, int32_t, rtl_dist_random, (), ())
+// Uniformly distributed integer on [start, end]
+VAMS_RANDOM_PAIR(vams_uniform_int_ieee, int32_t, rtl_dist_uniform,
+                 (, int32_t start, int32_t end), (, start, end))
 
 // Initial state of the random number generator with site id site_id that is
 // seeded by the simulator. Reads entity_seed only if INIT_HIDDEN_STATE is set

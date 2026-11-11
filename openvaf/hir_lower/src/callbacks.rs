@@ -73,17 +73,47 @@ pub enum CallBackKind {
     },
     NoiseTable(Box<NoiseTable>),
     SetRetFlag(RetFlag),
-    /// Next state of the random number generator (`vams_random_next` in stdlib,
-    /// `vams_random_ieee_next` for the IEEE 1364-2005 generator)
+    /// Next state of a random number generator (`<prefix>_next` in stdlib, see
+    /// [`RandomGen::prefix`]). Takes the state followed by the generator arguments.
     RandomNext {
+        gen: RandomGen,
         ieee1364: bool,
     },
-    /// Value generated when advancing from a generator state (`vams_random_value` in
-    /// stdlib, `vams_random_ieee_value` for the IEEE 1364-2005 generator), takes the
-    /// same (old) state as `RandomNext`
+    /// Value generated when advancing from a generator state (`<prefix>_value` in
+    /// stdlib), takes the same (old) state and arguments as `RandomNext`
     RandomValue {
+        gen: RandomGen,
         ieee1364: bool,
     },
+}
+
+/// Random number generator of a `RandomNext`/`RandomValue` callback
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
+pub enum RandomGen {
+    /// `$random`, `$arandom`
+    Random,
+    /// `$dist_uniform(seed, start, end)`
+    UniformInt,
+}
+
+impl RandomGen {
+    /// Prefix of the stdlib functions (`<prefix>_next`, `<prefix>_value`)
+    pub fn prefix(self, ieee1364: bool) -> &'static str {
+        match (self, ieee1364) {
+            (RandomGen::Random, false) => "vams_random",
+            (RandomGen::Random, true) => "vams_random_ieee",
+            (RandomGen::UniformInt, false) => "vams_uniform_int",
+            (RandomGen::UniformInt, true) => "vams_uniform_int_ieee",
+        }
+    }
+
+    /// Number of integer arguments after the state
+    pub fn num_args(self) -> u16 {
+        match self {
+            RandomGen::Random => 0,
+            RandomGen::UniformInt => 2,
+        }
+    }
 }
 
 impl CallBackKind {
@@ -196,17 +226,15 @@ impl CallBackKind {
                 returns: 0,
                 has_sideeffects: true,
             },
-            CallBackKind::RandomNext { ieee1364 } => FunctionSignature {
-                name: if *ieee1364 { "vams_random_ieee_next" } else { "vams_random_next" }
-                    .to_owned(),
-                params: 1,
+            CallBackKind::RandomNext { gen, ieee1364 } => FunctionSignature {
+                name: format!("{}_next", gen.prefix(*ieee1364)),
+                params: 1 + gen.num_args(),
                 returns: 1,
                 has_sideeffects: false,
             },
-            CallBackKind::RandomValue { ieee1364 } => FunctionSignature {
-                name: if *ieee1364 { "vams_random_ieee_value" } else { "vams_random_value" }
-                    .to_owned(),
-                params: 1,
+            CallBackKind::RandomValue { gen, ieee1364 } => FunctionSignature {
+                name: format!("{}_value", gen.prefix(*ieee1364)),
+                params: 1 + gen.num_args(),
                 returns: 1,
                 has_sideeffects: false,
             },

@@ -3,7 +3,7 @@ use std::iter::FilterMap;
 
 use ahash::{AHashMap, AHashSet};
 use bitset::HybridBitSet;
-pub use callbacks::{CallBackKind, NoiseTable, ParamInfoKind, RetFlag};
+pub use callbacks::{CallBackKind, NoiseTable, ParamInfoKind, RandomGen, RetFlag};
 use hir::{
     Branch, BranchWrite, CompilationDB, Module, Node, ParamSysFun, Parameter, Type, Variable,
 };

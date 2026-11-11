@@ -264,12 +264,15 @@ pub fn general_callbacks<'ll>(
                 | CallBackKind::TimeDerivative => return None,
 
                 CallBackKind::RandomNext { .. } | CallBackKind::RandomValue { .. } => {
-                    let name = call.signature().name;
+                    // state and generator arguments are all integers
+                    let sig = call.signature();
+                    let name = sig.name;
                     let fun = builder
                         .cx
                         .get_func_by_name(&name)
                         .unwrap_or_else(|| panic!("stdlib function {name} is missing"));
-                    let fun_ty = builder.cx.ty_func(&[builder.cx.ty_int()], builder.cx.ty_int());
+                    let params = vec![builder.cx.ty_int(); sig.params as usize];
+                    let fun_ty = builder.cx.ty_func(&params, builder.cx.ty_int());
                     CallbackFun::Prebuilt(BuiltCallbackFun {
                         fun_ty,
                         fun,

@@ -320,6 +320,11 @@ bultins! {
         fn ARANDOM_TYPED(Val(Integer),Literal(String)) -> Integer;
     }
 
+    // $dist_uniform(seed, start, end): $random(seed) bounded to [start, end]
+    DIST_UNIFORM = {
+        fn DIST_UNIFORM_SEED(Var(Integer),Val(Integer),Val(Integer)) -> Integer;
+    }
+
 
     RDIST_1_ARG = const {
         fn RDIST_1_ARG_SEED(Var(Integer),Val(Real)) -> Real;
@@ -503,7 +508,6 @@ copied_builtins! {
     DIST_POISSON = DIST_1_ARG
     DIST_T = DIST_1_ARG
 
-    DIST_UNIFORM = DIST_2_ARG
     DIST_ERLANG = DIST_2_ARG
     DIST_NORMAL = DIST_2_ARG
 

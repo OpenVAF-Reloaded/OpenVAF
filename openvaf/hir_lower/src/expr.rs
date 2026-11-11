@@ -22,7 +22,7 @@ use crate::ctx::LoweringCtx;
 use crate::fmt::DisplayKind;
 use crate::{
     CallBackKind, CrossingSlot, CurrentKind, HiddenStateKey, IdtKind, ImplicitEquationKind,
-    NoiseTable, ParamKind, PlaceKind, RetFlag, TransitionSlot,
+    NoiseTable, ParamKind, PlaceKind, RandomGen, RetFlag, TransitionSlot,
 };
 
 impl BodyLoweringCtx<'_, '_, '_> {
@@ -733,17 +733,20 @@ impl BodyLoweringCtx<'_, '_, '_> {
             | BuiltIn::laplace_zd
             | BuiltIn::laplace_zp => self.lower_laplace(builtin, args),
 
-            BuiltIn::random | BuiltIn::arandom => self.lower_random(builtin, signature, args),
+            BuiltIn::random | BuiltIn::arandom | BuiltIn::dist_uniform => {
+                self.lower_random(builtin, signature, args)
+            }
 
             _ => unreachable!(),
         }
     }
 
-    /// Lowers `$random`/`$arandom`.
+    /// Lowers `$random`/`$arandom`/`$dist_uniform`.
     ///
     /// - `$arandom(seed, type)` returns the mean of the distribution (0), the seed
     ///   is ignored.
-    /// - `$random(var)`, `$arandom(var)`: the generator state is the variable.
+    /// - `$random(var)`, `$arandom(var)`, `$dist_uniform(var, start, end)`: the
+    ///   generator state is the variable.
     /// - In initializers `$arandom(constant)` is pure: it returns the first value
     ///   of the sequence of the seed.
     /// - `$random()`, `$arandom()`, `$arandom(constant)`: the generator state is
@@ -759,17 +762,24 @@ impl BodyLoweringCtx<'_, '_, '_> {
     ) -> Value {
         // IEEE 1364-2005 generator (--ieee1364)
         let ieee1364 = self.ctx.db.ieee1364_flag();
-        let next_cb = CallBackKind::RandomNext { ieee1364 };
-        let value_cb = CallBackKind::RandomValue { ieee1364 };
-        // RandomNext and RandomValue both take the old state
+        let gen = match builtin {
+            BuiltIn::dist_uniform => RandomGen::UniformInt,
+            _ => RandomGen::Random,
+        };
+        let next_cb = CallBackKind::RandomNext { gen, ieee1364 };
+        let value_cb = CallBackKind::RandomValue { gen, ieee1364 };
+        // RandomNext and RandomValue both take the old state (followed by the
+        // generator arguments)
         match RandomForm::new(builtin, signature).unwrap() {
             RandomForm::Typed => ZERO,
             RandomForm::VarSeed => {
                 let state = self.lower_expr(args[0]);
-                let next = self.ctx.call1(next_cb, &[state]);
+                let mut operands = vec![state];
+                operands.extend(args[1..].iter().map(|&arg| self.lower_expr(arg)));
+                let next = self.ctx.call1(next_cb, &operands);
                 let dst = self.body.get_expr(args[0]).as_assignment_lhs();
                 self.ctx.def_place(dst.into(), next);
-                self.ctx.call1(value_cb, &[state])
+                self.ctx.call1(value_cb, &operands)
             }
             RandomForm::ConstSeed if self.ctx.pure_random => {
                 let seed = self.lower_expr(args[0]);

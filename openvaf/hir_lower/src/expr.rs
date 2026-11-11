@@ -779,7 +779,9 @@ impl BodyLoweringCtx<'_, '_, '_> {
                 if let Some(&seed) = args.first() {
                     self.ctx.random_seeds.push((idx, self.body.to_body(), seed));
                 }
-                let state = self.ctx.use_param(ParamKind::HiddenState(HiddenStateKey::Random(idx)));
+                // the current state (initialized with the accepted state at entry) so that
+                // each execution of the call (e.g. in a loop) advances the generator
+                let state = self.ctx.use_place(PlaceKind::RandomOutput(idx));
                 let state = self.ctx.call1(CallBackKind::RandomNext, &[state]);
                 self.ctx.def_place(PlaceKind::RandomOutput(idx), state);
                 self.ctx.call1(CallBackKind::RandomValue, &[state])

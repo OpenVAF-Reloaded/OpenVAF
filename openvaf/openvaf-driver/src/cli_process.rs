@@ -11,7 +11,7 @@ use termcolor::{Color, ColorChoice, ColorSpec, WriteColor};
 
 use crate::cli_def::{
     ALLOW, BATCHMODE, CACHE_DIR, CODEGEN, DEFINE, DENY, DRYRUN, DUMPHS, DUMPIR, DUMPMIR,
-    DUMPUNOPTIR, DUMPUNOPTMIR, HIDDENSTATE, INCLUDE, INPUT, LINTS, OPT_LVL, OUTPUT,
+    DUMPUNOPTIR, DUMPUNOPTMIR, HIDDENSTATE, IEEE1364, INCLUDE, INPUT, LINTS, OPT_LVL, OUTPUT,
     SUPPORTED_TARGETS, TARGET, TARGET_CPU, WARN,
 };
 use crate::{CompilationDestination, Opts};
@@ -123,6 +123,7 @@ pub fn matches_to_opts(matches: ArgMatches) -> Result<Opts> {
         dump_unopt_ir: matches.get_flag(DUMPUNOPTIR),
         compact: !(matches.get_flag(HIDDENSTATE) || matches.get_flag(DUMPHS)),
         dump_hs: matches.get_flag(DUMPHS),
+        ieee1364: matches.get_flag(IEEE1364),
         dry_run: matches.get_flag(DRYRUN),
     })
 }

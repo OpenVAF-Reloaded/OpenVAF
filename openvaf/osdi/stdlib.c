@@ -5,6 +5,11 @@
 typedef unsigned int uint32_t;
 typedef int int32_t;
 // End of change AB
+typedef long long int64_t;
+typedef unsigned long long uint64_t;
+#define INT32_MAX 2147483647
+#define INT32_MIN (-INT32_MAX - 1)
+#define UINT32_MAX 4294967295u
 typedef unsigned char bool;
 typedef __SIZE_TYPE__ size_t;
 extern size_t strlen (const char *__s);
@@ -155,26 +160,158 @@ uint32_t vams_mix32(uint32_t base, uint32_t site_id) {
   return vams_fmix32(base ^ vams_fmix32(site_id + 0x9e3779b9u));
 }
 
-int32_t vams_random(int32_t *seed) {
-  uint32_t s = (uint32_t)*seed;
-  // if (s == 0) s = 259341593;       // same substitution as uniform() in IEEE 1364-2005, so a shared
-                                      // seed variable gives the same state sequence
-                                      // no substitution needed because vams_fmix() mixes bits.
-  s = 69069u * s + 1u;
-  *seed = (int32_t)s;
-  // full 32 bits, all bits well mixed
-  return (int32_t)vams_fmix32(s);
+// IEEE 1364-2005 compatible generators
+// ====================================
+
+// Core generator
+static double uniform(int32_t *seed, int32_t start, int32_t end) {
+      double d = 0.00000011920928955078125;
+      double a, b, c;
+      uint32_t oldseed, newseed;
+
+      oldseed = (uint32_t)*seed;
+      if (oldseed == 0)
+            oldseed = 259341593u;
+
+      if (start >= end) {
+            a = 0.0;
+            b = 2147483647.0;
+      } else {
+            a = (double)start;
+            b = (double)end;
+      }
+
+      /* Original routine used signed arithmetic, and the (frequent)
+       * overflows trigger "Undefined Behavior" according to the
+       * C standard (both c89 and c99).  Using unsigned arithmetic
+       * forces a conforming C implementation to get the result
+       * that the IEEE-1364-2001 committee wants.
+       */
+      newseed = 69069u * oldseed + 1u;
+
+      *seed = (int32_t)newseed;
+
+#if 0
+      /* Cadence-donated conversion from unsigned int to double */
+      {
+            union { float s; unsigned stemp; } u;
+            u.stemp = (newseed >> 9) | 0x3f800000;
+            c = (double) u.s;
+      }
+#else
+      /* Equivalent conversion without assuming IEEE 32-bit float */
+      /* constant is 2^(-23) */
+      c = 1.0 + (newseed >> 9) * 0.00000011920928955078125;
+#endif
+
+      c = c + (c*d);
+      c = ((b - a) * (c - 1.0)) + a;
+
+      return c;
 }
 
-// vams_random() split into the new state and its value (pure functions)
-int32_t vams_random_next(int32_t seed) {
-  vams_random(&seed);
-  return seed;
+/* Uniformly distributed integer.
+ * i is 64-bit, as 'long' is in the IEEE 1364-2005 reference on LP64
+ * (Icarus on 64-bit Linux/macOS). Before the clamps r can exceed
+ * INT32_MAX by up to ~512, and converting that to a 32-bit type is
+ * undefined behaviour (x86 gives INT32_MIN, ARM saturates). The result
+ * is truncated to 32 bits, as when it is stored in a Verilog integer.
+ */
+static int32_t rtl_dist_uniform(int32_t *seed, int32_t start, int32_t end) {
+      double r;
+      int64_t i, s, e;
+
+      if (start >= end) return start;
+
+      if (end != INT32_MAX) {
+            e = (int64_t)end + 1;
+            r = uniform(seed, start, (int32_t)e);
+            if (r >= 0) {
+                  i = (int64_t) r;
+            } else {
+                  i = (int64_t) (r - 1);
+            }
+            if (i < start) i = start;
+            if (i >= e) i = e - 1;
+      } else if (start != INT32_MIN) {
+            s = (int64_t)start - 1;
+            r = uniform(seed, (int32_t)s, end) + 1.0;
+            if (r >= 0) {
+                  i = (int64_t) r;
+            } else {
+                  i = (int64_t) (r - 1);
+            }
+            if (i <= s) i = s + 1;
+            if (i > end) i = end;
+      } else {
+            r = (uniform(seed, start, end) + 2147483648.0) / 4294967295.0;
+            r = r * 4294967296.0 - 2147483648.0;
+
+            if (r >= 0) {
+                  i = (int64_t) r;
+            } else {
+                  i = (int64_t) (r - 1);
+            }
+      }
+
+      return (int32_t)(uint32_t)(uint64_t)i;   /* keep low 32 bits */
 }
 
-int32_t vams_random_value(int32_t state) {
-  return (int32_t)vams_fmix32((uint32_t)state);
+// $random/$arandom
+static int32_t rtl_dist_random(int32_t *seed) {
+    return rtl_dist_uniform(seed, INT32_MIN, INT32_MAX);
 }
+
+// Incompatible, but better generators (used for now)
+// ==================================================
+
+// Core generator
+static int32_t random_alt(int32_t *seed) {
+    uint32_t s = (uint32_t)*seed;
+    // if (s == 0) s = 259341593;       // same substitution as uniform() in IEEE 1364-2005, so a shared
+                                        // seed variable gives the same state sequence
+                                        // no substitution needed because vams_fmix() mixes bits.
+    s = 69069u * s + 1u;
+    *seed = (int32_t)s;
+    return (int32_t)vams_fmix32(s);     // full 32 bits, all bits well mixed
+}
+
+// Uniformly distributed integer
+static int32_t rtl_dist_uniform_alt(int32_t *seed, int32_t lo, int32_t hi) {
+    if (lo >= hi) return lo;
+    uint32_t span = (uint32_t)hi - (uint32_t)lo;
+    if (span == UINT32_MAX) return random_alt(seed);
+    uint32_t n = span + 1u, thresh = (0u - n) % n;
+    uint64_t m;
+    do m = (uint64_t)(uint32_t)random_alt(seed) * n; while ((uint32_t)m < thresh);
+    return (int32_t)((uint32_t)lo + (uint32_t)(m >> 32));
+}
+
+// MIR has no pointers. A generator gen(int32_t *seed, ...) is split into two
+// pure functions of the old seed, called by the compiled code:
+//   prefix_next(seed, ...)   the new seed
+//   prefix_value(seed, ...)  the generated value
+// params are the declarations of the arguments after the seed, args their
+// names. Both lists start with a comma, () if there are none, e.g.
+//   VAMS_RANDOM_PAIR(vams_uniform, int32_t, rtl_dist_uniform_alt,
+//                    (, int32_t lo, int32_t hi), (, lo, hi))
+#define VAMS_UNPAREN(...) __VA_ARGS__
+#define VAMS_RANDOM_PAIR(prefix, ret_t, gen, params, args)                     \
+  int32_t prefix##_next(int32_t seed VAMS_UNPAREN params) {                    \
+    gen(&seed VAMS_UNPAREN args);                                              \
+    return seed;                                                               \
+  }                                                                            \
+  ret_t prefix##_value(int32_t seed VAMS_UNPAREN params) {                     \
+    return gen(&seed VAMS_UNPAREN args);                                       \
+  }
+
+// Alternative generator wrappers
+// $random/$arandom
+VAMS_RANDOM_PAIR(vams_random, int32_t, random_alt, (), ())
+
+// IEEE 1364-2005 generator wrappers
+// $random/$arandom
+VAMS_RANDOM_PAIR(vams_random_ieee, int32_t, rtl_dist_random, (), ())
 
 // Initial state of the random number generator with site id site_id that is
 // seeded by the simulator. Reads entity_seed only if INIT_HIDDEN_STATE is set
@@ -182,11 +319,7 @@ int32_t vams_random_value(int32_t state) {
 int32_t vams_site_seed(OsdiInitInfo *info, uint32_t site_id) {
   if (!(info->flags & INIT_HIDDEN_STATE))
     return 0;
-  uint32_t seed = vams_mix32(info->entity_seed, site_id);
-  // avoid collision with the 0 -> 259341593 substitution
-  if (seed == 0)
-    seed = 1;
-  return (int32_t)seed;
+  return (int32_t)vams_mix32(info->entity_seed, site_id);
 }
 
 #define FMT_OFF 6

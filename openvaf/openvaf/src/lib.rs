@@ -62,6 +62,8 @@ pub struct Opts {
     pub dump_unopt_ir: bool,
     pub compact: bool,
     pub dump_hs: bool,
+    /// IEEE 1364-2005 random number generator (not used yet)
+    pub ieee1364: bool,
 }
 // pub fn dump_json(opts: &Opts) -> Result<CompilationTermination> {
 //     let input =
@@ -177,6 +179,7 @@ pub fn compile(opts: &Opts) -> Result<CompilationTermination> {
     let input = AbsPathBuf::assert(input);
     let mut db = CompilationDB::new_fs(input, &opts.include, &opts.defines, &opts.lints)?;
     db.set_full_semantics_flag(!opts.compact);
+    db.set_ieee1364_flag(opts.ieee1364);
 
     let lib_file = match &opts.output {
         CompilationDestination::Cache { cache_dir } => {

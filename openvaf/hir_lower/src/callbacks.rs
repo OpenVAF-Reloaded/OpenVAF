@@ -73,10 +73,17 @@ pub enum CallBackKind {
     },
     NoiseTable(Box<NoiseTable>),
     SetRetFlag(RetFlag),
-    /// Next state of the random number generator (`vams_random_next` in stdlib)
-    RandomNext,
-    /// Random value of a generator state (`vams_random_value` in stdlib)
-    RandomValue,
+    /// Next state of the random number generator (`vams_random_next` in stdlib,
+    /// `vams_random_ieee_next` for the IEEE 1364-2005 generator)
+    RandomNext {
+        ieee1364: bool,
+    },
+    /// Value generated when advancing from a generator state (`vams_random_value` in
+    /// stdlib, `vams_random_ieee_value` for the IEEE 1364-2005 generator), takes the
+    /// same (old) state as `RandomNext`
+    RandomValue {
+        ieee1364: bool,
+    },
 }
 
 impl CallBackKind {
@@ -189,14 +196,16 @@ impl CallBackKind {
                 returns: 0,
                 has_sideeffects: true,
             },
-            CallBackKind::RandomNext => FunctionSignature {
-                name: "vams_random_next".to_owned(),
+            CallBackKind::RandomNext { ieee1364 } => FunctionSignature {
+                name: if *ieee1364 { "vams_random_ieee_next" } else { "vams_random_next" }
+                    .to_owned(),
                 params: 1,
                 returns: 1,
                 has_sideeffects: false,
             },
-            CallBackKind::RandomValue => FunctionSignature {
-                name: "vams_random_value".to_owned(),
+            CallBackKind::RandomValue { ieee1364 } => FunctionSignature {
+                name: if *ieee1364 { "vams_random_ieee_value" } else { "vams_random_value" }
+                    .to_owned(),
                 params: 1,
                 returns: 1,
                 has_sideeffects: false,

@@ -43,13 +43,14 @@ fn value(state: i32) -> i32 {
 }
 
 const SRC: &str = r#"`include "disciplines.vams"
-module random_test(a, b, c, d, e, f, g, h);
-    inout a, b, c, d, e, f, g, h;
-    electrical a, b, c, d, e, f, g, h;
+module random_test(a, b, c, d, e, f, g, h, l);
+    inout a, b, c, d, e, f, g, h, l;
+    electrical a, b, c, d, e, f, g, h, l;
     parameter integer seed = 7;
     parameter integer p = $arandom(11);
     integer x = $arandom(13);
     integer s = 5;
+    integer k, last;
 
     analog function integer rnd;
         input dummy;
@@ -68,13 +69,17 @@ module random_test(a, b, c, d, e, f, g, h);
         I(f) <+ $arandom(s, "global");
         I(g) <+ rnd(0);
         I(h) <+ rnd(1);
+        for (k = 0; k < 10; k = k + 1)
+            last = $arandom(17);
+        I(l) <+ last;
     end
 endmodule
 "#;
 
 /// With full Verilog-A (`-s`) `$random()`, `$arandom()` and `$arandom(constant)` keep
 /// the generator state as hidden state, `$random(var)` in the variable. Each generator
-/// advances once per accepted evaluation. Generators without a seed are seeded with
+/// advances once per executed call (10 times per evaluation in the loop), the advanced
+/// state is kept only by an accepted evaluation. Generators without a seed are seeded with
 /// the entity seed mixed with their site id (each inlined function call gets its own).
 /// In initializers `$arandom(constant)` gives the first value of the sequence.
 /// Typed calls return 0.
@@ -97,13 +102,14 @@ pub fn generators() -> Result<()> {
         instance.entity_seed = entity_seed;
         let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
 
-        // node, generator state (site ids: a 0, b 1, g 2, h 3)
+        // node, generator state, calls per evaluation (site ids: a 0, b 1, g 2, h 3, l 4)
         let mut states = [
-            ("a", site_seed(entity_seed, 0)),
-            ("b", 8),
-            ("c", 5),
-            ("g", site_seed(entity_seed, 2)),
-            ("h", site_seed(entity_seed, 3)),
+            ("a", site_seed(entity_seed, 0), 1),
+            ("b", 8, 1),
+            ("c", 5, 1),
+            ("g", site_seed(entity_seed, 2), 1),
+            ("h", site_seed(entity_seed, 3), 1),
+            ("l", 17, 10),
         ];
         let constants = [("d", value(next(11))), ("e", value(next(13))), ("f", 0)];
 
@@ -111,15 +117,17 @@ pub fn generators() -> Result<()> {
             let t = step as f64 * 1e-6;
             sim.abstime = t;
             sim.dt = 1e-6;
-            for (_, state) in &mut states {
-                *state = next(*state);
+            for (_, state, calls) in &mut states {
+                for _ in 0..*calls {
+                    *state = next(*state);
+                }
             }
             // without accept the generators do not advance
             for _ in 0..2 {
                 sim.clear();
                 instance.eval(&model, &mut sim, EvalFlags::ANALYSIS_TRAN);
                 instance.load_dae(&model, &mut sim);
-                for &(node, state) in &states {
+                for &(node, state, _) in &states {
                     let expected = value(state) as f64;
                     assert_eq!(sim.read_residual(node).0, expected, "{node} step {step}");
                 }

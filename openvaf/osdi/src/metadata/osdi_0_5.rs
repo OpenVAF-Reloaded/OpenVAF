@@ -18,6 +18,8 @@ const STDLIB_BITCODE_X86_64_PC_WINDOWS_GNU: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_5_x86_64-pc-windows-gnu.bc"));
 const STDLIB_BITCODE_RISCV64_UNKNOWN_LINUX_GNU: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_5_riscv64-unknown-linux-gnu.bc"));
+const STDLIB_BITCODE_WASM32_UNKNOWN_EMSCRIPTEN: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/stdlib_0_5_wasm32-unknown-emscripten.bc"));
 pub fn stdlib_bitcode(target: &target::spec::Target) -> &'static [u8] {
     match &*target.llvm_target {
         "x86_64-unknown-linux-gnu" => STDLIB_BITCODE_X86_64_UNKNOWN_LINUX_GNU,
@@ -28,6 +30,7 @@ pub fn stdlib_bitcode(target: &target::spec::Target) -> &'static [u8] {
         "arm64-apple-macosx11.0.0" => STDLIB_BITCODE_ARM64_APPLE_MACOSX11_0_0,
         "x86_64-pc-windows-gnu" => STDLIB_BITCODE_X86_64_PC_WINDOWS_GNU,
         "riscv64-unknown-linux-gnu" => STDLIB_BITCODE_RISCV64_UNKNOWN_LINUX_GNU,
+        "wasm32-unknown-emscripten" => STDLIB_BITCODE_WASM32_UNKNOWN_EMSCRIPTEN,
         triple => unreachable!("unknown target triple {triple}"),
     }
 }

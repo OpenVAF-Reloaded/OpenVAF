@@ -140,7 +140,7 @@ export PATH=/usr/lib/llvm-21/bin:$PATH
 
 If you need to build LLVM from source, download [LLVM 21.1.6 sources](https://github.com/llvm/llvm-project/releases/tag/llvmorg-21.1.6) (or 18.1.8 for LLVM 18). Unpack them and create a build directory:
 ```
-cmake -S <path to souces>/llvm -B <path to build dir> -DCMAKE_INSTALL_PREFIX=<LLVM install directory> -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64" -DLLVM_ENABLE_PROJECTS="llvm;clang;lld"
+cmake -S <path to souces>/llvm -B <path to build dir> -DCMAKE_INSTALL_PREFIX=<LLVM install directory> -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64;WebAssembly" -DLLVM_ENABLE_PROJECTS="llvm;clang;lld"
 ```
 
 Enter the build directory and type:
@@ -160,7 +160,7 @@ Build LLVM and Clang. Download [LLVM 21.1.6 sources](https://github.com/llvm/llv
 
 Start Visual Studio x64 native command prompt. Run CMake, use Ninja as build system. Do not use default (nmake) because for me it always built the Debug version, even when I specified Release. 
 ```bash
-cmake -G Ninja -S path_to_sources/llvm -B path_to_build_dir -DCMAKE_INSTALL_PREFIX=LLVM_install_directory -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64" -DLLVM_ENABLE_PROJECTS="llvm;clang;lld"
+cmake -G Ninja -S path_to_sources/llvm -B path_to_build_dir -DCMAKE_INSTALL_PREFIX=LLVM_install_directory -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64;WebAssembly" -DLLVM_ENABLE_PROJECTS="llvm;clang;lld"
 ```
 Enter build directory and run Ninja (build and install)
 ```bash
@@ -245,6 +245,26 @@ cargo build --features llvm21
 ```
 
 The release binary can be found in `target/release` while the debug binary is built in `target/debug`. 
+
+# WebAssembly side modules (Pyodide)
+
+OpenVAF-reloaded can compile models to WebAssembly for simulators running under
+[Pyodide](https://pyodide.org) or other Emscripten programs that load shared
+libraries with `dlopen`:
+```bash
+openvaf-r --target wasm32-unknown-emscripten model.va -o model.osdi
+```
+The result is an Emscripten side module, which imports the C library functions it
+uses (`malloc`, `exp`, `snprintf`, ...) from the main module. This needs
+
+- an LLVM built with the WebAssembly target (distribution packages and Homebrew
+  have it; add `WebAssembly` to `LLVM_TARGETS_TO_BUILD` when building LLVM yourself), and
+- the `wasm-ld` linker. OpenVAF uses the one given by the `OPENVAF_WASM_LD`
+  environment variable, else the one of the activated
+  [Emscripten SDK](https://emscripten.org) (`$EMSDK/upstream/bin/wasm-ld`), else
+  `wasm-ld` from the PATH.
+
+Use the Emscripten version of the Pyodide release the models are meant for.
 
 # Debugging OpenVAF-reloaded in Visual Studio Code 
 

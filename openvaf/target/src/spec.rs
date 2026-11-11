@@ -12,6 +12,7 @@ pub enum LinkerFlavor {
     Ld,
     Ld64,
     Msvc,
+    WasmLd,
 }
 
 macro_rules! flavor_mappings {
@@ -42,6 +43,7 @@ flavor_mappings! {
     ((LinkerFlavor::Ld), "ld"),
     ((LinkerFlavor::Ld64), "ld64"),
     ((LinkerFlavor::Msvc), "msvc"),
+    ((LinkerFlavor::WasmLd), "wasm-ld"),
 }
 
 pub type LinkArgs = BTreeMap<LinkerFlavor, Vec<String>>;
@@ -159,6 +161,7 @@ supported_targets!(
     ("aarch64-apple-darwin", aarch64_apple_darwin),
     ("x86_64-pc-windows-gnu", x86_64_pc_windows_gnu),
     ("riscv64-unknown-linux", riscv64_unknown_linux),
+    ("wasm32-unknown-emscripten", wasm32_unknown_emscripten),
 );
 
 impl Target {

@@ -52,6 +52,7 @@ mod load;
 mod ndatable;
 mod noise;
 mod setup;
+mod symbols;
 
 const OSDI_VERSION: (u32, u32) = (0, 5);
 
@@ -69,6 +70,13 @@ fn initialize_llvm() {
         if LLVM_InitializeNativeAsmPrinter() != 0 {
             panic!("Failed to initialize native ASM printer");
         }
+        // Also initialize every other target this LLVM was built with, for
+        // cross compilation (--target). Targets missing from the LLVM build
+        // fail later with an error from LLVMGetTargetFromTriple.
+        llvm_sys::target::LLVM_InitializeAllTargetInfos();
+        llvm_sys::target::LLVM_InitializeAllTargets();
+        llvm_sys::target::LLVM_InitializeAllTargetMCs();
+        llvm_sys::target::LLVM_InitializeAllAsmPrinters();
     });
 }
 
@@ -166,6 +174,9 @@ pub fn compile<'a>(
 
                 if emit {
                     let path = &paths[i * 4];
+                    if symbols::needs_local_symbols(target) {
+                        symbols::localize_symbols(&llmod);
+                    }
                     llmod.optimize();
                     assert_eq!(llmod.emit_object(path.as_ref()), Ok(()))
                 }
@@ -196,6 +207,9 @@ pub fn compile<'a>(
 
                 if emit {
                     let path = &paths[i * 4 + 1];
+                    if symbols::needs_local_symbols(target) {
+                        symbols::localize_symbols(&llmod);
+                    }
                     llmod.optimize();
                     assert_eq!(llmod.emit_object(path.as_ref()), Ok(()))
                 }
@@ -228,6 +242,9 @@ pub fn compile<'a>(
 
                 if emit {
                     let path = &paths[i * 4 + 2];
+                    if symbols::needs_local_symbols(target) {
+                        symbols::localize_symbols(&llmod);
+                    }
                     llmod.optimize();
                     assert_eq!(llmod.emit_object(path.as_ref()), Ok(()))
                 }
@@ -258,6 +275,9 @@ pub fn compile<'a>(
 
                 if emit {
                     let path = &paths[i * 4 + 3];
+                    if symbols::needs_local_symbols(target) {
+                        symbols::localize_symbols(&llmod);
+                    }
                     llmod.optimize();
                     assert_eq!(llmod.emit_object(path.as_ref()), Ok(()))
                 }
@@ -391,6 +411,9 @@ pub fn compile<'a>(
 
         if emit {
             // println!("{}", llmod.to_str());
+            if symbols::needs_local_symbols(target) {
+                symbols::localize_symbols(&llmod);
+            }
             llmod.optimize();
             // println!("{}", llmod.to_str());
             assert_eq!(llmod.emit_object(main_file.as_ref()), Ok(()))

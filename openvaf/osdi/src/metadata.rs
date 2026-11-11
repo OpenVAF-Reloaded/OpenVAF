@@ -272,6 +272,8 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                 JACOBIAN_PTR_REACT,
             )
         } as u32;
+        // Stride of the reactive Jacobian pointer array (4 bytes on wasm32)
+        let ptr_size = unsafe { llvm_sys::target::LLVMPointerSize(*target_data) };
 
         module
             .dae_system
@@ -296,7 +298,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                 if entry.react != F_ZERO {
                     flags |= JACOBIAN_ENTRY_REACT;
                     react_ptr_off = jacobian_ptr_react_offset;
-                    jacobian_ptr_react_offset += 8;
+                    jacobian_ptr_react_offset += ptr_size;
                 }
                 OsdiJacobianEntry {
                     nodes: OsdiNodePair { node_1: entry.row.into(), node_2: entry.col.into() },

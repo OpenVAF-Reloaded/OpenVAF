@@ -232,9 +232,7 @@ impl dyn Linker + '_ {
             self.args(args);
         }
         if let Ok(flags) = std::env::var("OPENVAF_LDFLAGS") {
-            let flags = flags
-                .split(' ')
-                .filter(|flag| flag.is_empty() && !flag.chars().all(|c| c.is_whitespace()));
+            let flags = flags.split(' ').filter(|flag| !flag.is_empty());
             self.args(flags)
         }
     }

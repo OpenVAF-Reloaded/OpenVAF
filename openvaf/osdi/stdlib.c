@@ -157,10 +157,9 @@ uint32_t vams_mix32(uint32_t base, uint32_t site_id) {
 
 int32_t vams_random(int32_t *seed) {
   uint32_t s = (uint32_t)*seed;
-  // same substitution as uniform() in IEEE 1364-2005, so a shared
-  // seed variable gives the same state sequence
-  if (s == 0)
-    s = 259341593;
+  // if (s == 0) s = 259341593;       // same substitution as uniform() in IEEE 1364-2005, so a shared
+                                      // seed variable gives the same state sequence
+                                      // no substitution needed because vams_fmix() mixes bits.
   s = 69069u * s + 1u;
   *seed = (int32_t)s;
   // full 32 bits, all bits well mixed

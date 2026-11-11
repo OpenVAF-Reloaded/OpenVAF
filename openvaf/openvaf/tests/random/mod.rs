@@ -30,11 +30,7 @@ fn site_seed(entity_seed: u32, site_id: u32) -> i32 {
 
 /// Next state of a generator
 fn next(state: i32) -> i32 {
-    let state = match state as u32 {
-        0 => 259_341_593,
-        state => state,
-    };
-    69069u32.wrapping_mul(state).wrapping_add(1) as i32
+    69069u32.wrapping_mul(state as u32).wrapping_add(1) as i32
 }
 
 /// Random value of a generator state

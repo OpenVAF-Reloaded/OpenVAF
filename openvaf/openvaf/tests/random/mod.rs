@@ -5,7 +5,7 @@ use camino::Utf8PathBuf;
 use mini_harness::Result;
 
 use crate::load::EvalFlags;
-use crate::{compile_and_load_modules, compiles};
+use crate::{compile_and_load_modules, compile_and_load_modules_with, compile_opts, compiles};
 
 fn fmix32(mut h: u32) -> u32 {
     h ^= h >> 16;
@@ -22,10 +22,7 @@ fn mix32(base: u32, site_id: u32) -> u32 {
 
 /// Initial state of a generator seeded with the entity seed
 fn site_seed(entity_seed: u32, site_id: u32) -> i32 {
-    match mix32(entity_seed, site_id) {
-        0 => 1,
-        seed => seed as i32,
-    }
+    mix32(entity_seed, site_id) as i32
 }
 
 /// Next state of a generator
@@ -133,6 +130,75 @@ pub fn generators() -> Result<()> {
             }
             instance.accept(&model, t, 1e-6);
         }
+    }
+    Ok(())
+}
+
+/// One step of the IEEE 1364-2005 `$random` (`rtl_dist_uniform(seed, INT32_MIN, INT32_MAX)`),
+/// returns the new seed and the value
+fn ieee_random(seed: i32) -> (i32, i32) {
+    let old = match seed as u32 {
+        0 => 259_341_593,
+        seed => seed,
+    };
+    let new = 69069u32.wrapping_mul(old).wrapping_add(1);
+    // uniform(seed, INT32_MIN, INT32_MAX)
+    let (a, b) = (i32::MIN as f64, i32::MAX as f64);
+    let d = 0.00000011920928955078125;
+    let c = 1.0 + (new >> 9) as f64 * 0.00000011920928955078125;
+    let c = c + c * d;
+    let u = (b - a) * (c - 1.0) + a;
+    let r = (u + 2147483648.0) / 4294967295.0;
+    let r = r * 4294967296.0 - 2147483648.0;
+    let i = if r >= 0.0 { r as i64 } else { (r - 1.0) as i64 };
+    (new as i32, i as u32 as i32)
+}
+
+/// With `--ieee1364` `$random(var)` and `$arandom(constant)` use the IEEE 1364-2005
+/// generator.
+pub fn ieee1364() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    const SRC: &str = r#"`include "disciplines.vams"
+module random_ieee(a, b);
+    inout a, b;
+    electrical a, b;
+    integer s = 0;
+    analog begin
+        I(a) <+ $random(s);
+        I(b) <+ $arandom(5);
+    end
+endmodule
+"#;
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+    let root_file = tmp_dir.join("openvaf_random_ieee_test.va");
+    std::fs::write(&root_file, SRC)?;
+    let mut opts = compile_opts(&root_file, false);
+    opts.ieee1364 = true;
+    let libs = compile_and_load_modules_with(&opts);
+    assert_eq!(libs.len(), 1);
+    let desc = &libs[0];
+    let model = desc.new_model();
+    model.process_params()?;
+    let mut instance = model.new_instance();
+    let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+
+    let mut states = [("a", 0), ("b", 5)];
+    for step in 1..=3 {
+        let t = step as f64 * 1e-6;
+        sim.abstime = t;
+        sim.dt = 1e-6;
+        sim.clear();
+        instance.eval(&model, &mut sim, EvalFlags::ANALYSIS_TRAN);
+        instance.load_dae(&model, &mut sim);
+        for (node, state) in &mut states {
+            let (next, value) = ieee_random(*state);
+            assert_eq!(sim.read_residual(node).0, value as f64, "{node} step {step}");
+            *state = next;
+        }
+        instance.accept(&model, t, 1e-6);
     }
     Ok(())
 }

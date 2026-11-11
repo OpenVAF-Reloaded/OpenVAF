@@ -74,11 +74,15 @@ fn compile_and_load(root_file: &Utf8Path) -> &'static OsdiDescriptor {
 
 /// `compact` disables full Verilog-A (`-s`)
 fn compile_and_load_modules(root_file: &Utf8Path, compact: bool) -> &'static [OsdiDescriptor] {
-    let res = openvaf::compile(&compile_opts(root_file, compact)).unwrap();
+    compile_and_load_modules_with(&compile_opts(root_file, compact))
+}
+
+fn compile_and_load_modules_with(opts: &openvaf::Opts) -> &'static [OsdiDescriptor] {
+    let res = openvaf::compile(opts).unwrap();
     let lib_file = match res {
         CompilationTermination::Compiled { lib_file } => lib_file,
         CompilationTermination::FatalDiagnostic => {
-            panic!("openvaf: compilation of {root_file} failed");
+            panic!("openvaf: compilation of {} failed", opts.input);
         }
     };
     unsafe { load_osdi_lib(&lib_file).unwrap() }
@@ -111,6 +115,7 @@ fn compile_opts(root_file: &Utf8Path, compact: bool) -> openvaf::Opts {
         dump_unopt_ir: false,
         compact,
         dump_hs: false,
+        ieee1364: false,
     }
 }
 
@@ -1061,6 +1066,7 @@ harness! {
         Test::new("random", &random::generators),
         Test::new("random_errors", &random::errors),
         Test::new("random_zero_voltage", &random::zero_voltage),
+        Test::new("random_ieee1364", &random::ieee1364),
         Test::new("bus_port_dac", &bus_port_dac_test),
         Test::new("hierarchy_bus_slices", &hierarchy_bus_slices_test),
         Test::new("hierarchy_variable_width_slices", &hierarchy_variable_width_slices_test),

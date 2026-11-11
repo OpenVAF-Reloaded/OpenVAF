@@ -79,7 +79,7 @@ pub fn stub_callbacks<'ll>(
                     CallbackFun::Prebuilt(cx.const_callback(&[cx.ty_ptr()], cx.const_int(1)))
                 }
                 // compact models have no untyped random number generators
-                CallBackKind::RandomNext | CallBackKind::RandomValue => {
+                CallBackKind::RandomNext { .. } | CallBackKind::RandomValue { .. } => {
                     CallbackFun::Prebuilt(cx.const_callback(&[cx.ty_int()], cx.const_int(0)))
                 }
             };

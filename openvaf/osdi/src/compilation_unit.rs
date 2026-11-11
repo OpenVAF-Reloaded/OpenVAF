@@ -263,7 +263,7 @@ pub fn general_callbacks<'ll>(
                 | CallBackKind::FlickerNoise { .. }
                 | CallBackKind::TimeDerivative => return None,
 
-                CallBackKind::RandomNext | CallBackKind::RandomValue => {
+                CallBackKind::RandomNext { .. } | CallBackKind::RandomValue { .. } => {
                     let name = call.signature().name;
                     let fun = builder
                         .cx

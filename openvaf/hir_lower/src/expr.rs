@@ -757,19 +757,23 @@ impl BodyLoweringCtx<'_, '_, '_> {
         signature: hir::signatures::Signature,
         args: &[ExprId],
     ) -> Value {
+        // IEEE 1364-2005 generator (--ieee1364)
+        let ieee1364 = self.ctx.db.ieee1364_flag();
+        let next_cb = CallBackKind::RandomNext { ieee1364 };
+        let value_cb = CallBackKind::RandomValue { ieee1364 };
+        // RandomNext and RandomValue both take the old state
         match RandomForm::new(builtin, signature).unwrap() {
             RandomForm::Typed => ZERO,
             RandomForm::VarSeed => {
                 let state = self.lower_expr(args[0]);
-                let state = self.ctx.call1(CallBackKind::RandomNext, &[state]);
+                let next = self.ctx.call1(next_cb, &[state]);
                 let dst = self.body.get_expr(args[0]).as_assignment_lhs();
-                self.ctx.def_place(dst.into(), state);
-                self.ctx.call1(CallBackKind::RandomValue, &[state])
+                self.ctx.def_place(dst.into(), next);
+                self.ctx.call1(value_cb, &[state])
             }
             RandomForm::ConstSeed if self.ctx.pure_random => {
                 let seed = self.lower_expr(args[0]);
-                let state = self.ctx.call1(CallBackKind::RandomNext, &[seed]);
-                self.ctx.call1(CallBackKind::RandomValue, &[state])
+                self.ctx.call1(value_cb, &[seed])
             }
             // rejected by validation (requires full Verilog-A semantics)
             _ if self.ctx.compact || self.ctx.pure_random => ZERO,
@@ -782,9 +786,9 @@ impl BodyLoweringCtx<'_, '_, '_> {
                 // the current state (initialized with the accepted state at entry) so that
                 // each execution of the call (e.g. in a loop) advances the generator
                 let state = self.ctx.use_place(PlaceKind::RandomOutput(idx));
-                let state = self.ctx.call1(CallBackKind::RandomNext, &[state]);
-                self.ctx.def_place(PlaceKind::RandomOutput(idx), state);
-                self.ctx.call1(CallBackKind::RandomValue, &[state])
+                let next = self.ctx.call1(next_cb, &[state]);
+                self.ctx.def_place(PlaceKind::RandomOutput(idx), next);
+                self.ctx.call1(value_cb, &[state])
             }
         }
     }

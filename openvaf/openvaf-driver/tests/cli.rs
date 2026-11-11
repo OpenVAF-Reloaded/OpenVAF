@@ -45,8 +45,64 @@ fn link_diode() -> Result {
     Ok(())
 }
 
+/// Whether a WebAssembly linker can be found, the same way the linker crate
+/// looks for one (OPENVAF_WASM_LD, $EMSDK/upstream/bin/wasm-ld, wasm-ld).
+fn have_wasm_ld() -> bool {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(path) = env::var_os("OPENVAF_WASM_LD") {
+        candidates.push(path.into());
+    }
+    if let Some(emsdk) = env::var_os("EMSDK") {
+        candidates.push(PathBuf::from(emsdk).join("upstream").join("bin").join("wasm-ld"));
+    }
+    candidates.push("wasm-ld".into());
+    candidates.iter().any(|ld| {
+        std::process::Command::new(ld)
+            .arg("--version")
+            .output()
+            .map_or(false, |out| out.status.success())
+    })
+}
+
+/// Links the diode as an Emscripten side module (Pyodide). Skipped when no
+/// wasm-ld is installed, e.g. without the Emscripten SDK.
+fn link_diode_wasm() -> Result {
+    if !have_wasm_ld() {
+        eprintln!("skipping cli::link_diode_wasm: wasm-ld not found");
+        return Ok(());
+    }
+    let sh = xshell::Shell::new().unwrap();
+    sh.change_dir(project_root());
+    let openvaf = cargo_bin("openvaf-r");
+    let out = target_dir().join("diode_wasm32.osdi");
+    xshell::cmd!(
+        sh,
+        "{openvaf} -O 0 --target wasm32-unknown-emscripten integration_tests/DIODE/diode.va -o {out}"
+    )
+    .run()?;
+    let module = sh.read_binary_file(&out)?;
+    sh.remove_path(&out)?;
+    // Wasm magic and version, then the dylink.0 custom section that makes it
+    // loadable as a side module (it must come first).
+    assert_eq!(&module[..8], b"\0asm\x01\0\0\0", "not a WebAssembly module");
+    assert_eq!(module[8], 0, "first section is not a custom section");
+    assert!(module[9..20].windows(8).any(|w| w == b"dylink.0"), "no dylink.0 section");
+    // The library must not refer to its own symbols through the GOT: the
+    // Emscripten dynamic linker resolves GOT entries globally by name, so they
+    // would bind to the symbols of the first OSDI library that was loaded.
+    for got in [&b"GOT.func"[..], &b"GOT.mem"[..]] {
+        assert!(
+            !module.windows(got.len()).any(|w| w == got),
+            "imports from {}",
+            String::from_utf8_lossy(got)
+        );
+    }
+    Ok(())
+}
+
 harness! {
     Test::new("cli::link_diode", &link_diode),
+    Test::new("cli::link_diode_wasm", &link_diode_wasm),
     Test::from_list(
         "cli::smoke_test",
          &smoke_test,

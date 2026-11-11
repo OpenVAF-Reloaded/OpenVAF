@@ -18,6 +18,8 @@ extern void *memcpy (void *__restrict __dest, const void *__restrict __src,
 extern void *malloc (size_t __size);
 extern void *realloc (void *__ptr, size_t __size);
 extern double log(double);
+extern double sqrt(double);
+extern double round(double);
 extern int strcmp(const char*, const char*);
 #define NULL ((void*)0)
 #else
@@ -210,56 +212,78 @@ static double uniform(int32_t *seed, int32_t start, int32_t end) {
       return c;
 }
 
-/* Uniformly distributed integer.
- * i is 64-bit, as 'long' is in the IEEE 1364-2005 reference on LP64
- * (Icarus on 64-bit Linux/macOS). Before the clamps r can exceed
- * INT32_MAX by up to ~512, and converting that to a 32-bit type is
- * undefined behaviour (x86 gives INT32_MIN, ARM saturates). The result
- * is truncated to 32 bits, as when it is stored in a Verilog integer.
- */
 static int32_t rtl_dist_uniform(int32_t *seed, int32_t start, int32_t end) {
       double r;
-      int64_t i, s, e;
+      int32_t i;
 
       if (start >= end) return start;
 
       if (end != INT32_MAX) {
-            e = (int64_t)end + 1;
-            r = uniform(seed, start, (int32_t)e);
+            end++;
+            r = uniform(seed, start, end);
             if (r >= 0) {
-                  i = (int64_t) r;
+                  i = (int32_t) r;
             } else {
-                  i = (int64_t) (r - 1);
+                  i = (int32_t) (r - 1);
             }
             if (i < start) i = start;
-            if (i >= e) i = e - 1;
+            if (i >= end) i = end - 1;
       } else if (start != INT32_MIN) {
-            s = (int64_t)start - 1;
-            r = uniform(seed, (int32_t)s, end) + 1.0;
+            start--;
+            r = uniform(seed, start, end) + 1.0;
             if (r >= 0) {
-                  i = (int64_t) r;
+                  i = (int32_t) r;
             } else {
-                  i = (int64_t) (r - 1);
+                  i = (int32_t) (r - 1);
             }
-            if (i <= s) i = s + 1;
+            if (i <= start) i = start + 1;
             if (i > end) i = end;
       } else {
             r = (uniform(seed, start, end) + 2147483648.0) / 4294967295.0;
             r = r * 4294967296.0 - 2147483648.0;
 
             if (r >= 0) {
-                  i = (int64_t) r;
+                  i = (int32_t) r;
             } else {
-                  i = (int64_t) (r - 1);
+                  i = (int32_t) (r - 1);
             }
       }
 
-      return (int32_t)(uint32_t)(uint64_t)i;   /* keep low 32 bits */
+      return i;
+}
+
+static double normal(int32_t* seed, int32_t mean, int32_t deviation) {
+    double v1,v2,s;
+    s = 1.0;
+    while((s >= 1.0) || (s == 0.0)) {
+        v1 = uniform(seed,-1,1);
+        v2 = uniform(seed,-1,1);
+        s = v1 * v1 + v2 * v2;
+    }
+    s = v1 * sqrt(-2.0 * log(s) / s);
+    v1 = (double) deviation;
+    v2 = (double) mean;
+    return(s * v1 + v2);
 }
 
 // $random/$arandom
 static int32_t rtl_dist_random(int32_t *seed) {
     return rtl_dist_uniform(seed, INT32_MIN, INT32_MAX);
+}
+
+// Normally distributed integer
+static int32_t rtl_dist_normal(int32_t* seed, int32_t mean, int32_t sd) {
+    double r;
+    int32_t i;
+    r=normal(seed,mean,sd);
+    if(r>=0) {
+        i=(int32_t)(r+0.5);
+    } else {
+        r = -r;
+        i=(int32_t)(r+0.5);
+        i = -i;
+    }
+    return (i);
 }
 
 // Incompatible, but better generators (used for now)
@@ -270,10 +294,29 @@ static int32_t random_alt(int32_t *seed) {
     uint32_t s = (uint32_t)*seed;
     // if (s == 0) s = 259341593;       // same substitution as uniform() in IEEE 1364-2005, so a shared
                                         // seed variable gives the same state sequence
-                                        // no substitution needed because vams_fmix() mixes bits.
+                                        // no substitution needed because vams_fmix32() mixes bits.
     s = 69069u * s + 1u;
     *seed = (int32_t)s;
     return (int32_t)vams_fmix32(s);     // full 32 bits, all bits well mixed
+}
+
+static double uniform_alt(int32_t *seed, double a, double b) {
+    double u = ((double)(uint32_t)random_alt(seed) + 0.5) * 0x1p-32;   /* (0,1) */
+    return a * (1.0 - u) + b * u;
+}
+
+static double normal_alt(int32_t* seed, double mean, double deviation) {
+    double v1,v2,s;
+    s = 1.0;
+    while((s >= 1.0) || (s == 0.0)) {
+        v1 = uniform_alt(seed,-1,1);
+        v2 = uniform_alt(seed,-1,1);
+        s = v1 * v1 + v2 * v2;
+    }
+    s = v1 * sqrt(-2.0 * log(s) / s);
+    v1 = (double) deviation;
+    v2 = (double) mean;
+    return(s * v1 + v2);
 }
 
 // Uniformly distributed integer
@@ -285,6 +328,16 @@ static int32_t rtl_dist_uniform_alt(int32_t *seed, int32_t lo, int32_t hi) {
     uint64_t m;
     do m = (uint64_t)(uint32_t)random_alt(seed) * n; while ((uint32_t)m < thresh);
     return (int32_t)((uint32_t)lo + (uint32_t)(m >> 32));
+}
+
+// Normally distributed integer
+static int32_t rtl_dist_normal_alt(int32_t* seed, int32_t mean, int32_t sd) {
+    /* Round in double (half away from zero, as the IEEE code), saturate,
+     * then convert. Converting an out-of-range double to int32_t is UB. */
+    double d = round(normal_alt(seed, (double)mean, (double)sd));
+    if (d >= 2147483647.0)  return INT32_MAX;
+    if (d <= -2147483648.0) return INT32_MIN;
+    return (int32_t)d;
 }
 
 // MIR has no pointers. A generator gen(int32_t *seed, ...) is split into two
@@ -311,6 +364,9 @@ VAMS_RANDOM_PAIR(vams_random, int32_t, random_alt, (), ())
 // Uniformly distributed integer on [lo, hi]
 VAMS_RANDOM_PAIR(vams_uniform_int, int32_t, rtl_dist_uniform_alt,
                  (, int32_t lo, int32_t hi), (, lo, hi))
+// Normally distributed integer
+VAMS_RANDOM_PAIR(vams_normal_int, int32_t, rtl_dist_normal_alt,
+                 (, int32_t mean, int32_t sd), (, mean, sd))
 
 // IEEE 1364-2005 generator wrappers
 // $random/$arandom
@@ -318,6 +374,9 @@ VAMS_RANDOM_PAIR(vams_random_ieee, int32_t, rtl_dist_random, (), ())
 // Uniformly distributed integer on [start, end]
 VAMS_RANDOM_PAIR(vams_uniform_int_ieee, int32_t, rtl_dist_uniform,
                  (, int32_t start, int32_t end), (, start, end))
+// Normally distributed integer
+VAMS_RANDOM_PAIR(vams_normal_int_ieee, int32_t, rtl_dist_normal,
+                 (, int32_t mean, int32_t sd), (, mean, sd))
 
 // Initial state of the random number generator with site id site_id that is
 // seeded by the simulator. Reads entity_seed only if INIT_HIDDEN_STATE is set

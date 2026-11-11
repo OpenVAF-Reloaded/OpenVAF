@@ -204,7 +204,6 @@ impl BuiltIn {
             | BuiltIn::dist_exponential
             | BuiltIn::dist_poisson
             | BuiltIn::dist_erlang
-            | BuiltIn::dist_normal
             | BuiltIn::dist_t
             | BuiltIn::rdist_chi_square
             | BuiltIn::rdist_exponential

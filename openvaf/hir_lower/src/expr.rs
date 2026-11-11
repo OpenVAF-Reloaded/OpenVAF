@@ -733,7 +733,7 @@ impl BodyLoweringCtx<'_, '_, '_> {
             | BuiltIn::laplace_zd
             | BuiltIn::laplace_zp => self.lower_laplace(builtin, args),
 
-            BuiltIn::random | BuiltIn::arandom | BuiltIn::dist_uniform => {
+            BuiltIn::random | BuiltIn::arandom | BuiltIn::dist_uniform | BuiltIn::dist_normal => {
                 self.lower_random(builtin, signature, args)
             }
 
@@ -741,12 +741,12 @@ impl BodyLoweringCtx<'_, '_, '_> {
         }
     }
 
-    /// Lowers `$random`/`$arandom`/`$dist_uniform`.
+    /// Lowers `$random`/`$arandom`/`$dist_uniform`/`$dist_normal`.
     ///
     /// - `$arandom(seed, type)` returns the mean of the distribution (0), the seed
     ///   is ignored.
-    /// - `$random(var)`, `$arandom(var)`, `$dist_uniform(var, start, end)`: the
-    ///   generator state is the variable.
+    /// - `$random(var)`, `$arandom(var)`, `$dist_uniform(var, start, end)`,
+    ///   `$dist_normal(var, mean, sd)`: the generator state is the variable.
     /// - In initializers `$arandom(constant)` is pure: it returns the first value
     ///   of the sequence of the seed.
     /// - `$random()`, `$arandom()`, `$arandom(constant)`: the generator state is
@@ -764,6 +764,7 @@ impl BodyLoweringCtx<'_, '_, '_> {
         let ieee1364 = self.ctx.db.ieee1364_flag();
         let gen = match builtin {
             BuiltIn::dist_uniform => RandomGen::UniformInt,
+            BuiltIn::dist_normal => RandomGen::NormalInt,
             _ => RandomGen::Random,
         };
         let next_cb = CallBackKind::RandomNext { gen, ieee1364 };

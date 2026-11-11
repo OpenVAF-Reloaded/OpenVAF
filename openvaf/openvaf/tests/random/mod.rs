@@ -258,6 +258,118 @@ pub fn dist_uniform() -> Result<()> {
     Ok(())
 }
 
+/// IEEE 1364-2005 `uniform(seed, start, end)`, returns the new seed and the value
+fn ieee_uniform(seed: i32, start: i32, end: i32) -> (i32, f64) {
+    let old = match seed as u32 {
+        0 => 259_341_593,
+        seed => seed,
+    };
+    let (a, b) = if start >= end { (0.0, 2147483647.0) } else { (start as f64, end as f64) };
+    let new = 69069u32.wrapping_mul(old).wrapping_add(1);
+    let d = 0.00000011920928955078125;
+    let c = 1.0 + (new >> 9) as f64 * 0.00000011920928955078125;
+    let c = c + c * d;
+    (new as i32, (b - a) * (c - 1.0) + a)
+}
+
+/// `uniform_alt(seed, a, b)`, returns the new seed and the value
+fn uniform_alt(seed: i32, a: f64, b: f64) -> (i32, f64) {
+    let seed = next(seed);
+    let u = (value(seed) as u32 as f64 + 0.5) * 2f64.powi(-32);
+    (seed, a * (1.0 - u) + b * u)
+}
+
+/// Polar method of `normal`/`normal_alt` on a uniform generator on `(-1, 1)`,
+/// returns the new seed and the value
+fn polar(mut seed: i32, mean: f64, sd: f64, uniform: fn(i32) -> (i32, f64)) -> (i32, f64) {
+    let (mut v1, mut s) = (0.0, 1.0);
+    while s >= 1.0 || s == 0.0 {
+        let (next, u1) = uniform(seed);
+        let (next, u2) = uniform(next);
+        seed = next;
+        v1 = u1;
+        s = u1 * u1 + u2 * u2;
+    }
+    (seed, v1 * (-2.0 * s.ln() / s).sqrt() * sd + mean)
+}
+
+/// `rtl_dist_normal_alt`, returns the new seed and the value
+fn normal_int(seed: i32, mean: i32, sd: i32) -> (i32, i32) {
+    let (seed, r) = polar(seed, mean as f64, sd as f64, |s| uniform_alt(s, -1.0, 1.0));
+    // `as` saturates like the C code
+    (seed, r.round() as i32)
+}
+
+/// IEEE 1364-2005 `rtl_dist_normal`, returns the new seed and the value
+fn ieee_normal_int(seed: i32, mean: i32, sd: i32) -> (i32, i32) {
+    let (seed, r) = polar(seed, mean as f64, sd as f64, |s| ieee_uniform(s, -1, 1));
+    let i = if r >= 0.0 { (r + 0.5) as i32 } else { -((-r + 0.5) as i32) };
+    (seed, i)
+}
+
+const DIST_NORMAL_SRC: &str = r#"`include "disciplines.vams"
+module dist_normal_test(a, b, c);
+    inout a, b, c;
+    electrical a, b, c;
+    integer s1 = 3, s2 = 0, s3 = 9;
+    analog begin
+        I(a) <+ $dist_normal(s1, 10, 3);
+        I(b) <+ $dist_normal(s2, -100, 1000);
+        // a zero standard deviation returns the mean, but advances the seed
+        I(c) <+ $dist_normal(s3, 4, 0) + $dist_normal(s3, 0, 5);
+    end
+endmodule
+"#;
+
+/// `$dist_normal(var, mean, sd)` advances the seed variable on each call and
+/// returns a normally distributed integer, with both generators.
+pub fn dist_normal() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+    for ieee in [false, true] {
+        let gen = if ieee { ieee_normal_int } else { normal_int };
+        let root_file = tmp_dir.join(format!("openvaf_dist_normal_{ieee}.va"));
+        std::fs::write(&root_file, DIST_NORMAL_SRC)?;
+        let mut opts = compile_opts(&root_file, false);
+        opts.ieee1364 = ieee;
+        let libs = compile_and_load_modules_with(&opts);
+        assert_eq!(libs.len(), 1);
+        let desc = &libs[0];
+        let model = desc.new_model();
+        model.process_params()?;
+        let mut instance = model.new_instance();
+        let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+
+        let (mut s1, mut s2, mut s3) = (3, 0, 9);
+        for step in 1..=20 {
+            let t = step as f64 * 1e-6;
+            sim.abstime = t;
+            sim.dt = 1e-6;
+            sim.clear();
+            instance.eval(&model, &mut sim, EvalFlags::ANALYSIS_TRAN);
+            instance.load_dae(&model, &mut sim);
+
+            let (next, a) = gen(s1, 10, 3);
+            s1 = next;
+            assert_eq!(sim.read_residual("a").0, a as f64, "ieee {ieee} a step {step}");
+            let (next, b) = gen(s2, -100, 1000);
+            s2 = next;
+            assert_eq!(sim.read_residual("b").0, b as f64, "ieee {ieee} b step {step}");
+            let (next, c1) = gen(s3, 4, 0);
+            assert_eq!(c1, 4);
+            assert_ne!(next, s3);
+            let (next, c2) = gen(next, 0, 5);
+            s3 = next;
+            assert_eq!(sim.read_residual("c").0, (c1 + c2) as f64, "ieee {ieee} c step {step}");
+            instance.accept(&model, t, 1e-6);
+        }
+    }
+    Ok(())
+}
+
 /// With `--ieee1364` `$random(var)` and `$arandom(constant)` use the IEEE 1364-2005
 /// generator.
 pub fn ieee1364() -> Result<()> {
@@ -423,6 +535,11 @@ pub fn errors() -> Result<()> {
         ("", "s = $dist_uniform(s, 0, 3);", "I(a) <+ s;", false, false),
         ("integer x = $dist_uniform(s, 0, 3);", "", "I(a) <+ x;", false, false),
         ("parameter integer p = $dist_uniform(seed, 0, 3);", "", "I(a) <+ p;", false, false),
+        ("", "", "I(a) <+ $dist_normal(s, 0, 3);", false, true),
+        ("", "", "I(a) <+ $dist_normal(seed, 0, 3);", false, false),
+        ("", "s = $dist_normal(s, 0, 3);", "I(a) <+ s;", false, false),
+        ("integer x = $dist_normal(s, 0, 3);", "", "I(a) <+ x;", false, false),
+        ("parameter integer p = $dist_normal(seed, 0, 3);", "", "I(a) <+ p;", false, false),
     ];
 
     let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;

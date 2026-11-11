@@ -132,12 +132,13 @@ pub enum IllegalRandomKind {
 /// single signature), the same as `BodyRef::get_call_signature` returns
 const NO_SIGNATURE: Signature = Signature(u32::MAX);
 
-/// Form of a `$random`/`$arandom`/`$dist_uniform` call
+/// Form of a `$random`/`$arandom`/`$dist_uniform`/`$dist_normal` call
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum RandomForm {
     /// `$random()`, `$arandom()`
     NoSeed,
-    /// `$random(var)`, `$arandom(var)`, `$dist_uniform(var, start, end)`
+    /// `$random(var)`, `$arandom(var)`, `$dist_uniform(var, start, end)`,
+    /// `$dist_normal(var, mean, sd)`
     VarSeed,
     /// `$arandom(constant)`
     ConstSeed,
@@ -155,7 +156,7 @@ impl RandomForm {
             }
             (BuiltIn::random, RANDOM_SEED)
             | (BuiltIn::arandom, ARANDOM_SEED)
-            | (BuiltIn::dist_uniform, _) => RandomForm::VarSeed,
+            | (BuiltIn::dist_uniform | BuiltIn::dist_normal, _) => RandomForm::VarSeed,
             (BuiltIn::arandom, ARANDOM_CONST_SEED) => RandomForm::ConstSeed,
             (BuiltIn::arandom, ARANDOM_TYPED) => RandomForm::Typed,
             _ => return None,
@@ -620,7 +621,7 @@ impl ExprValidator<'_, '_> {
         self.parent.body.exprs[expr].walk_child_exprs(|child| self.validate_expr(child))
     }
 
-    /// Checks a `$random`/`$arandom`/`$dist_uniform` call. Typed calls (`$arandom(seed, type)`)
+    /// Checks a `$random`/`$arandom`/`$dist_uniform`/`$dist_normal` call. Typed calls (`$arandom(seed, type)`)
     /// are allowed everywhere. Untyped calls need full Verilog-A semantics and are
     /// not allowed in analog initial blocks. In initializers only a constant seed is
     /// allowed (only `$arandom` in parameter initializers).
@@ -715,7 +716,10 @@ impl ExprValidator<'_, '_> {
         call: BuiltIn,
         signature: Option<Signature>,
     ) {
-        if matches!(call, BuiltIn::random | BuiltIn::arandom | BuiltIn::dist_uniform) {
+        if matches!(
+            call,
+            BuiltIn::random | BuiltIn::arandom | BuiltIn::dist_uniform | BuiltIn::dist_normal
+        ) {
             self.validate_random(expr, args, call, signature.clone());
         }
 
@@ -959,7 +963,8 @@ impl ExprValidator<'_, '_> {
 }
 
 /// Whether `fun` or a function it calls contains an untyped `$random`/`$arandom`
-/// or a `$dist_uniform` call (other than a constant seed if `allow_const` is set)
+/// or a `$dist_uniform`/`$dist_normal` call (other than a constant seed if
+/// `allow_const` is set)
 fn calls_untyped_random(
     db: &dyn HirTyDB,
     fun: FunctionId,
@@ -972,7 +977,10 @@ fn calls_untyped_random(
     let infer = db.inference_result(DefWithBodyId::FunctionId(fun));
     infer.resolved_calls.iter().any(|(expr, call)| match *call {
         ResolvedFun::BuiltIn(
-            builtin @ (BuiltIn::random | BuiltIn::arandom | BuiltIn::dist_uniform),
+            builtin @ (BuiltIn::random
+            | BuiltIn::arandom
+            | BuiltIn::dist_uniform
+            | BuiltIn::dist_normal),
         ) => {
             let sig = infer.resolved_signatures.get(expr).cloned().unwrap_or(NO_SIGNATURE);
             let form = RandomForm::new(builtin, sig);

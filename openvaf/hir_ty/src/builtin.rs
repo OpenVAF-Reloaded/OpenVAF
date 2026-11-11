@@ -325,6 +325,11 @@ bultins! {
         fn DIST_UNIFORM_SEED(Var(Integer),Val(Integer),Val(Integer)) -> Integer;
     }
 
+    // $dist_normal(seed, mean, standard_deviation): normally distributed integer
+    DIST_NORMAL = {
+        fn DIST_NORMAL_SEED(Var(Integer),Val(Integer),Val(Integer)) -> Integer;
+    }
+
 
     RDIST_1_ARG = const {
         fn RDIST_1_ARG_SEED(Var(Integer),Val(Real)) -> Real;
@@ -509,7 +514,6 @@ copied_builtins! {
     DIST_T = DIST_1_ARG
 
     DIST_ERLANG = DIST_2_ARG
-    DIST_NORMAL = DIST_2_ARG
 
     ANALOG_PORT_ALIAS = ANALOG_NODE_ALIAS
 

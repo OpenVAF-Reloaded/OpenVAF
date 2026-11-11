@@ -94,6 +94,8 @@ pub enum RandomGen {
     Random,
     /// `$dist_uniform(seed, start, end)`
     UniformInt,
+    /// `$dist_normal(seed, mean, standard_deviation)`
+    NormalInt,
 }
 
 impl RandomGen {
@@ -104,6 +106,8 @@ impl RandomGen {
             (RandomGen::Random, true) => "vams_random_ieee",
             (RandomGen::UniformInt, false) => "vams_uniform_int",
             (RandomGen::UniformInt, true) => "vams_uniform_int_ieee",
+            (RandomGen::NormalInt, false) => "vams_normal_int",
+            (RandomGen::NormalInt, true) => "vams_normal_int_ieee",
         }
     }
 
@@ -111,7 +115,7 @@ impl RandomGen {
     pub fn num_args(self) -> u16 {
         match self {
             RandomGen::Random => 0,
-            RandomGen::UniformInt => 2,
+            RandomGen::UniformInt | RandomGen::NormalInt => 2,
         }
     }
 }

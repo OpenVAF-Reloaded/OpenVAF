@@ -24,7 +24,7 @@ const ANALOG_OPERATORS: [&str; 16] = [
     "transition",
 ];
 
-const UNSUPPORTED: [&str; 39] = [
+const UNSUPPORTED: [&str; 34] = [
     "simprobe",
     "analog_node_alias",
     "analog_port_alias",
@@ -52,11 +52,6 @@ const UNSUPPORTED: [&str; 39] = [
     "ferror",
     "feof",
     "fdebug",
-    "dist_chi_square",
-    "dist_exponential",
-    "dist_poisson",
-    "dist_erlang",
-    "dist_t",
     "rdist_chi_square",
     "rdist_exponential",
     "rdist_poisson",

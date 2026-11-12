@@ -346,18 +346,15 @@ bultins! {
     }
 
 
-    DIST_1_ARG = const {
-        fn DIST_1_ARG_SEED(Var(Integer),Val(Integer)) -> Real;
-        fn DIST_1_ARG_CONST_SEED(Param(Integer),Val(Integer)) -> Real;
-        fn DIST_1_ARG_CONST_NAME(Var(Integer),Val(Integer),Literal(String)) -> Real;
-        fn DIST_1_ARG_CONST_SEED_NAME(Param(Integer),Val(Integer),Literal(String)) -> Real;
+    // $dist_exponential(seed, mean), $dist_poisson(seed, mean),
+    // $dist_chi_square(seed, df), $dist_t(seed, df)
+    DIST_1_ARG = {
+        fn DIST_1_ARG_SEED(Var(Integer),Val(Integer)) -> Integer;
     }
 
-    DIST_2_ARG = const {
-        fn DIST_2_ARG_SEED(Var(Integer),Val(Integer),Val(Integer)) -> Real;
-        fn DIST_2_ARG_CONST_SEED(Param(Integer),Val(Real),Val(Integer)) -> Real;
-        fn DIST_2_ARG_CONST_NAME(Var(Integer),Val(Integer),Val(Integer),Literal(String)) -> Real;
-        fn DIST_2_ARG_CONST_SEED_NAME(Param(Integer),Val(Integer),Val(Integer),Literal(String)) -> Real;
+    // $dist_erlang(seed, k, mean)
+    DIST_2_ARG = {
+        fn DIST_2_ARG_SEED(Var(Integer),Val(Integer),Val(Integer)) -> Integer;
     }
 
     SIMPROBE = const {

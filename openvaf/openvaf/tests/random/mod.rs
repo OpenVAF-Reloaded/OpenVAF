@@ -370,6 +370,340 @@ pub fn dist_normal() -> Result<()> {
     Ok(())
 }
 
+extern "C" {
+    fn lgamma(x: f64) -> f64;
+}
+
+/// Uniform and normal generators of the alternative (`ieee == false`) or the IEEE
+/// 1364-2005 stdlib generators, on a seed that is advanced in place
+#[derive(Clone, Copy)]
+struct Gen {
+    ieee: bool,
+}
+
+impl Gen {
+    /// `uniform(seed, a, b)` or `uniform_alt(seed, a, b)`
+    fn uniform(self, seed: &mut i32, a: i32, b: i32) -> f64 {
+        let (next, u) = if self.ieee {
+            ieee_uniform(*seed, a, b)
+        } else {
+            uniform_alt(*seed, a as f64, b as f64)
+        };
+        *seed = next;
+        u
+    }
+
+    /// `uniform(seed, 0, 1)` or `uniform_alt(seed, 0, 1)`
+    fn unit(self, seed: &mut i32) -> f64 {
+        self.uniform(seed, 0, 1)
+    }
+
+    /// `normal(seed, 0, 1)` or `normal_alt(seed, 0, 1)`
+    fn std_normal(self, seed: &mut i32) -> f64 {
+        let (next, r) = if self.ieee {
+            polar(*seed, 0.0, 1.0, |s| ieee_uniform(s, -1, 1))
+        } else {
+            polar(*seed, 0.0, 1.0, |s| uniform_alt(s, -1.0, 1.0))
+        };
+        *seed = next;
+        r
+    }
+
+    /// `exponential` or `exponential_alt`
+    fn exponential(self, seed: &mut i32, mean: i32) -> f64 {
+        let n = self.unit(seed);
+        if n != 0.0 {
+            -n.ln() * mean as f64
+        } else {
+            n
+        }
+    }
+
+    /// Rounding of the `rtl_dist_*` functions (half away from zero)
+    fn round(self, r: f64) -> i32 {
+        if self.ieee {
+            if r >= 0.0 {
+                (r + 0.5) as i32
+            } else {
+                -((-r + 0.5) as i32)
+            }
+        } else {
+            // `as` saturates like the C code
+            r.round() as i32
+        }
+    }
+
+    /// `poisson` or `poisson_alt`
+    fn poisson(self, seed: &mut i32, mean: i32) -> i32 {
+        if self.ieee {
+            let mut n = 0;
+            let p = (-(mean as f64)).exp();
+            let mut q = self.unit(seed);
+            while p < q {
+                n += 1;
+                q = self.unit(seed) * q;
+            }
+            return n;
+        }
+        let mean = mean as f64;
+        if mean < 10.0 {
+            let u = self.unit(seed);
+            let mut p = (-mean).exp();
+            let mut f = p;
+            let mut k = 0;
+            while u > f && p > 0.0 {
+                k += 1;
+                p *= mean / k as f64;
+                f += p;
+            }
+            return k;
+        }
+        let slam = mean.sqrt();
+        let loglam = mean.ln();
+        let b = 0.931 + 2.53 * slam;
+        let a = -0.059 + 0.02483 * b;
+        let invalpha = 1.1239 + 1.1328 / (b - 3.4);
+        let vr = 0.9277 - 3.6224 / (b - 2.0);
+        loop {
+            let u = self.unit(seed) - 0.5;
+            let v = self.unit(seed);
+            let us = 0.5 - u.abs();
+            let k = ((2.0 * a / us + b) * u + mean + 0.43).floor();
+            if us >= 0.07 && v <= vr {
+                return k as i32;
+            }
+            if k < 0.0 || (us < 0.013 && v > us) {
+                continue;
+            }
+            // SAFETY: lgamma from libm, as called by stdlib.c
+            let lg = unsafe { lgamma(k + 1.0) };
+            if v.ln() + invalpha.ln() - (a / (us * us) + b).ln() <= -mean + k * loglam - lg {
+                return k as i32;
+            }
+        }
+    }
+
+    /// `gamma_alt`
+    fn gamma(self, seed: &mut i32, shape: f64) -> f64 {
+        let d = shape - 1.0 / 3.0;
+        let c = 1.0 / (9.0 * d).sqrt();
+        loop {
+            let (mut x, mut v);
+            loop {
+                x = self.std_normal(seed);
+                v = 1.0 + c * x;
+                if v > 0.0 {
+                    break;
+                }
+            }
+            v = v * v * v;
+            let u = self.unit(seed);
+            let x2 = x * x;
+            if u < 1.0 - 0.0331 * x2 * x2 {
+                return d * v;
+            }
+            if u.ln() < 0.5 * x2 + d * (1.0 - v + v.ln()) {
+                return d * v;
+            }
+        }
+    }
+
+    /// `chi_square` or `chi_square_alt`
+    fn chi_square(self, seed: &mut i32, df: i32) -> f64 {
+        if self.ieee {
+            let mut x = if df % 2 != 0 {
+                let x = self.std_normal(seed);
+                x * x
+            } else {
+                0.0
+            };
+            for _ in (2..=df).step_by(2) {
+                x = x + 2.0 * self.exponential(seed, 1);
+            }
+            return x;
+        }
+        if df == 1 {
+            let z = self.std_normal(seed);
+            return z * z;
+        }
+        2.0 * self.gamma(seed, 0.5 * df as f64)
+    }
+
+    /// `t` or `t_alt`
+    fn t(self, seed: &mut i32, df: i32) -> f64 {
+        if self.ieee {
+            let chi2 = self.chi_square(seed, df);
+            let root = (chi2 / df as f64).sqrt();
+            return self.std_normal(seed) / root;
+        }
+        let n = df as f64;
+        let (u, w) = loop {
+            let u = self.uniform(seed, -1, 1);
+            let v = self.uniform(seed, -1, 1);
+            let w = u * u + v * v;
+            if w < 1.0 {
+                break (u, w);
+            }
+        };
+        u * (n * (-2.0 * w.ln() / n).exp_m1() / w).sqrt()
+    }
+
+    /// `erlangian` or `erlang_alt`
+    fn erlang(self, seed: &mut i32, k: i32, mean: i32) -> f64 {
+        let (mean, kf) = (mean as f64, k as f64);
+        if self.ieee {
+            let mut x = 1.0;
+            for _ in 0..k {
+                x = x * self.unit(seed);
+            }
+            return -mean * x.ln() / kf;
+        }
+        let g = if k <= 3 {
+            let mut x = self.unit(seed);
+            for _ in 1..k {
+                x *= self.unit(seed);
+            }
+            -x.ln()
+        } else {
+            self.gamma(seed, kf)
+        };
+        g * mean / kf
+    }
+
+    /// `$dist_exponential(seed, mean)`
+    fn dist_exponential(self, seed: &mut i32, mean: i32) -> i32 {
+        if mean <= 0 {
+            return 0;
+        }
+        let r = self.exponential(seed, mean);
+        self.round(r)
+    }
+
+    /// `$dist_poisson(seed, mean)`
+    fn dist_poisson(self, seed: &mut i32, mean: i32) -> i32 {
+        if mean <= 0 {
+            return 0;
+        }
+        self.poisson(seed, mean)
+    }
+
+    /// `$dist_chi_square(seed, df)`
+    fn dist_chi_square(self, seed: &mut i32, df: i32) -> i32 {
+        if df <= 0 {
+            return 0;
+        }
+        let r = self.chi_square(seed, df);
+        self.round(r)
+    }
+
+    /// `$dist_t(seed, df)`
+    fn dist_t(self, seed: &mut i32, df: i32) -> i32 {
+        if df <= 0 {
+            return 0;
+        }
+        let r = self.t(seed, df);
+        self.round(r)
+    }
+
+    /// `$dist_erlang(seed, k, mean)`
+    fn dist_erlang(self, seed: &mut i32, k: i32, mean: i32) -> i32 {
+        if k <= 0 {
+            return 0;
+        }
+        let r = self.erlang(seed, k, mean);
+        self.round(r)
+    }
+}
+
+const DIST_OTHER_SRC: &str = r#"`include "disciplines.vams"
+module dist_other_test(a, b, c, d, e, f, g, h, l, m);
+    inout a, b, c, d, e, f, g, h, l, m;
+    electrical a, b, c, d, e, f, g, h, l, m;
+    integer s1 = 1, s2 = 2, s3 = 3, s4 = 4, s5 = 5, s6 = 6, s7 = 7, s8 = 8, s9 = 9, s10 = 0;
+    analog begin
+        I(a) <+ $dist_exponential(s1, 10);
+        // invalid mean returns 0 without advancing the seed
+        I(b) <+ $dist_poisson(s2, 0) + $dist_poisson(s2, 3);
+        I(c) <+ $dist_poisson(s3, 50);
+        I(d) <+ $dist_chi_square(s4, 1);
+        I(e) <+ $dist_chi_square(s5, 5);
+        I(f) <+ $dist_chi_square(s6, 4);
+        I(g) <+ $dist_t(s7, 3);
+        I(h) <+ $dist_erlang(s8, 2, 10);
+        I(l) <+ $dist_erlang(s9, 5, -10);
+        // invalid arguments return 0 without advancing the seed
+        I(m) <+ $dist_exponential(s10, 0) + $dist_chi_square(s10, -1) + $dist_t(s10, 0)
+            + $dist_erlang(s10, 0, 5) + $dist_exponential(s10, 7);
+    end
+endmodule
+"#;
+
+/// `$dist_exponential`, `$dist_poisson`, `$dist_chi_square`, `$dist_t` and
+/// `$dist_erlang` advance the seed variable and return the values of the reference
+/// implementation, with both generators.
+pub fn dist_other() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+    for ieee in [false, true] {
+        let gen = Gen { ieee };
+        let root_file = tmp_dir.join(format!("openvaf_dist_other_{ieee}.va"));
+        std::fs::write(&root_file, DIST_OTHER_SRC)?;
+        let mut opts = compile_opts(&root_file, false);
+        opts.ieee1364 = ieee;
+        let libs = compile_and_load_modules_with(&opts);
+        assert_eq!(libs.len(), 1);
+        let desc = &libs[0];
+        let model = desc.new_model();
+        model.process_params()?;
+        let mut instance = model.new_instance();
+        let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+
+        let mut s = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
+        for step in 1..=20 {
+            let t = step as f64 * 1e-6;
+            sim.abstime = t;
+            sim.dt = 1e-6;
+            sim.clear();
+            instance.eval(&model, &mut sim, EvalFlags::ANALYSIS_TRAN);
+            instance.load_dae(&model, &mut sim);
+
+            let old = s[1];
+            let b0 = gen.dist_poisson(&mut s[1], 0);
+            assert_eq!((b0, s[1]), (0, old));
+            let old = s[9];
+            let m0 = gen.dist_exponential(&mut s[9], 0)
+                + gen.dist_chi_square(&mut s[9], -1)
+                + gen.dist_t(&mut s[9], 0)
+                + gen.dist_erlang(&mut s[9], 0, 5);
+            assert_eq!((m0, s[9]), (0, old));
+            let expected = [
+                ("a", gen.dist_exponential(&mut s[0], 10)),
+                ("b", gen.dist_poisson(&mut s[1], 3)),
+                ("c", gen.dist_poisson(&mut s[2], 50)),
+                ("d", gen.dist_chi_square(&mut s[3], 1)),
+                ("e", gen.dist_chi_square(&mut s[4], 5)),
+                ("f", gen.dist_chi_square(&mut s[5], 4)),
+                ("g", gen.dist_t(&mut s[6], 3)),
+                ("h", gen.dist_erlang(&mut s[7], 2, 10)),
+                ("l", gen.dist_erlang(&mut s[8], 5, -10)),
+                ("m", gen.dist_exponential(&mut s[9], 7)),
+            ];
+            for (node, value) in expected {
+                assert_eq!(
+                    sim.read_residual(node).0,
+                    value as f64,
+                    "ieee {ieee} {node} step {step}"
+                );
+            }
+            instance.accept(&model, t, 1e-6);
+        }
+    }
+    Ok(())
+}
+
 /// With `--ieee1364` `$random(var)` and `$arandom(constant)` use the IEEE 1364-2005
 /// generator.
 pub fn ieee1364() -> Result<()> {
@@ -540,6 +874,19 @@ pub fn errors() -> Result<()> {
         ("", "s = $dist_normal(s, 0, 3);", "I(a) <+ s;", false, false),
         ("integer x = $dist_normal(s, 0, 3);", "", "I(a) <+ x;", false, false),
         ("parameter integer p = $dist_normal(seed, 0, 3);", "", "I(a) <+ p;", false, false),
+        ("", "", "I(a) <+ $dist_exponential(s, 3);", false, true),
+        ("", "", "I(a) <+ $dist_exponential(seed, 3);", false, false),
+        ("", "", "I(a) <+ $dist_poisson(s, 3);", false, true),
+        ("", "", "I(a) <+ $dist_poisson(seed, 3);", false, false),
+        ("", "", "I(a) <+ $dist_chi_square(s, 3);", false, true),
+        ("", "", "I(a) <+ $dist_chi_square(seed, 3);", false, false),
+        ("", "", "I(a) <+ $dist_t(s, 3);", false, true),
+        ("", "", "I(a) <+ $dist_t(seed, 3);", false, false),
+        ("", "", "I(a) <+ $dist_erlang(s, 2, 3);", false, true),
+        ("", "", "I(a) <+ $dist_erlang(seed, 2, 3);", false, false),
+        ("", "s = $dist_erlang(s, 2, 3);", "I(a) <+ s;", false, false),
+        ("integer x = $dist_t(s, 3);", "", "I(a) <+ x;", false, false),
+        ("parameter integer p = $dist_poisson(seed, 3);", "", "I(a) <+ p;", false, false),
     ];
 
     let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;

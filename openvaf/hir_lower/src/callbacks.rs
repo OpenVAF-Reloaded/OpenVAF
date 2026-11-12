@@ -96,6 +96,16 @@ pub enum RandomGen {
     UniformInt,
     /// `$dist_normal(seed, mean, standard_deviation)`
     NormalInt,
+    /// `$dist_exponential(seed, mean)`
+    ExponentialInt,
+    /// `$dist_poisson(seed, mean)`
+    PoissonInt,
+    /// `$dist_chi_square(seed, degree_of_freedom)`
+    ChiSquareInt,
+    /// `$dist_t(seed, degree_of_freedom)`
+    TInt,
+    /// `$dist_erlang(seed, k_stage, mean)`
+    ErlangInt,
 }
 
 impl RandomGen {
@@ -108,6 +118,16 @@ impl RandomGen {
             (RandomGen::UniformInt, true) => "vams_uniform_int_ieee",
             (RandomGen::NormalInt, false) => "vams_normal_int",
             (RandomGen::NormalInt, true) => "vams_normal_int_ieee",
+            (RandomGen::ExponentialInt, false) => "vams_exponential_int",
+            (RandomGen::ExponentialInt, true) => "vams_exponential_int_ieee",
+            (RandomGen::PoissonInt, false) => "vams_poisson_int",
+            (RandomGen::PoissonInt, true) => "vams_poisson_int_ieee",
+            (RandomGen::ChiSquareInt, false) => "vams_chi_square_int",
+            (RandomGen::ChiSquareInt, true) => "vams_chi_square_int_ieee",
+            (RandomGen::TInt, false) => "vams_t_int",
+            (RandomGen::TInt, true) => "vams_t_int_ieee",
+            (RandomGen::ErlangInt, false) => "vams_erlang_int",
+            (RandomGen::ErlangInt, true) => "vams_erlang_int_ieee",
         }
     }
 
@@ -115,7 +135,11 @@ impl RandomGen {
     pub fn num_args(self) -> u16 {
         match self {
             RandomGen::Random => 0,
-            RandomGen::UniformInt | RandomGen::NormalInt => 2,
+            RandomGen::ExponentialInt
+            | RandomGen::PoissonInt
+            | RandomGen::ChiSquareInt
+            | RandomGen::TInt => 1,
+            RandomGen::UniformInt | RandomGen::NormalInt | RandomGen::ErlangInt => 2,
         }
     }
 }

@@ -1069,6 +1069,7 @@ harness! {
         Test::new("random_ieee1364", &random::ieee1364),
         Test::new("random_dist_uniform", &random::dist_uniform),
         Test::new("random_dist_normal", &random::dist_normal),
+        Test::new("random_dist_other", &random::dist_other),
         Test::new("bus_port_dac", &bus_port_dac_test),
         Test::new("hierarchy_bus_slices", &hierarchy_bus_slices_test),
         Test::new("hierarchy_variable_width_slices", &hierarchy_variable_width_slices_test),

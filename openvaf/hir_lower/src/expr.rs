@@ -733,20 +733,26 @@ impl BodyLoweringCtx<'_, '_, '_> {
             | BuiltIn::laplace_zd
             | BuiltIn::laplace_zp => self.lower_laplace(builtin, args),
 
-            BuiltIn::random | BuiltIn::arandom | BuiltIn::dist_uniform | BuiltIn::dist_normal => {
-                self.lower_random(builtin, signature, args)
-            }
+            BuiltIn::random
+            | BuiltIn::arandom
+            | BuiltIn::dist_uniform
+            | BuiltIn::dist_normal
+            | BuiltIn::dist_exponential
+            | BuiltIn::dist_poisson
+            | BuiltIn::dist_chi_square
+            | BuiltIn::dist_t
+            | BuiltIn::dist_erlang => self.lower_random(builtin, signature, args),
 
             _ => unreachable!(),
         }
     }
 
-    /// Lowers `$random`/`$arandom`/`$dist_uniform`/`$dist_normal`.
+    /// Lowers `$random`/`$arandom`/`$dist_*`.
     ///
     /// - `$arandom(seed, type)` returns the mean of the distribution (0), the seed
     ///   is ignored.
-    /// - `$random(var)`, `$arandom(var)`, `$dist_uniform(var, start, end)`,
-    ///   `$dist_normal(var, mean, sd)`: the generator state is the variable.
+    /// - `$random(var)`, `$arandom(var)`, `$dist_*(var, ...)`: the generator state
+    ///   is the variable.
     /// - In initializers `$arandom(constant)` is pure: it returns the first value
     ///   of the sequence of the seed.
     /// - `$random()`, `$arandom()`, `$arandom(constant)`: the generator state is
@@ -765,6 +771,11 @@ impl BodyLoweringCtx<'_, '_, '_> {
         let gen = match builtin {
             BuiltIn::dist_uniform => RandomGen::UniformInt,
             BuiltIn::dist_normal => RandomGen::NormalInt,
+            BuiltIn::dist_exponential => RandomGen::ExponentialInt,
+            BuiltIn::dist_poisson => RandomGen::PoissonInt,
+            BuiltIn::dist_chi_square => RandomGen::ChiSquareInt,
+            BuiltIn::dist_t => RandomGen::TInt,
+            BuiltIn::dist_erlang => RandomGen::ErlangInt,
             _ => RandomGen::Random,
         };
         let next_cb = CallBackKind::RandomNext { gen, ieee1364 };

@@ -416,10 +416,10 @@ impl Gen {
     }
 
     /// `exponential` or `exponential_alt`
-    fn exponential(self, seed: &mut i32, mean: i32) -> f64 {
+    fn exponential(self, seed: &mut i32, mean: f64) -> f64 {
         let n = self.unit(seed);
         if n != 0.0 {
-            -n.ln() * mean as f64
+            -n.ln() * mean
         } else {
             n
         }
@@ -440,18 +440,17 @@ impl Gen {
     }
 
     /// `poisson` or `poisson_alt`
-    fn poisson(self, seed: &mut i32, mean: i32) -> i32 {
+    fn poisson(self, seed: &mut i32, mean: f64) -> f64 {
         if self.ieee {
             let mut n = 0;
-            let p = (-(mean as f64)).exp();
+            let p = (-mean).exp();
             let mut q = self.unit(seed);
             while p < q {
                 n += 1;
                 q = self.unit(seed) * q;
             }
-            return n;
+            return n as f64;
         }
-        let mean = mean as f64;
         if mean < 10.0 {
             let u = self.unit(seed);
             let mut p = (-mean).exp();
@@ -462,7 +461,7 @@ impl Gen {
                 p *= mean / k as f64;
                 f += p;
             }
-            return k;
+            return k as f64;
         }
         let slam = mean.sqrt();
         let loglam = mean.ln();
@@ -476,7 +475,7 @@ impl Gen {
             let us = 0.5 - u.abs();
             let k = ((2.0 * a / us + b) * u + mean + 0.43).floor();
             if us >= 0.07 && v <= vr {
-                return k as i32;
+                return k;
             }
             if k < 0.0 || (us < 0.013 && v > us) {
                 continue;
@@ -484,7 +483,7 @@ impl Gen {
             // SAFETY: lgamma from libm, as called by stdlib.c
             let lg = unsafe { lgamma(k + 1.0) };
             if v.ln() + invalpha.ln() - (a / (us * us) + b).ln() <= -mean + k * loglam - lg {
-                return k as i32;
+                return k;
             }
         }
     }
@@ -515,34 +514,36 @@ impl Gen {
     }
 
     /// `chi_square` or `chi_square_alt`
-    fn chi_square(self, seed: &mut i32, df: i32) -> f64 {
+    fn chi_square(self, seed: &mut i32, df: f64) -> f64 {
         if self.ieee {
-            let mut x = if df % 2 != 0 {
+            let mut x = if df % 2.0 != 0.0 {
                 let x = self.std_normal(seed);
                 x * x
             } else {
                 0.0
             };
-            for _ in (2..=df).step_by(2) {
-                x = x + 2.0 * self.exponential(seed, 1);
+            let mut k = 2;
+            while k as f64 <= df {
+                x = x + 2.0 * self.exponential(seed, 1.0);
+                k += 2;
             }
             return x;
         }
-        if df == 1 {
+        if df == 1.0 {
             let z = self.std_normal(seed);
             return z * z;
         }
-        2.0 * self.gamma(seed, 0.5 * df as f64)
+        2.0 * self.gamma(seed, 0.5 * df)
     }
 
     /// `t` or `t_alt`
-    fn t(self, seed: &mut i32, df: i32) -> f64 {
+    fn t(self, seed: &mut i32, df: f64) -> f64 {
         if self.ieee {
             let chi2 = self.chi_square(seed, df);
-            let root = (chi2 / df as f64).sqrt();
+            let root = (chi2 / df).sqrt();
             return self.std_normal(seed) / root;
         }
-        let n = df as f64;
+        let n = df;
         let (u, w) = loop {
             let u = self.uniform(seed, -1, 1);
             let v = self.uniform(seed, -1, 1);
@@ -555,25 +556,28 @@ impl Gen {
     }
 
     /// `erlangian` or `erlang_alt`
-    fn erlang(self, seed: &mut i32, k: i32, mean: i32) -> f64 {
-        let (mean, kf) = (mean as f64, k as f64);
+    fn erlang(self, seed: &mut i32, k: f64, mean: f64) -> f64 {
         if self.ieee {
             let mut x = 1.0;
-            for _ in 0..k {
+            let mut i = 1;
+            while i as f64 <= k {
                 x = x * self.unit(seed);
+                i += 1;
             }
-            return -mean * x.ln() / kf;
+            return -mean * x.ln() / k;
         }
-        let g = if k <= 3 {
+        let g = if k <= 3.0 {
             let mut x = self.unit(seed);
-            for _ in 1..k {
+            let mut i = 1;
+            while (i as f64) < k {
                 x *= self.unit(seed);
+                i += 1;
             }
             -x.ln()
         } else {
-            self.gamma(seed, kf)
+            self.gamma(seed, k)
         };
-        g * mean / kf
+        g * mean / k
     }
 
     /// `$dist_exponential(seed, mean)`
@@ -581,7 +585,7 @@ impl Gen {
         if mean <= 0 {
             return 0;
         }
-        let r = self.exponential(seed, mean);
+        let r = self.exponential(seed, mean as f64);
         self.round(r)
     }
 
@@ -590,7 +594,8 @@ impl Gen {
         if mean <= 0 {
             return 0;
         }
-        self.poisson(seed, mean)
+        // `as` saturates like the C code
+        self.poisson(seed, mean as f64) as i32
     }
 
     /// `$dist_chi_square(seed, df)`
@@ -598,7 +603,7 @@ impl Gen {
         if df <= 0 {
             return 0;
         }
-        let r = self.chi_square(seed, df);
+        let r = self.chi_square(seed, df as f64);
         self.round(r)
     }
 
@@ -607,7 +612,7 @@ impl Gen {
         if df <= 0 {
             return 0;
         }
-        let r = self.t(seed, df);
+        let r = self.t(seed, df as f64);
         self.round(r)
     }
 
@@ -616,7 +621,7 @@ impl Gen {
         if k <= 0 {
             return 0;
         }
-        let r = self.erlang(seed, k, mean);
+        let r = self.erlang(seed, k as f64, mean as f64);
         self.round(r)
     }
 }
@@ -881,6 +886,96 @@ pub fn rdist_normal() -> Result<()> {
     Ok(())
 }
 
+const RDIST_OTHER_SRC: &str = r#"`include "disciplines.vams"
+module rdist_other_test(a, b, c, d, e, f, g, h, l, m, n);
+    inout a, b, c, d, e, f, g, h, l, m, n;
+    electrical a, b, c, d, e, f, g, h, l, m, n;
+    parameter real p = $rdist_exponential(11, 2.0);
+    real x = $rdist_erlang(13, 3, 2.5);
+    integer s1 = 1, s2 = 2, s3 = 3, s4 = 4, s5 = 5, s6 = 6, s7 = 7, s8 = 8, s9 = 9;
+    real y;
+    analog begin
+        I(a) <+ $rdist_exponential(s1, 2.5);
+        I(b) <+ $rdist_poisson(s2, 3.5);
+        I(c) <+ $rdist_poisson(s3, 42.5);
+        I(d) <+ $rdist_chi_square(s4, 1.0);
+        I(e) <+ $rdist_chi_square(s5, 5.5);
+        I(f) <+ $rdist_t(s6, 3.5);
+        I(g) <+ $rdist_erlang(s7, 2, 1.5) + 100 * $rdist_erlang(s8, 4.5, 1.5);
+        // constant seeds: hidden state
+        I(h) <+ $rdist_t(7, 4) + 100 * $rdist_chi_square(9, 3);
+        I(l) <+ p + 100 * x;
+        // the means, the seed is not advanced
+        I(m) <+ $rdist_exponential(s1, 2.0, "global") + 10 * $rdist_poisson(s1, 3, "instance")
+            + 100 * $rdist_chi_square(s1, 4, "global") + 1000 * $rdist_t(s1, 0.5, "global")
+            + 10000 * $rdist_erlang(s1, 3, 5, "instance");
+        // integer arguments: the variable seed is advanced
+        y = $rdist_exponential(s9, 3);
+        I(n) <+ y + s9;
+    end
+endmodule
+"#;
+
+/// `$rdist_exponential`, `$rdist_poisson`, `$rdist_chi_square`, `$rdist_t` and
+/// `$rdist_erlang` with both generators, the same seed forms as `$rdist_uniform`.
+/// The typed forms return the mean (0 for `$rdist_t`).
+pub fn rdist_other() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+    for ieee in [false, true] {
+        let gen = Gen { ieee };
+        let root_file = tmp_dir.join(format!("openvaf_rdist_other_{ieee}.va"));
+        std::fs::write(&root_file, RDIST_OTHER_SRC)?;
+        let mut opts = compile_opts(&root_file, false);
+        opts.ieee1364 = ieee;
+        let libs = compile_and_load_modules_with(&opts);
+        assert_eq!(libs.len(), 1);
+        let desc = &libs[0];
+        let model = desc.new_model();
+        model.process_params()?;
+        let mut instance = model.new_instance();
+        let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+
+        let l = gen.exponential(&mut 11, 2.0) + 100.0 * gen.erlang(&mut 13, 3.0, 2.5);
+        let mut s = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let (mut h1, mut h2) = (7, 9);
+        for step in 1..=20 {
+            let t = step as f64 * 1e-6;
+            sim.abstime = t;
+            sim.dt = 1e-6;
+            sim.clear();
+            instance.eval(&model, &mut sim, EvalFlags::ANALYSIS_TRAN);
+            instance.load_dae(&model, &mut sim);
+
+            let g = gen.erlang(&mut s[6], 2.0, 1.5) + 100.0 * gen.erlang(&mut s[7], 4.5, 1.5);
+            let h = gen.t(&mut h1, 4.0) + 100.0 * gen.chi_square(&mut h2, 3.0);
+            let y = gen.exponential(&mut s[8], 3.0);
+            let expected = [
+                ("a", gen.exponential(&mut s[0], 2.5)),
+                ("b", gen.poisson(&mut s[1], 3.5)),
+                ("c", gen.poisson(&mut s[2], 42.5)),
+                ("d", gen.chi_square(&mut s[3], 1.0)),
+                ("e", gen.chi_square(&mut s[4], 5.5)),
+                ("f", gen.t(&mut s[5], 3.5)),
+                ("g", g),
+                ("h", h),
+                ("l", l),
+                ("m", 50432.0),
+                ("n", y + s[8] as f64),
+            ];
+            for (node, value) in expected {
+                let msg = format!("ieee {ieee} {node} step {step}");
+                assert_close(sim.read_residual(node).0, value, &msg);
+            }
+            instance.accept(&model, t, 1e-6);
+        }
+    }
+    Ok(())
+}
+
 /// With `--ieee1364` `$random(var)` and `$arandom(constant)` use the IEEE 1364-2005
 /// generator.
 pub fn ieee1364() -> Result<()> {
@@ -1084,6 +1179,33 @@ pub fn errors() -> Result<()> {
         ("parameter real p = $rdist_normal(seed, 0, 1);", "", "I(a) <+ p;", false, true),
         ("real y = $rdist_normal(seed * 2, 0, 1);", "", "I(a) <+ y;", false, true),
         ("real y = $rdist_normal(s, 0, 1);", "", "I(a) <+ y;", false, false),
+        ("", "", "I(a) <+ $rdist_exponential(s, 1);", false, true),
+        ("", "", "I(a) <+ $rdist_exponential(seed, 1);", false, true),
+        ("", "", "I(a) <+ $rdist_exponential(s, 1, \"global\");", true, true),
+        ("", "", "I(a) <+ $rdist_exponential(1, 1, \"local\");", false, false),
+        ("", "", "I(a) <+ $rdist_exponential(r, 1);", false, false),
+        ("", "r = $rdist_exponential(3, 1, \"instance\");", "I(a) <+ r;", true, true),
+        ("", "r = $rdist_exponential(s, 1);", "I(a) <+ r;", false, false),
+        ("parameter real p = $rdist_exponential(seed, 1);", "", "I(a) <+ p;", false, true),
+        ("real y = $rdist_exponential(seed * 2, 1);", "", "I(a) <+ y;", false, true),
+        ("real y = $rdist_exponential(s, 1);", "", "I(a) <+ y;", false, false),
+        ("", "", "I(a) <+ $rdist_poisson(s, 1);", false, true),
+        ("", "", "I(a) <+ $rdist_poisson(seed, 1, \"global\");", true, true),
+        ("", "", "I(a) <+ $rdist_poisson(r, 1);", false, false),
+        ("", "", "I(a) <+ $rdist_chi_square(s, 1);", false, true),
+        ("", "", "I(a) <+ $rdist_chi_square(seed, 1, \"instance\");", true, true),
+        ("", "", "I(a) <+ $rdist_chi_square(1, 1, \"local\");", false, false),
+        ("", "", "I(a) <+ $rdist_t(seed, 1);", false, true),
+        ("", "", "I(a) <+ $rdist_t(s, 1, \"global\");", true, true),
+        ("real y = $rdist_t(s, 1);", "", "I(a) <+ y;", false, false),
+        ("", "", "I(a) <+ $rdist_erlang(s, 2, 1);", false, true),
+        ("", "", "I(a) <+ $rdist_erlang(seed, 2, 1);", false, true),
+        ("", "", "I(a) <+ $rdist_erlang(s, 2, 1, \"global\");", true, true),
+        ("", "", "I(a) <+ $rdist_erlang(1, 2, 1, \"local\");", false, false),
+        ("", "", "I(a) <+ $rdist_erlang(r, 2, 1);", false, false),
+        ("", "r = $rdist_erlang(s, 2, 1);", "I(a) <+ r;", false, false),
+        ("parameter real p = $rdist_erlang(seed, 2, 1);", "", "I(a) <+ p;", false, true),
+        ("real y = $rdist_erlang(s, 2, 1);", "", "I(a) <+ y;", false, false),
     ];
 
     let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;

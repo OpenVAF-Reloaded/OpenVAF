@@ -743,7 +743,12 @@ impl BodyLoweringCtx<'_, '_, '_> {
             | BuiltIn::dist_t
             | BuiltIn::dist_erlang
             | BuiltIn::rdist_uniform
-            | BuiltIn::rdist_normal => self.lower_random(builtin, signature, args),
+            | BuiltIn::rdist_normal
+            | BuiltIn::rdist_exponential
+            | BuiltIn::rdist_poisson
+            | BuiltIn::rdist_chi_square
+            | BuiltIn::rdist_t
+            | BuiltIn::rdist_erlang => self.lower_random(builtin, signature, args),
 
             _ => unreachable!(),
         }
@@ -752,7 +757,8 @@ impl BodyLoweringCtx<'_, '_, '_> {
     /// Lowers `$random`/`$arandom`/`$dist_*`/`$rdist_*`.
     ///
     /// - `$arandom(seed, type)`, `$rdist_*(seed, ..., type)` return the mean of the
-    ///   distribution (0, (start + end) / 2, mean), the seed is ignored.
+    ///   distribution (0, (start + end) / 2, mean, df; 0 for `$rdist_t`), the seed
+    ///   is ignored.
     /// - `$random(var)`, `$arandom(var)`, `$dist_*(var, ...)`,
     ///   `$rdist_*(var, ...)`: the generator state is the variable.
     /// - In initializers `$arandom(constant)` and `$rdist_*(constant, ...)` are
@@ -781,6 +787,11 @@ impl BodyLoweringCtx<'_, '_, '_> {
             BuiltIn::dist_erlang => RandomGen::ErlangInt,
             BuiltIn::rdist_uniform => RandomGen::UniformReal,
             BuiltIn::rdist_normal => RandomGen::NormalReal,
+            BuiltIn::rdist_exponential => RandomGen::ExponentialReal,
+            BuiltIn::rdist_poisson => RandomGen::PoissonReal,
+            BuiltIn::rdist_chi_square => RandomGen::ChiSquareReal,
+            BuiltIn::rdist_t => RandomGen::TReal,
+            BuiltIn::rdist_erlang => RandomGen::ErlangReal,
             _ => RandomGen::Random,
         };
         let next_cb = CallBackKind::RandomNext { gen, ieee1364 };
@@ -796,7 +807,21 @@ impl BodyLoweringCtx<'_, '_, '_> {
                 let half = self.ctx.fconst(0.5);
                 self.ctx.ins().fmul(sum, half)
             }
-            RandomForm::Typed if builtin == BuiltIn::rdist_normal => self.lower_expr(args[1]),
+            // mean, mean, df
+            RandomForm::Typed
+                if matches!(
+                    builtin,
+                    BuiltIn::rdist_normal
+                        | BuiltIn::rdist_exponential
+                        | BuiltIn::rdist_poisson
+                        | BuiltIn::rdist_chi_square
+                ) =>
+            {
+                self.lower_expr(args[1])
+            }
+            // mean
+            RandomForm::Typed if builtin == BuiltIn::rdist_erlang => self.lower_expr(args[2]),
+            // $arandom, $rdist_t (0 also for df <= 1, where the mean is undefined)
             RandomForm::Typed => zero,
             RandomForm::VarSeed => {
                 let state = self.lower_expr(args[0]);

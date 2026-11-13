@@ -346,18 +346,20 @@ bultins! {
         fn RDIST_NORMAL_TYPED(Val(Integer),Val(Real),Val(Real),Literal(String)) -> Real;
     }
 
-    RDIST_1_ARG = const {
+    // $rdist_exponential(seed, mean [, type]), $rdist_poisson(seed, mean [, type]),
+    // $rdist_chi_square(seed, df [, type]), $rdist_t(seed, df [, type]):
+    // as $rdist_uniform
+    RDIST_1_ARG = {
         fn RDIST_1_ARG_SEED(Var(Integer),Val(Real)) -> Real;
-        fn RDIST_1_ARG_CONST_SEED(Param(Integer),Val(Real)) -> Real;
-        fn RDIST_1_ARG_CONST_NAME(Var(Integer),Val(Real),Literal(String)) -> Real;
-        fn RDIST_1_ARG_CONST_SEED_NAME(Param(Integer),Val(Real),Literal(String)) -> Real;
+        fn RDIST_1_ARG_CONST_SEED(Val(Integer),Val(Real)) -> Real;
+        fn RDIST_1_ARG_TYPED(Val(Integer),Val(Real),Literal(String)) -> Real;
     }
 
-    RDIST_2_ARG = const {
+    // $rdist_erlang(seed, k, mean [, type]): as $rdist_uniform
+    RDIST_2_ARG = {
         fn RDIST_2_ARG_SEED(Var(Integer),Val(Real),Val(Real)) -> Real;
-        fn RDIST_2_ARG_CONST_SEED(Param(Integer),Val(Real),Val(Real)) -> Real;
-        fn RDIST_2_ARG_CONST_NAME(Var(Integer),Val(Real),Val(Real),Literal(String)) -> Real;
-        fn RDIST_2_ARG_CONST_SEED_NAME(Param(Integer),Val(Real),Val(Real),Literal(String)) -> Real;
+        fn RDIST_2_ARG_CONST_SEED(Val(Integer),Val(Real),Val(Real)) -> Real;
+        fn RDIST_2_ARG_TYPED(Val(Integer),Val(Real),Val(Real),Literal(String)) -> Real;
     }
 
 

@@ -339,6 +339,13 @@ bultins! {
         fn RDIST_UNIFORM_TYPED(Val(Integer),Val(Real),Val(Real),Literal(String)) -> Real;
     }
 
+    // $rdist_normal(seed, mean, standard_deviation [, type]): as $rdist_uniform
+    RDIST_NORMAL = {
+        fn RDIST_NORMAL_SEED(Var(Integer),Val(Real),Val(Real)) -> Real;
+        fn RDIST_NORMAL_CONST_SEED(Val(Integer),Val(Real),Val(Real)) -> Real;
+        fn RDIST_NORMAL_TYPED(Val(Integer),Val(Real),Val(Real),Literal(String)) -> Real;
+    }
+
     RDIST_1_ARG = const {
         fn RDIST_1_ARG_SEED(Var(Integer),Val(Real)) -> Real;
         fn RDIST_1_ARG_CONST_SEED(Param(Integer),Val(Real)) -> Real;
@@ -510,7 +517,6 @@ copied_builtins! {
     RDIST_T = RDIST_1_ARG
 
     RDIST_ERLANG = RDIST_2_ARG
-    RDIST_NORMAL = RDIST_2_ARG
 
     DIST_CHI_SQUARE = DIST_1_ARG
     DIST_EXPONENTIAL = DIST_1_ARG

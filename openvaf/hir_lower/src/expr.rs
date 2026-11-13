@@ -742,22 +742,23 @@ impl BodyLoweringCtx<'_, '_, '_> {
             | BuiltIn::dist_chi_square
             | BuiltIn::dist_t
             | BuiltIn::dist_erlang
-            | BuiltIn::rdist_uniform => self.lower_random(builtin, signature, args),
+            | BuiltIn::rdist_uniform
+            | BuiltIn::rdist_normal => self.lower_random(builtin, signature, args),
 
             _ => unreachable!(),
         }
     }
 
-    /// Lowers `$random`/`$arandom`/`$dist_*`/`$rdist_uniform`.
+    /// Lowers `$random`/`$arandom`/`$dist_*`/`$rdist_*`.
     ///
-    /// - `$arandom(seed, type)`, `$rdist_uniform(seed, start, end, type)` return the
-    ///   mean of the distribution (0, (start + end) / 2), the seed is ignored.
+    /// - `$arandom(seed, type)`, `$rdist_*(seed, ..., type)` return the mean of the
+    ///   distribution (0, (start + end) / 2, mean), the seed is ignored.
     /// - `$random(var)`, `$arandom(var)`, `$dist_*(var, ...)`,
-    ///   `$rdist_uniform(var, ...)`: the generator state is the variable.
-    /// - In initializers `$arandom(constant)` and `$rdist_uniform(constant, ...)` are
+    ///   `$rdist_*(var, ...)`: the generator state is the variable.
+    /// - In initializers `$arandom(constant)` and `$rdist_*(constant, ...)` are
     ///   pure: they return the first value of the sequence of the seed.
     /// - `$random()`, `$arandom()`, `$arandom(constant)`,
-    ///   `$rdist_uniform(constant, ...)`: the generator state is hidden state. Each
+    ///   `$rdist_*(constant, ...)`: the generator state is hidden state. Each
     ///   call site gets a site id. Init seeds the state with the constant or
     ///   (without one) with the entity seed mixed with the site id.
     ///
@@ -779,6 +780,7 @@ impl BodyLoweringCtx<'_, '_, '_> {
             BuiltIn::dist_t => RandomGen::TInt,
             BuiltIn::dist_erlang => RandomGen::ErlangInt,
             BuiltIn::rdist_uniform => RandomGen::UniformReal,
+            BuiltIn::rdist_normal => RandomGen::NormalReal,
             _ => RandomGen::Random,
         };
         let next_cb = CallBackKind::RandomNext { gen, ieee1364 };
@@ -794,6 +796,7 @@ impl BodyLoweringCtx<'_, '_, '_> {
                 let half = self.ctx.fconst(0.5);
                 self.ctx.ins().fmul(sum, half)
             }
+            RandomForm::Typed if builtin == BuiltIn::rdist_normal => self.lower_expr(args[1]),
             RandomForm::Typed => zero,
             RandomForm::VarSeed => {
                 let state = self.lower_expr(args[0]);

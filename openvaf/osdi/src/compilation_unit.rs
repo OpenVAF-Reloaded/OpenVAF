@@ -263,16 +263,24 @@ pub fn general_callbacks<'ll>(
                 | CallBackKind::FlickerNoise { .. }
                 | CallBackKind::TimeDerivative => return None,
 
-                CallBackKind::RandomNext { .. } | CallBackKind::RandomValue { .. } => {
-                    // state and generator arguments are all integers
+                CallBackKind::RandomNext { gen, .. } | CallBackKind::RandomValue { gen, .. } => {
+                    // the state is an integer, the arguments and the value are real or
+                    // integer (RandomGen::is_real), next returns the state
                     let sig = call.signature();
                     let name = sig.name;
                     let fun = builder
                         .cx
                         .get_func_by_name(&name)
                         .unwrap_or_else(|| panic!("stdlib function {name} is missing"));
-                    let params = vec![builder.cx.ty_int(); sig.params as usize];
-                    let fun_ty = builder.cx.ty_func(&params, builder.cx.ty_int());
+                    let ty_int = builder.cx.ty_int();
+                    let ty_val = if gen.is_real() { builder.cx.ty_double() } else { ty_int };
+                    let mut params = vec![ty_val; sig.params as usize];
+                    params[0] = ty_int;
+                    let ret = match call {
+                        CallBackKind::RandomValue { .. } => ty_val,
+                        _ => ty_int,
+                    };
+                    let fun_ty = builder.cx.ty_func(&params, ret);
                     CallbackFun::Prebuilt(BuiltCallbackFun {
                         fun_ty,
                         fun,

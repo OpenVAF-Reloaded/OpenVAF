@@ -203,7 +203,6 @@ impl BuiltIn {
             | BuiltIn::rdist_chi_square
             | BuiltIn::rdist_exponential
             | BuiltIn::rdist_poisson
-            | BuiltIn::rdist_uniform
             | BuiltIn::rdist_erlang
             | BuiltIn::rdist_normal
             | BuiltIn::rdist_t => true,

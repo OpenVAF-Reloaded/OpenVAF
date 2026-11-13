@@ -260,11 +260,17 @@ pub fn dist_uniform() -> Result<()> {
 
 /// IEEE 1364-2005 `uniform(seed, start, end)`, returns the new seed and the value
 fn ieee_uniform(seed: i32, start: i32, end: i32) -> (i32, f64) {
+    ieee_uniform_real(seed, start as f64, end as f64)
+}
+
+/// IEEE 1364-2005 `uniform(seed, start, end)` with real bounds, returns the new seed
+/// and the value
+fn ieee_uniform_real(seed: i32, start: f64, end: f64) -> (i32, f64) {
     let old = match seed as u32 {
         0 => 259_341_593,
         seed => seed,
     };
-    let (a, b) = if start >= end { (0.0, 2147483647.0) } else { (start as f64, end as f64) };
+    let (a, b) = if start >= end { (0.0, 2147483647.0) } else { (start, end) };
     let new = 69069u32.wrapping_mul(old).wrapping_add(1);
     let d = 0.00000011920928955078125;
     let c = 1.0 + (new >> 9) as f64 * 0.00000011920928955078125;
@@ -704,6 +710,92 @@ pub fn dist_other() -> Result<()> {
     Ok(())
 }
 
+const RDIST_UNIFORM_SRC: &str = r#"`include "disciplines.vams"
+module rdist_uniform_test(a, b, c, d, e, f);
+    inout a, b, c, d, e, f;
+    electrical a, b, c, d, e, f;
+    parameter real lo = -2.5;
+    parameter real p = $rdist_uniform(11, 1.0, 3.0);
+    real x = $rdist_uniform(13, lo, 4.0);
+    integer s = 3, s2 = 9;
+    real y;
+    analog begin
+        I(a) <+ $rdist_uniform(s, lo, 7.25);
+        I(b) <+ $rdist_uniform(5, 0, 1);
+        I(c) <+ p;
+        I(d) <+ x;
+        // the mean, the seed is not advanced
+        I(e) <+ $rdist_uniform(s, 1.5, 2.0, "global");
+        // integer bounds: the variable seed is advanced
+        y = $rdist_uniform(s2, 0, 1);
+        I(f) <+ y + s2;
+    end
+endmodule
+"#;
+
+/// `$rdist_uniform(seed, start, end [, type])` with both generators. A variable seed
+/// is advanced once per call, a constant seed is hidden state. In initializers a
+/// constant seed gives the first value of its sequence. The typed form returns the
+/// mean.
+pub fn rdist_uniform() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    // the C code may fuse multiply-adds
+    fn assert_close(got: f64, expected: f64, msg: &str) {
+        assert!(
+            (got - expected).abs() <= 1e-12 * expected.abs().max(1.0),
+            "{msg}: {got} != {expected}"
+        );
+    }
+
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+    for ieee in [false, true] {
+        let gen = if ieee { ieee_uniform_real } else { uniform_alt };
+        let root_file = tmp_dir.join(format!("openvaf_rdist_uniform_{ieee}.va"));
+        std::fs::write(&root_file, RDIST_UNIFORM_SRC)?;
+        let mut opts = compile_opts(&root_file, false);
+        opts.ieee1364 = ieee;
+        let libs = compile_and_load_modules_with(&opts);
+        assert_eq!(libs.len(), 1);
+        let desc = &libs[0];
+        let model = desc.new_model();
+        model.process_params()?;
+        let mut instance = model.new_instance();
+        let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+
+        let p = gen(11, 1.0, 3.0).1;
+        let x = gen(13, -2.5, 4.0).1;
+        let (mut s, mut b_state, mut s2) = (3, 5, 9);
+        for step in 1..=20 {
+            let t = step as f64 * 1e-6;
+            sim.abstime = t;
+            sim.dt = 1e-6;
+            sim.clear();
+            instance.eval(&model, &mut sim, EvalFlags::ANALYSIS_TRAN);
+            instance.load_dae(&model, &mut sim);
+
+            let (next, a) = gen(s, -2.5, 7.25);
+            s = next;
+            assert!((-2.5..=7.25).contains(&a));
+            assert_close(sim.read_residual("a").0, a, &format!("ieee {ieee} a step {step}"));
+            let (next, b) = gen(b_state, 0.0, 1.0);
+            b_state = next;
+            assert_close(sim.read_residual("b").0, b, &format!("ieee {ieee} b step {step}"));
+            assert_close(sim.read_residual("c").0, p, &format!("ieee {ieee} c step {step}"));
+            assert_close(sim.read_residual("d").0, x, &format!("ieee {ieee} d step {step}"));
+            assert_eq!(sim.read_residual("e").0, 1.75, "ieee {ieee} e step {step}");
+            let (next, y) = gen(s2, 0.0, 1.0);
+            s2 = next;
+            let f = y + s2 as f64;
+            assert_close(sim.read_residual("f").0, f, &format!("ieee {ieee} f step {step}"));
+            instance.accept(&model, t, 1e-6);
+        }
+    }
+    Ok(())
+}
+
 /// With `--ieee1364` `$random(var)` and `$arandom(constant)` use the IEEE 1364-2005
 /// generator.
 pub fn ieee1364() -> Result<()> {
@@ -887,6 +979,16 @@ pub fn errors() -> Result<()> {
         ("", "s = $dist_erlang(s, 2, 3);", "I(a) <+ s;", false, false),
         ("integer x = $dist_t(s, 3);", "", "I(a) <+ x;", false, false),
         ("parameter integer p = $dist_poisson(seed, 3);", "", "I(a) <+ p;", false, false),
+        ("", "", "I(a) <+ $rdist_uniform(s, 0, 3);", false, true),
+        ("", "", "I(a) <+ $rdist_uniform(seed, 0, 3);", false, true),
+        ("", "", "I(a) <+ $rdist_uniform(s, 0, 3, \"instance\");", true, true),
+        ("", "", "I(a) <+ $rdist_uniform(1, 0, 3, \"local\");", false, false),
+        ("", "", "I(a) <+ $rdist_uniform(r, 0, 3);", false, false),
+        ("", "r = $rdist_uniform(3, 0, 1, \"global\");", "I(a) <+ r;", true, true),
+        ("", "r = $rdist_uniform(s, 0, 1);", "I(a) <+ r;", false, false),
+        ("parameter real p = $rdist_uniform(seed, 0, 1);", "", "I(a) <+ p;", false, true),
+        ("real y = $rdist_uniform(seed * 2, 0, 1);", "", "I(a) <+ y;", false, true),
+        ("real y = $rdist_uniform(s, 0, 1);", "", "I(a) <+ y;", false, false),
     ];
 
     let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;

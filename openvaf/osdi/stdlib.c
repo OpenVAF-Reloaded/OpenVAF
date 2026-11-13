@@ -25,6 +25,7 @@ extern double expm1(double);
 extern double fabs(double);
 extern double floor(double);
 extern double lgamma(double);
+extern double fmod(double, double);
 extern int strcmp(const char*, const char*);
 #define NULL ((void*)0)
 #else
@@ -171,7 +172,7 @@ uint32_t vams_mix32(uint32_t base, uint32_t site_id) {
 // ====================================
 
 // Core generator
-static double uniform(int32_t *seed, int32_t start, int32_t end) {
+static double uniform(int32_t *seed, double start, double end) {
       double d = 0.00000011920928955078125;
       double a, b, c;
       uint32_t oldseed, newseed;
@@ -257,7 +258,7 @@ static int32_t rtl_dist_uniform(int32_t *seed, int32_t start, int32_t end) {
       return i;
 }
 
-static double normal(int32_t* seed, int32_t mean, int32_t deviation) {
+static double normal(int32_t* seed, double mean, double deviation) {
     double v1,v2,s;
     s = 1.0;
     while((s >= 1.0) || (s == 0.0)) {
@@ -271,7 +272,7 @@ static double normal(int32_t* seed, int32_t mean, int32_t deviation) {
     return(s * v1 + v2);
 }
 
-static double exponential(int32_t *seed, int32_t mean) {
+static double exponential(int32_t *seed, double mean) {
       double n;
 
       n = uniform(seed, 0, 1);
@@ -282,7 +283,7 @@ static double exponential(int32_t *seed, int32_t mean) {
       return n;
 }
 
-static int32_t poisson(int32_t *seed, int32_t mean) {
+static double poisson(int32_t *seed, double mean) {
       int32_t n;
       double p, q;
 
@@ -298,11 +299,11 @@ static int32_t poisson(int32_t *seed, int32_t mean) {
       return n;
 }
 
-static double chi_square(int32_t *seed, int32_t deg_of_free) {
+static double chi_square(int32_t *seed, double deg_of_free) {
       double x;
       int32_t k;
 
-      if (deg_of_free % 2) {
+      if (fmod(deg_of_free, 2.0) != 0.0) {
             x = normal(seed, 0, 1);
             x = x * x;
       } else {
@@ -315,7 +316,7 @@ static double chi_square(int32_t *seed, int32_t deg_of_free) {
       return x;
 }
 
-static double t( int32_t *seed, int32_t deg_of_free) {
+static double t( int32_t *seed, double deg_of_free) {
       double x, chi2, dv, root;
 
       chi2 = chi_square(seed, deg_of_free);
@@ -326,7 +327,7 @@ static double t( int32_t *seed, int32_t deg_of_free) {
       return x;
 }
 
-static double erlangian(int32_t *seed, int32_t k, int32_t mean) {
+static double erlangian(int32_t *seed, double k, double mean) {
       double x, a, b;
       int32_t i;
 
@@ -388,7 +389,7 @@ static int32_t rtl_dist_poisson(int32_t *seed, int32_t mean) {
       int32_t i;
 
       if (mean > 0) {
-            i = poisson(seed, mean);
+            i = (int32_t) poisson(seed, mean);
       } else {
             // WARNING: Poisson distribution must have a positive mean
             i = 0;
@@ -507,7 +508,7 @@ static double exponential_alt(int32_t *seed, double mean) {
     return n;
 }
 
-/* Poisson(mean), mean > 0. Saturates at INT32_MAX.
+/* Poisson(mean), mean > 0. Returns an integer-valued double (no saturation here).
  * mean < 10:  inversion by sequential search, exactly 1 draw, O(mean) arithmetic.
  * mean >= 10: PTRS, transformed rejection with squeeze (W. Hörmann, "The transformed
  *             rejection method for generating Poisson random variables", Insurance:
@@ -516,7 +517,7 @@ static double exponential_alt(int32_t *seed, double mean) {
  * The IEEE multiplicative method needs mean+1 draws on average and breaks for mean > ~745
  * (exp(-mean) underflows to 0, so the result gets stuck near 744).
  * Note: lgamma() writes the global signgam. Use lgamma_r() if eval runs multithreaded. */
-static int32_t poisson_alt(int32_t *seed, double mean) {
+static double poisson_alt(int32_t *seed, double mean) {
     if (mean < 10.0) {
         double u = uniform_alt(seed, 0, 1);
         double p = exp(-mean), F = p;
@@ -526,7 +527,7 @@ static int32_t poisson_alt(int32_t *seed, double mean) {
             p *= mean / k;
             F += p;
         }
-        return k;
+        return (double)k;
     }
     double slam = sqrt(mean), loglam = log(mean);
     double b = 0.931 + 2.53 * slam;
@@ -539,12 +540,12 @@ static int32_t poisson_alt(int32_t *seed, double mean) {
         double us = 0.5 - fabs(U);                  /* >= 2^-33, no division by 0 */
         double k = floor((2.0 * a / us + b) * U + mean + 0.43);
         if (us >= 0.07 && V <= vr)                  /* squeeze: ~86% of tries */
-            return k >= 2147483647.0 ? INT32_MAX : (int32_t)k;
+            return k;
         if (k < 0.0 || (us < 0.013 && V > us))
             continue;
         if (log(V) + log(invalpha) - log(a / (us * us) + b)
                 <= -mean + k * loglam - lgamma(k + 1.0))
-            return k >= 2147483647.0 ? INT32_MAX : (int32_t)k;
+            return k;
     }
 }
 
@@ -573,8 +574,8 @@ static double gamma_alt(int32_t *seed, double shape) {
 /* Chi-square(df), df > 0. chi2(df) = 2*Gamma(df/2, 1), O(1) for any df.
  * df == 1 uses z^2 directly: it is exact, cheaper, and avoids Gamma shape < 1.
  * The IEEE version sums df/2 exponentials (+ one z^2), which is O(df) draws. */
-static double chi_square_alt(int32_t *seed, int32_t deg_of_free) {
-    if (deg_of_free == 1) {
+static double chi_square_alt(int32_t *seed, double deg_of_free) {
+    if (deg_of_free == 1.0) {
         double z = normal_alt(seed, 0, 1);
         return z * z;
     }
@@ -586,7 +587,7 @@ static double chi_square_alt(int32_t *seed, int32_t deg_of_free) {
  * Per try: 2 uniforms, acceptance pi/4. The IEEE route normal/sqrt(chi2/df) costs O(df) draws.
  * W^(-2/df) - 1 is computed as expm1(-2 log(W)/df) to avoid cancellation for large df.
  * U != 0 (2u-1 has an odd numerator), so W > 0 and log(W) is finite. */
-static double t_alt(int32_t *seed, int32_t deg_of_free) {
+static double t_alt(int32_t *seed, double deg_of_free) {
     double n = (double)deg_of_free, U, V, W;
     do {
         U = uniform_alt(seed, -1, 1);
@@ -601,9 +602,9 @@ static double t_alt(int32_t *seed, int32_t deg_of_free) {
  *          no underflow since each u >= 2^-33).
  * k > 3:   gamma_alt, O(1). The IEEE version multiplies k uniforms, which is O(k) draws
  *          and underflows to 0 for k > ~1000 (log(0) = -inf, result +inf * mean). */
-static double erlang_alt(int32_t *seed, int32_t k, double mean) {
+static double erlang_alt(int32_t *seed, double k, double mean) {
     double g;
-    if (k <= 3) {
+    if (k <= 3.0) {
         double x = uniform_alt(seed, 0, 1);
         for (int32_t i = 1; i < k; i++)
             x *= uniform_alt(seed, 0, 1);
@@ -650,7 +651,9 @@ int32_t rtl_dist_exponential_alt(int32_t *seed, int32_t mean) {
 int32_t rtl_dist_poisson_alt(int32_t *seed, int32_t mean) {
     /* As IEEE: mean <= 0 returns 0 and does not advance the seed. */
     if (mean <= 0) return 0;
-    return poisson_alt(seed, (double)mean);
+    double d = poisson_alt(seed, (double)mean);    /* integer-valued, >= 0 */
+    if (d >= 2147483647.0) return INT32_MAX;
+    return (int32_t)d;
 }
 
 // Chi square distributed integer ($dist_chi_square)

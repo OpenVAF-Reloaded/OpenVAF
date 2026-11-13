@@ -81,8 +81,13 @@ impl<'c1, 'c2> BodyLoweringCtx<'_, 'c1, 'c2> {
 }
 
 impl LoweringCtx<'_, '_> {
-    /// Lowers a body
+    /// Lowers a body (a variable or parameter initializer). Random number
+    /// generators in initializers are pure: they return the first value of the
+    /// sequence of their constant seed.
     pub fn lower_expr_body(&mut self, body: BodyRef, i: usize) -> Value {
-        BodyLoweringCtx { ctx: self, body, path: "" }.lower_expr(body.get_entry_expr(i))
+        let pure_random = std::mem::replace(&mut self.pure_random, true);
+        let val = BodyLoweringCtx { ctx: self, body, path: "" }.lower_expr(body.get_entry_expr(i));
+        self.pure_random = pure_random;
+        val
     }
 }

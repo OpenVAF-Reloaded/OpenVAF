@@ -263,11 +263,11 @@ bultins! {
 
 
     TRANSITION = const {
-        fn TRANSITION_NO_ARGS(Val(Integer)) -> Real;
-        fn TRANSITION_DELAY(Val(Integer),Val(Real)) -> Real;
-        fn TRANSITION_DELAY_RISET(Val(Integer),Val(Real)) -> Real;
-        fn TRANSITION_DELAY_RISET_FALLT(Val(Integer),Val(Real),Val(Real)) -> Real;
-        fn TRANSITION_DELAY_RISET_FALLT_TOL(Val(Integer),Val(Real),Val(Real), Val(Real)) -> Real;
+        fn TRANSITION_NO_ARGS(Val(Real)) -> Real;
+        fn TRANSITION_DELAY(Val(Real),Val(Real)) -> Real;
+        fn TRANSITION_DELAY_RISET(Val(Real),Val(Real),Val(Real)) -> Real;
+        fn TRANSITION_DELAY_RISET_FALLT(Val(Real),Val(Real),Val(Real),Val(Real)) -> Real;
+        fn TRANSITION_DELAY_RISET_FALLT_TOL(Val(Real),Val(Real),Val(Real),Val(Real),Val(Real)) -> Real;
     }
 
 
@@ -305,47 +305,73 @@ bultins! {
 
     const fn SIMPARAM_STR(Literal(String)) -> Real;
 
-    RANDOM = const {
+    RANDOM = {
         fn RANDOM_NO_SEED() -> Integer;
         fn RANDOM_SEED(Var(Integer)) -> Integer;
     }
 
-    ARANDOM = const {
+    // The variable seed comes before the constant seed: an integer variable
+    // matches both, the first candidate wins.
+    // The seed of the typed form is ignored.
+    ARANDOM = {
         fn ARANDOM_NO_SEED() -> Integer;
         fn ARANDOM_SEED(Var(Integer)) -> Integer;
-        fn ARANDOM_SEED_NAME(Var(Integer),Literal(String)) -> Integer;
-        fn ARNADOM_CONST_SEED(Param(Integer)) -> Integer;
-        fn ARNADOM_CONST_SEED_NAME(Param(Integer),Literal(String)) -> Integer;
+        fn ARANDOM_CONST_SEED(Val(Integer)) -> Integer;
+        fn ARANDOM_TYPED(Val(Integer),Literal(String)) -> Integer;
+    }
+
+    // $dist_uniform(seed, start, end): $random(seed) bounded to [start, end]
+    DIST_UNIFORM = {
+        fn DIST_UNIFORM_SEED(Var(Integer),Val(Integer),Val(Integer)) -> Integer;
+    }
+
+    // $dist_normal(seed, mean, standard_deviation): normally distributed integer
+    DIST_NORMAL = {
+        fn DIST_NORMAL_SEED(Var(Integer),Val(Integer),Val(Integer)) -> Integer;
     }
 
 
-    RDIST_1_ARG = const {
+    // $rdist_uniform(seed, start, end [, type]): the seed forms follow $arandom,
+    // there is no form without a seed. The seed of the typed form is ignored.
+    RDIST_UNIFORM = {
+        fn RDIST_UNIFORM_SEED(Var(Integer),Val(Real),Val(Real)) -> Real;
+        fn RDIST_UNIFORM_CONST_SEED(Val(Integer),Val(Real),Val(Real)) -> Real;
+        fn RDIST_UNIFORM_TYPED(Val(Integer),Val(Real),Val(Real),Literal(String)) -> Real;
+    }
+
+    // $rdist_normal(seed, mean, standard_deviation [, type]): as $rdist_uniform
+    RDIST_NORMAL = {
+        fn RDIST_NORMAL_SEED(Var(Integer),Val(Real),Val(Real)) -> Real;
+        fn RDIST_NORMAL_CONST_SEED(Val(Integer),Val(Real),Val(Real)) -> Real;
+        fn RDIST_NORMAL_TYPED(Val(Integer),Val(Real),Val(Real),Literal(String)) -> Real;
+    }
+
+    // $rdist_exponential(seed, mean [, type]), $rdist_poisson(seed, mean [, type]),
+    // $rdist_chi_square(seed, df [, type]), $rdist_t(seed, df [, type]):
+    // as $rdist_uniform
+    RDIST_1_ARG = {
         fn RDIST_1_ARG_SEED(Var(Integer),Val(Real)) -> Real;
-        fn RDIST_1_ARG_CONST_SEED(Param(Integer),Val(Real)) -> Real;
-        fn RDIST_1_ARG_CONST_NAME(Var(Integer),Val(Real),Literal(String)) -> Real;
-        fn RDIST_1_ARG_CONST_SEED_NAME(Param(Integer),Val(Real),Literal(String)) -> Real;
+        fn RDIST_1_ARG_CONST_SEED(Val(Integer),Val(Real)) -> Real;
+        fn RDIST_1_ARG_TYPED(Val(Integer),Val(Real),Literal(String)) -> Real;
     }
 
-    RDIST_2_ARG = const {
+    // $rdist_erlang(seed, k, mean [, type]): as $rdist_uniform
+    RDIST_2_ARG = {
         fn RDIST_2_ARG_SEED(Var(Integer),Val(Real),Val(Real)) -> Real;
-        fn RDIST_2_ARG_CONST_SEED(Param(Integer),Val(Real),Val(Real)) -> Real;
-        fn RDIST_2_ARG_CONST_NAME(Var(Integer),Val(Real),Val(Real),Literal(String)) -> Real;
-        fn RDIST_2_ARG_CONST_SEED_NAME(Param(Integer),Val(Real),Val(Real),Literal(String)) -> Real;
+        fn RDIST_2_ARG_CONST_SEED(Val(Integer),Val(Real),Val(Real)) -> Real;
+        fn RDIST_2_ARG_TYPED(Val(Integer),Val(Real),Val(Real),Literal(String)) -> Real;
     }
 
 
-    DIST_1_ARG = const {
-        fn DIST_1_ARG_SEED(Var(Integer),Val(Integer)) -> Real;
-        fn DIST_1_ARG_CONST_SEED(Param(Integer),Val(Integer)) -> Real;
-        fn DIST_1_ARG_CONST_NAME(Var(Integer),Val(Integer),Literal(String)) -> Real;
-        fn DIST_1_ARG_CONST_SEED_NAME(Param(Integer),Val(Integer),Literal(String)) -> Real;
+    // $dist_exponential(seed, mean), $dist_poisson(seed, mean),
+    // $dist_chi_square(seed, df), $dist_t(seed, df)
+    DIST_1_ARG = {
+        fn DIST_1_ARG_SEED(Var(Integer),Val(Integer)) -> Integer;
     }
 
-    DIST_2_ARG = const {
-        fn DIST_2_ARG_SEED(Var(Integer),Val(Integer),Val(Integer)) -> Real;
-        fn DIST_2_ARG_CONST_SEED(Param(Integer),Val(Real),Val(Integer)) -> Real;
-        fn DIST_2_ARG_CONST_NAME(Var(Integer),Val(Integer),Val(Integer),Literal(String)) -> Real;
-        fn DIST_2_ARG_CONST_SEED_NAME(Param(Integer),Val(Integer),Val(Integer),Literal(String)) -> Real;
+    // $dist_erlang(seed, k, mean)
+    DIST_2_ARG = {
+        fn DIST_2_ARG_SEED(Var(Integer),Val(Integer),Val(Integer)) -> Integer;
     }
 
     SIMPROBE = const {
@@ -492,18 +518,14 @@ copied_builtins! {
     RDIST_POISSON = RDIST_1_ARG
     RDIST_T = RDIST_1_ARG
 
-    RDIST_UNIFORM = RDIST_2_ARG
     RDIST_ERLANG = RDIST_2_ARG
-    RDIST_NORMAL = RDIST_2_ARG
 
     DIST_CHI_SQUARE = DIST_1_ARG
     DIST_EXPONENTIAL = DIST_1_ARG
     DIST_POISSON = DIST_1_ARG
     DIST_T = DIST_1_ARG
 
-    DIST_UNIFORM = DIST_2_ARG
     DIST_ERLANG = DIST_2_ARG
-    DIST_NORMAL = DIST_2_ARG
 
     ANALOG_PORT_ALIAS = ANALOG_NODE_ALIAS
 

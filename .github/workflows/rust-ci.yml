@@ -104,15 +104,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # LLVM 18 - Ubuntu Noble system package
+          # LLVM 18 - apt.llvm.org has no LLVM 18 for newer Ubuntu releases, use Noble
           - llvm_version: "18"
+            os: ubuntu-24.04
             llvm_env_var: "LLVM_SYS_181_PREFIX"
             cargo_features: "--no-default-features --features llvm18"
           # LLVM 21 - Latest from apt.llvm.org
           - llvm_version: "21"
+            os: ubuntu-latest
             llvm_env_var: "LLVM_SYS_211_PREFIX"
             cargo_features: "--no-default-features --features llvm21"
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     needs: [format, machete, purge-caches]
     steps:
     - uses: actions/checkout@v4

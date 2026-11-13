@@ -9,17 +9,20 @@ use hir::signatures::{
     NATURE_ACCESS_NODES, NATURE_ACCESS_NODE_GND, NATURE_ACCESS_PORT_FLOW, REAL_EQ, REAL_OP,
     SIMPARAM_DEFAULT, SIMPARAM_NO_DEFAULT, STR_EQ,
 };
-use hir::{Body, BuiltIn, Expr, ExprId, Literal, /*ParamSysFun,*/ Ref, ResolvedFun, Type};
+use hir::{
+    Body, BuiltIn, Expr, ExprId, Literal, /*ParamSysFun,*/ RandomForm, Ref, ResolvedFun, Type,
+};
 use mir::builder::InstBuilder;
 use mir::{Opcode, Value, FALSE, F_ONE, F_ZERO, GRAVESTONE, INFINITY, TRUE, ZERO};
 use stdx::iter::zip;
 use syntax::ast::{BinaryOp, UnaryOp};
 
 use crate::body::BodyLoweringCtx;
+use crate::ctx::LoweringCtx;
 use crate::fmt::DisplayKind;
 use crate::{
-    CallBackKind, CurrentKind, IdtKind, ImplicitEquationKind, NoiseTable, ParamKind, PlaceKind,
-    RetFlag,
+    CallBackKind, CrossingSlot, CurrentKind, HiddenStateKey, IdtKind, ImplicitEquationKind,
+    NoiseTable, ParamKind, PlaceKind, RandomGen, RetFlag, TransitionSlot,
 };
 
 impl BodyLoweringCtx<'_, '_, '_> {
@@ -666,13 +669,10 @@ impl BodyLoweringCtx<'_, '_, '_> {
                 self.ctx.finish_limit(state, res)
             }
             BuiltIn::discontinuity => {
-                // AB: Negative literals are represented as UnaryOp::Neg(Literal)
-                //     We have a function for that now.
-                if self.ctx.inside_lim && Some(-1) == self.body.as_literalsignedint(&args[0]) {
-                    self.ctx.call(CallBackKind::LimDiscontinuity, &[]);
-                } else {
-                    // TODO implement support for discontinuity?
-                }
+                // without an argument it behaves as $discontinuity(0)
+                let degree = args.first().map_or(ZERO, |&arg| self.lower_expr(arg));
+                let in_limit = self.ctx.inside_lim;
+                self.ctx.call(CallBackKind::Discontinuity { in_limit }, &[degree]);
                 GRAVESTONE
             }
             BuiltIn::finish => {
@@ -721,15 +721,309 @@ impl BodyLoweringCtx<'_, '_, '_> {
                 // The absdelay result is V(z); eq_z's equation is handled by the simulator
                 z_val
             }
+            BuiltIn::slew if !self.ctx.compact && args.len() > 1 => self.lower_slew(args),
+            BuiltIn::transition if !self.ctx.compact => self.lower_transition(args),
             BuiltIn::slew | BuiltIn::transition | BuiltIn::limit => self.lower_expr(args[0]),
+            BuiltIn::last_crossing if !self.ctx.compact => self.lower_last_crossing(args),
+            // compact models have no crossings
+            BuiltIn::last_crossing => self.ctx.fconst(-1.0),
 
             BuiltIn::laplace_nd
             | BuiltIn::laplace_np
             | BuiltIn::laplace_zd
             | BuiltIn::laplace_zp => self.lower_laplace(builtin, args),
 
+            BuiltIn::random
+            | BuiltIn::arandom
+            | BuiltIn::dist_uniform
+            | BuiltIn::dist_normal
+            | BuiltIn::dist_exponential
+            | BuiltIn::dist_poisson
+            | BuiltIn::dist_chi_square
+            | BuiltIn::dist_t
+            | BuiltIn::dist_erlang
+            | BuiltIn::rdist_uniform
+            | BuiltIn::rdist_normal
+            | BuiltIn::rdist_exponential
+            | BuiltIn::rdist_poisson
+            | BuiltIn::rdist_chi_square
+            | BuiltIn::rdist_t
+            | BuiltIn::rdist_erlang => self.lower_random(builtin, signature, args),
+
             _ => unreachable!(),
         }
+    }
+
+    /// Lowers `$random`/`$arandom`/`$dist_*`/`$rdist_*`.
+    ///
+    /// - `$arandom(seed, type)`, `$rdist_*(seed, ..., type)` return the mean of the
+    ///   distribution (0, (start + end) / 2, mean, df; 0 for `$rdist_t`), the seed
+    ///   is ignored.
+    /// - `$random(var)`, `$arandom(var)`, `$dist_*(var, ...)`,
+    ///   `$rdist_*(var, ...)`: the generator state is the variable.
+    /// - In initializers `$arandom(constant)` and `$rdist_*(constant, ...)` are
+    ///   pure: they return the first value of the sequence of the seed.
+    /// - `$random()`, `$arandom()`, `$arandom(constant)`,
+    ///   `$rdist_*(constant, ...)`: the generator state is hidden state. Each
+    ///   call site gets a site id. Init seeds the state with the constant or
+    ///   (without one) with the entity seed mixed with the site id.
+    ///
+    /// A generator call computes the next state and returns its random value.
+    fn lower_random(
+        &mut self,
+        builtin: BuiltIn,
+        signature: hir::signatures::Signature,
+        args: &[ExprId],
+    ) -> Value {
+        // IEEE 1364-2005 generator (--ieee1364)
+        let ieee1364 = self.ctx.db.ieee1364_flag();
+        let gen = match builtin {
+            BuiltIn::dist_uniform => RandomGen::UniformInt,
+            BuiltIn::dist_normal => RandomGen::NormalInt,
+            BuiltIn::dist_exponential => RandomGen::ExponentialInt,
+            BuiltIn::dist_poisson => RandomGen::PoissonInt,
+            BuiltIn::dist_chi_square => RandomGen::ChiSquareInt,
+            BuiltIn::dist_t => RandomGen::TInt,
+            BuiltIn::dist_erlang => RandomGen::ErlangInt,
+            BuiltIn::rdist_uniform => RandomGen::UniformReal,
+            BuiltIn::rdist_normal => RandomGen::NormalReal,
+            BuiltIn::rdist_exponential => RandomGen::ExponentialReal,
+            BuiltIn::rdist_poisson => RandomGen::PoissonReal,
+            BuiltIn::rdist_chi_square => RandomGen::ChiSquareReal,
+            BuiltIn::rdist_t => RandomGen::TReal,
+            BuiltIn::rdist_erlang => RandomGen::ErlangReal,
+            _ => RandomGen::Random,
+        };
+        let next_cb = CallBackKind::RandomNext { gen, ieee1364 };
+        let value_cb = CallBackKind::RandomValue { gen, ieee1364 };
+        let zero = if gen.is_real() { F_ZERO } else { ZERO };
+        // RandomNext and RandomValue both take the old state (followed by the
+        // generator arguments)
+        match RandomForm::new(builtin, signature).unwrap() {
+            RandomForm::Typed if builtin == BuiltIn::rdist_uniform => {
+                let start = self.lower_expr(args[1]);
+                let end = self.lower_expr(args[2]);
+                let sum = self.ctx.ins().fadd(start, end);
+                let half = self.ctx.fconst(0.5);
+                self.ctx.ins().fmul(sum, half)
+            }
+            // mean, mean, df
+            RandomForm::Typed
+                if matches!(
+                    builtin,
+                    BuiltIn::rdist_normal
+                        | BuiltIn::rdist_exponential
+                        | BuiltIn::rdist_poisson
+                        | BuiltIn::rdist_chi_square
+                ) =>
+            {
+                self.lower_expr(args[1])
+            }
+            // mean
+            RandomForm::Typed if builtin == BuiltIn::rdist_erlang => self.lower_expr(args[2]),
+            // $arandom, $rdist_t (0 also for df <= 1, where the mean is undefined)
+            RandomForm::Typed => zero,
+            RandomForm::VarSeed => {
+                let state = self.lower_expr(args[0]);
+                let mut operands = vec![state];
+                operands.extend(args[1..].iter().map(|&arg| self.lower_expr(arg)));
+                let next = self.ctx.call1(next_cb, &operands);
+                let dst = self.body.get_expr(args[0]).as_assignment_lhs();
+                self.ctx.def_place(dst.into(), next);
+                self.ctx.call1(value_cb, &operands)
+            }
+            RandomForm::ConstSeed if self.ctx.pure_random => {
+                let operands: Vec<_> = args.iter().map(|&arg| self.lower_expr(arg)).collect();
+                self.ctx.call1(value_cb, &operands)
+            }
+            // rejected by validation (requires full Verilog-A semantics)
+            _ if self.ctx.compact || self.ctx.pure_random => zero,
+            _ => {
+                let idx = self.ctx.num_randoms;
+                self.ctx.num_randoms += 1;
+                if let Some(&seed) = args.first() {
+                    self.ctx.random_seeds.push((idx, self.body.to_body(), seed));
+                }
+                // the current state (initialized with the accepted state at entry) so that
+                // each execution of the call (e.g. in a loop) advances the generator
+                let state = self.ctx.use_place(PlaceKind::RandomOutput(idx));
+                // the arguments after the (constant) seed
+                let mut operands = vec![state];
+                operands.extend(args.iter().skip(1).map(|&arg| self.lower_expr(arg)));
+                let next = self.ctx.call1(next_cb, &operands);
+                self.ctx.def_place(PlaceKind::RandomOutput(idx), next);
+                self.ctx.call1(value_cb, &operands)
+            }
+        }
+    }
+
+    /// Lowers `slew(x, max_pos_slew_rate [, max_neg_slew_rate])`.
+    ///
+    /// The output of each call site is hidden state (`last_x`). If `dt != 0` and
+    /// `$abstime != 0` the change `x - last_x` is limited to
+    /// `[max_neg_slew_rate * dt, max_pos_slew_rate * dt]`. Otherwise the output is
+    /// `x`. The negative rate defaults to `-max_pos_slew_rate`. While slewing the
+    /// derivative of the output with respect to `x` is zero.
+    fn lower_slew(&mut self, args: &[ExprId]) -> Value {
+        let x = self.lower_expr(args[0]);
+        let max_slew = self.lower_expr(args[1]);
+        let min_slew = if let Some(&arg) = args.get(2) {
+            self.lower_expr(arg)
+        } else {
+            self.ctx.ins().fneg(max_slew)
+        };
+
+        let idx = self.ctx.num_slews;
+        self.ctx.num_slews += 1;
+        let last_x = self.ctx.use_param(ParamKind::HiddenState(HiddenStateKey::Slew(idx)));
+        let dt = self.ctx.use_param(ParamKind::TimeStep);
+        let t = self.ctx.use_param(ParamKind::Abstime);
+
+        let dt_nonzero = self.ctx.ins().fne(dt, F_ZERO);
+        let t_nonzero = self.ctx.ins().fne(t, F_ZERO);
+        let limit = self.lower_select_with(dt_nonzero, |_| t_nonzero, |_| FALSE);
+        let x = self.lower_select_with(
+            limit,
+            |mut ctx| {
+                let delta = ctx.ctx.ins().fsub(x, last_x);
+                let max_delta = ctx.ctx.ins().fmul(max_slew, dt);
+                let rising = ctx.ctx.ins().fgt(delta, max_delta);
+                ctx.lower_select_with(
+                    rising,
+                    |ctx| ctx.ctx.ins().fadd(last_x, max_delta),
+                    |mut ctx| {
+                        let min_delta = ctx.ctx.ins().fmul(min_slew, dt);
+                        let falling = ctx.ctx.ins().flt(delta, min_delta);
+                        ctx.lower_select_with(
+                            falling,
+                            |ctx| ctx.ctx.ins().fadd(last_x, min_delta),
+                            |_| x,
+                        )
+                    },
+                )
+            },
+            |_| x,
+        );
+        self.ctx.def_place(PlaceKind::SlewOutput(idx), x);
+        x
+    }
+
+    /// Lowers `transition(x [, td [, tr [, tf [, time_tol]]]])`.
+    ///
+    /// The input of each call site is hidden state. Eval stores `$abstime + td`,
+    /// `tr`, `tf`, and `time_tol` for the simulator, which computes the output
+    /// waveform. If `dt > 0` the output is read from the slot written by the
+    /// simulator (its derivative with respect to `x` is zero). Otherwise the output
+    /// is `x`. `td`, `tr`, and `time_tol` default to 0, `tf` defaults to `tr`.
+    /// Negative values are clamped to 0.
+    fn lower_transition(&mut self, args: &[ExprId]) -> Value {
+        let x = self.lower_expr(args[0]);
+        let mut arg = |i: usize| args.get(i).map(|&arg| self.lower_expr(arg));
+        let td = arg(1).unwrap_or(F_ZERO);
+        let tr = arg(2).unwrap_or(F_ZERO);
+        let tf = arg(3).unwrap_or(tr);
+        let time_tol = arg(4).unwrap_or(F_ZERO);
+        // negative delays, transition times and tolerances are treated as 0
+        let [td, tr, tf, time_tol] = [td, tr, tf, time_tol].map(|val| {
+            let positive = self.ctx.ins().fgt(val, F_ZERO);
+            self.lower_select_with(positive, |_| val, |_| F_ZERO)
+        });
+
+        let idx = self.ctx.num_transitions;
+        self.ctx.num_transitions += 1;
+        let t = self.ctx.use_param(ParamKind::Abstime);
+        let begin = self.ctx.ins().fadd(t, td);
+        for (slot, val) in [
+            (TransitionSlot::Input, x),
+            (TransitionSlot::Begin, begin),
+            (TransitionSlot::Rise, tr),
+            (TransitionSlot::Fall, tf),
+            (TransitionSlot::TimeTol, time_tol),
+        ] {
+            self.ctx.def_place(PlaceKind::Transition(idx, slot), val);
+        }
+
+        let dt = self.ctx.use_param(ParamKind::TimeStep);
+        let advanced = self.ctx.ins().fgt(dt, F_ZERO);
+        self.lower_select_with(
+            advanced,
+            |ctx| ctx.ctx.use_param(ParamKind::TransitionOutput(idx)),
+            |_| x,
+        )
+    }
+
+    /// Lowers `last_crossing(x [, direction])`.
+    ///
+    /// Each call site keeps the times of the last rising and falling zero crossings
+    /// (-1 if none), the last nonzero value of `x`, and `x` as hidden state. If
+    /// `dt > 0` and `x` changed its sign since the last accepted point (a zero
+    /// counts as the sign of the last nonzero value) the crossing time is
+    /// interpolated linearly. Returns the time of the last falling (`direction < 0`),
+    /// rising (`direction > 0`), or any (`direction == 0`, default) crossing.
+    fn lower_last_crossing(&mut self, args: &[ExprId]) -> Value {
+        let x = self.lower_expr(args[0]);
+        let dir = args.get(1).map(|&arg| self.lower_expr(arg));
+
+        let idx = self.ctx.num_last_crossings;
+        self.ctx.num_last_crossings += 1;
+        let state = |ctx: &mut LoweringCtx, slot| {
+            ctx.use_param(ParamKind::HiddenState(HiddenStateKey::LastCrossing(idx, slot)))
+        };
+        let rising_t = state(self.ctx, CrossingSlot::Rising);
+        let falling_t = state(self.ctx, CrossingSlot::Falling);
+        let last_nz = state(self.ctx, CrossingSlot::LastNonZero);
+        let last_x = state(self.ctx, CrossingSlot::Input);
+        let dt = self.ctx.use_param(ParamKind::TimeStep);
+        let t = self.ctx.use_param(ParamKind::Abstime);
+
+        let x_zero = self.ctx.ins().feq(x, F_ZERO);
+        let new_nz = self.lower_select_with(x_zero, |_| last_nz, |_| x);
+        self.ctx.def_place(PlaceKind::LastCrossingOutput(idx, CrossingSlot::LastNonZero), new_nz);
+        self.ctx.def_place(PlaceKind::LastCrossingOutput(idx, CrossingSlot::Input), x);
+
+        // sign of the last point, a zero has the sign of the last nonzero value
+        let last_zero = self.ctx.ins().feq(last_x, F_ZERO);
+        let last_sign = self.lower_select_with(last_zero, |_| last_nz, |_| last_x);
+
+        let crossing_time = |ctx: &mut LoweringCtx| {
+            // t - x / (x - last_x) * dt
+            let dx = ctx.ins().fsub(x, last_x);
+            let frac = ctx.ins().fdiv(x, dx);
+            let back = ctx.ins().fmul(frac, dt);
+            ctx.ins().fsub(t, back)
+        };
+        let advanced = self.ctx.ins().fgt(dt, F_ZERO);
+        let x_pos = self.ctx.ins().fgt(x, F_ZERO);
+        let x_neg = self.ctx.ins().flt(x, F_ZERO);
+        let last_pos = self.ctx.ins().fgt(last_sign, F_ZERO);
+        let last_neg = self.ctx.ins().flt(last_sign, F_ZERO);
+        let rises = self.lower_select_with(
+            advanced,
+            |mut ctx| ctx.lower_select_with(x_pos, |_| last_neg, |_| FALSE),
+            |_| FALSE,
+        );
+        let falls = self.lower_select_with(
+            advanced,
+            |mut ctx| ctx.lower_select_with(x_neg, |_| last_pos, |_| FALSE),
+            |_| FALSE,
+        );
+        let rising_t = self.lower_select_with(rises, |ctx| crossing_time(ctx.ctx), |_| rising_t);
+        let falling_t = self.lower_select_with(falls, |ctx| crossing_time(ctx.ctx), |_| falling_t);
+        self.ctx.def_place(PlaceKind::LastCrossingOutput(idx, CrossingSlot::Rising), rising_t);
+        self.ctx.def_place(PlaceKind::LastCrossingOutput(idx, CrossingSlot::Falling), falling_t);
+
+        let falling_later = self.ctx.ins().fgt(falling_t, rising_t);
+        let any_t = self.lower_select_with(falling_later, |_| falling_t, |_| rising_t);
+        let Some(dir) = dir else { return any_t };
+        let falling = self.ctx.ins().ilt(dir, ZERO);
+        self.lower_select_with(
+            falling,
+            |_| falling_t,
+            |mut ctx| {
+                let rising = ctx.ctx.ins().igt(dir, ZERO);
+                ctx.lower_select_with(rising, |_| rising_t, |_| any_t)
+            },
+        )
     }
 
     /// Lowers `laplace_nd`/`laplace_np`/`laplace_zd`/`laplace_zp(in, num_or_zero, den_or_pole

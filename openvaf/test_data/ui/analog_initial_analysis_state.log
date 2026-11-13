@@ -1,0 +1,12 @@
+error: '$abstime' is not allowed in analog initial block
+  --> /analog_initial_analysis_state.va:9:13
+  |
+9 |         t = $abstime;
+  |             ^^^^^^^^ not allowed here
+
+error: 'analysis' is not allowed in analog initial block
+   --> /analog_initial_analysis_state.va:10:13
+   |
+10 |         if (analysis("tran"))
+   |             ^^^^^^^^^^^^^^^^ not allowed here
+

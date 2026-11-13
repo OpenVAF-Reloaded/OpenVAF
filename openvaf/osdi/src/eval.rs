@@ -1,13 +1,15 @@
 use core::ptr::NonNull;
 
-use hir_lower::{CallBackKind, CurrentKind, LimitState, ParamKind};
+use hir_lower::{CallBackKind, CurrentKind, HiddenStateKey, LimitState, ParamKind};
 use llvm_sys::core::{
     LLVMAppendBasicBlockInContext, LLVMBuildAlloca, LLVMBuildAnd, LLVMBuildBr, LLVMBuildCall2,
-    LLVMBuildCondBr, LLVMBuildICmp, LLVMBuildInBoundsGEP2, LLVMBuildIntCast2, LLVMBuildLoad2,
-    LLVMBuildOr, LLVMBuildRet, LLVMBuildStore, LLVMCreateBuilderInContext, LLVMDisposeBuilder,
-    LLVMGetParam, LLVMPositionBuilderAtEnd,
+    LLVMBuildCondBr, LLVMBuildFCmp, LLVMBuildICmp, LLVMBuildInBoundsGEP2, LLVMBuildIntCast2,
+    LLVMBuildLoad2, LLVMBuildOr, LLVMBuildRet, LLVMBuildRetVoid, LLVMBuildSelect, LLVMBuildStore,
+    LLVMBuildStructGEP2, LLVMCreateBuilderInContext, LLVMDisposeBuilder, LLVMGetParam,
+    LLVMPositionBuilderAtEnd,
 };
 use llvm_sys::LLVMIntPredicate::{LLVMIntNE, LLVMIntULT};
+use llvm_sys::LLVMRealPredicate::LLVMRealOEQ;
 use log::info;
 use mir_llvm::{
     Builder, BuilderVal, BuiltCallbackFun, CallbackFun, InlineCallbackBuilder, MemLoc, UNNAMED,
@@ -21,10 +23,13 @@ use crate::inst_data::OsdiInstanceParam;
 use crate::metadata::osdi_0_5::{
     ANALYSIS_IC, CALC_NOISE, CALC_OP, CALC_REACT_JACOBIAN, CALC_REACT_LIM_RHS, CALC_REACT_RESIDUAL,
     CALC_RESIST_JACOBIAN, CALC_RESIST_LIM_RHS, CALC_RESIST_RESIDUAL, ENABLE_LIM, EVAL_RET_FLAG_LIM,
-    INIT_LIM,
+    FINAL_STEP, INITIAL_STEP, INIT_LIM,
 };
 use crate::metadata::OsdiLimFunction;
 use crate::OsdiLimId;
+
+/// Field of `dt` in `OsdiSimInfo`
+const DT_OFFSET: u32 = 6;
 
 /*
 // Inline callback example
@@ -134,6 +139,11 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
         let ret_flags = builder.ret_allocated.unwrap();
         unsafe { builder.store(ret_flags, cx.const_int(0)) };
 
+        let discontinuity = inst_data.discontinuity_ptr(builder.llbuilder, instance);
+        if let Some(slot) = discontinuity {
+            unsafe { builder.store(slot, cx.const_int(-1)) };
+        }
+
         let connected_ports = unsafe { inst_data.load_connected_ports(&mut builder, instance) };
         let prev_solve: TiVec<_, _> = module
             .dae_system
@@ -200,6 +210,16 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                             );
                             return loc.into();
                         }
+                        ParamKind::TimeStep => {
+                            let loc = MemLoc::struct_gep(
+                                sim_info,
+                                sim_info_ty,
+                                cx.ty_double(),
+                                DT_OFFSET,
+                                cx,
+                            );
+                            return loc.into();
+                        }
 
                         ParamKind::Current(kind) => get_prev_solve(SimUnknownKind::Current(kind)),
                         ParamKind::ImplicitUnknown(equation) => {
@@ -247,7 +267,14 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                                 builder.llbuilder,
                             )
                             .unwrap(),
-                        ParamKind::HiddenState(_) => unreachable!(), // TODO  hidden state
+                        // Value from the previous evaluation
+                        ParamKind::HiddenState(var) => {
+                            return inst_data.hidden_state_loc(cx, var, false, instance).into()
+                        }
+                        // Written by the simulator before eval
+                        ParamKind::TransitionOutput(i) => {
+                            return inst_data.transition_output_loc(cx, i, instance).into()
+                        }
                         ParamKind::EnableIntegration => {
                             let flags = flags.read(builder.llbuilder);
                             let is_not_dc =
@@ -286,6 +313,12 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                         }
                         ParamKind::EnableLim => {
                             is_flag_set_mem(cx, ENABLE_LIM, &flags, builder.llbuilder)
+                        }
+                        ParamKind::InitialStep => {
+                            is_flag_set_mem(cx, INITIAL_STEP, &flags, builder.llbuilder)
+                        }
+                        ParamKind::FinalStep => {
+                            is_flag_set_mem(cx, FINAL_STEP, &flags, builder.llbuilder)
                         }
                     }
                 };
@@ -326,16 +359,20 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                         num_state: 0,
                     })
                 }
-                CallBackKind::LimDiscontinuity => {
+                CallBackKind::Discontinuity { in_limit } => {
                     let fun = builder
                         .cx
-                        .get_func_by_name("lim_discontinuity")
-                        .expect("stdlib function lim_discontinuity is missing");
-                    let fun_ty = cx.ty_func(&[cx.ty_ptr()], cx.ty_void());
+                        .get_func_by_name("discontinuity")
+                        .expect("stdlib function discontinuity is missing");
+                    let fun_ty = cx.ty_func(
+                        &[cx.ty_ptr(), cx.ty_ptr(), cx.ty_int(), cx.ty_int()],
+                        cx.ty_void(),
+                    );
+                    let slot = discontinuity.unwrap_or_else(|| cx.const_null_ptr());
                     CallbackFun::Prebuilt(BuiltCallbackFun {
                         fun_ty,
                         fun,
-                        state: Box::new([ret_flags]),
+                        state: Box::new([ret_flags, slot, cx.const_int(in_limit as i32)]),
                         num_state: 0,
                     })
                 }
@@ -432,8 +469,83 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             inst_data.store_bound_step(instance, &builder);
             inst_data.store_delay_times(instance, &builder);
             inst_data.store_delay_maxes(instance, &builder);
+            inst_data.store_hidden_state(module, instance, &builder);
+            inst_data.store_transitions(module, instance, &builder);
 
             builder.ret();
+        }
+
+        llfunc
+    }
+
+    /// Builds `accept(inst, model, info)` which copies the pending slots of the
+    /// hidden state variables to their accepted slots. May only be called after
+    /// eval. Clears `tbegin` of every `transition()` call site if `dt == 0` or
+    /// its input did not change (no new transition was posted).
+    pub fn accept(&self) -> &'ll llvm_sys::LLVMValue {
+        let OsdiCompilationUnit { inst_data, cx, module, tys, .. } = self;
+        let fun_ty = cx.ty_func(&[cx.ty_ptr(), cx.ty_ptr(), cx.ty_ptr()], cx.ty_void());
+        let name = &format!("accept_{}", module.sym);
+        let llfunc = cx.declare_int_c_fn(name, fun_ty);
+
+        unsafe {
+            let entry = LLVMAppendBasicBlockInContext(
+                NonNull::from(cx.llcx).as_ptr(),
+                NonNull::from(llfunc).as_ptr(),
+                UNNAMED,
+            );
+            let llbuilder = LLVMCreateBuilderInContext(NonNull::from(cx.llcx).as_ptr());
+            LLVMPositionBuilderAtEnd(llbuilder, entry);
+            let inst = &*LLVMGetParam(NonNull::from(llfunc).as_ptr(), 0);
+            let sim_info = LLVMGetParam(NonNull::from(llfunc).as_ptr(), 2);
+
+            if inst_data.num_transitions != 0 {
+                let load = |ty: &'ll llvm_sys::LLVMType, ptr| {
+                    LLVMBuildLoad2(llbuilder, NonNull::from(ty).as_ptr(), ptr, UNNAMED)
+                };
+                let dt = LLVMBuildStructGEP2(
+                    llbuilder,
+                    NonNull::from(tys.osdi_sim_info).as_ptr(),
+                    sim_info,
+                    DT_OFFSET,
+                    UNNAMED,
+                );
+                let dt = load(cx.ty_double(), dt);
+                let zero = NonNull::from(cx.const_real(0.0)).as_ptr();
+                let dt_zero = LLVMBuildFCmp(llbuilder, LLVMRealOEQ, dt, zero, UNNAMED);
+                let none = NonNull::from(cx.const_real(-1.0)).as_ptr();
+                for i in 0..inst_data.num_transitions {
+                    let key = HiddenStateKey::Transition(i);
+                    let (pending, ty) = inst_data.hidden_state_ptr(&*llbuilder, key, true, inst);
+                    let (accepted, _) = inst_data.hidden_state_ptr(&*llbuilder, key, false, inst);
+                    let pending = load(ty, NonNull::from(pending).as_ptr());
+                    let accepted = load(ty, NonNull::from(accepted).as_ptr());
+                    let unchanged =
+                        LLVMBuildFCmp(llbuilder, LLVMRealOEQ, pending, accepted, UNNAMED);
+                    let clear = LLVMBuildOr(llbuilder, dt_zero, unchanged, UNNAMED);
+                    // TRANSITION_SLOTS[0] is tbegin
+                    let begin = inst_data.transition_ptr(&*llbuilder, i, 0, inst);
+                    let begin = NonNull::from(begin).as_ptr();
+                    let old = load(cx.ty_double(), begin);
+                    let val = LLVMBuildSelect(llbuilder, clear, none, old, UNNAMED);
+                    LLVMBuildStore(llbuilder, val, begin);
+                }
+            }
+
+            for &var in inst_data.hidden_state.keys() {
+                let (pending, ty) = inst_data.hidden_state_ptr(&*llbuilder, var, true, inst);
+                let (accepted, _) = inst_data.hidden_state_ptr(&*llbuilder, var, false, inst);
+                let val = LLVMBuildLoad2(
+                    llbuilder,
+                    NonNull::from(ty).as_ptr(),
+                    NonNull::from(pending).as_ptr(),
+                    UNNAMED,
+                );
+                LLVMBuildStore(llbuilder, val, NonNull::from(accepted).as_ptr());
+            }
+
+            LLVMBuildRetVoid(llbuilder);
+            LLVMDisposeBuilder(llbuilder);
         }
 
         llfunc

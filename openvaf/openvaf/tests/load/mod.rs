@@ -48,6 +48,14 @@ impl OsdiDescriptor {
         unsafe { slice::from_raw_parts(self.jacobian_entries, self.num_jacobian_entries as usize) }
     }
 
+    pub fn transitions(&self) -> &[OsdiTransition] {
+        if self.transition_count == 0 {
+            return &[];
+        }
+        // SAFETY: the descriptor is assumed valid
+        unsafe { slice::from_raw_parts(self.transitions, self.transition_count as usize) }
+    }
+
     pub fn check_init_result(&self, res: OsdiInitInfo) -> Result<()> {
         if (res.flags & EVAL_RET_FLAG_FATAL) != 0 {
             bail!("Verilog-A $fatal was called")
@@ -157,7 +165,8 @@ impl OsdiModel {
             vals_str: ptr::null_mut(),
         };
 
-        let mut res = OsdiInitInfo { flags: 0, num_errors: 0, errors: ptr::null_mut() };
+        let mut res =
+            OsdiInitInfo { flags: 0, num_errors: 0, errors: ptr::null_mut(), entity_seed: 0 };
         self.descriptor.setup_model(
             b"foo\0".as_ptr() as *mut c_void,
             self.data,
@@ -180,6 +189,7 @@ impl OsdiModel {
         OsdiInstance {
             descriptor: self.descriptor,
             data: alloc(self.descriptor.instance_size as usize),
+            entity_seed: 0,
         }
     }
 }
@@ -187,6 +197,8 @@ impl OsdiModel {
 pub struct OsdiInstance {
     pub descriptor: &'static OsdiDescriptor,
     pub data: *mut c_void,
+    /// Passed to `setup_instance()` (seeds the random number generators)
+    pub entity_seed: u32,
 }
 
 impl Drop for OsdiInstance {
@@ -295,7 +307,12 @@ impl OsdiInstance {
             vals_str: ptr::null_mut(),
         };
 
-        let mut res = OsdiInitInfo { flags: 0, num_errors: 0, errors: ptr::null_mut() };
+        let mut res = OsdiInitInfo {
+            flags: INIT_HIDDEN_STATE,
+            num_errors: 0,
+            errors: ptr::null_mut(),
+            entity_seed: self.entity_seed,
+        };
         self.descriptor.setup_instance(
             b"foo\0".as_ptr() as *mut c_void,
             self.data,
@@ -535,6 +552,8 @@ bitflags! {
         const ANALYSIS_IC = ANALYSIS_IC;
         const ANALYSIS_STATIC = ANALYSIS_STATIC;
         const ANALYSIS_NODESET = ANALYSIS_NODESET;
+        const INITIAL_STEP = INITIAL_STEP;
+        const FINAL_STEP = FINAL_STEP;
     }
 }
 

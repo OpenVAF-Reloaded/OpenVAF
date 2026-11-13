@@ -1295,6 +1295,10 @@ impl Ctx<'_> {
                     zip(&arg_types, signatures[*candidate].args.as_ref())
                         .all(|(ty, req)| ty.as_ref().map_or(false, |ty| ty.satisfies_semantic(req)))
                 });
+                // e.g. integer arguments of real parameters (casts) satisfy no candidate
+                if candidates.is_empty() {
+                    candidates.clone_from(&new_candidates);
+                }
 
                 if candidates.len() > 1 {
                     new_candidates.clone_from(&candidates);

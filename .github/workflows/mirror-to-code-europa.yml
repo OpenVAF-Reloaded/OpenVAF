@@ -17,6 +17,8 @@ permissions:
 
 jobs:
   mirror:
+    # Only the main repository holds the code.europa.eu secrets; skip in forks
+    if: github.repository == 'OpenVAF-Reloaded/OpenVAF'
     runs-on: ubuntu-latest
     env:
       # Target project path on code.europa.eu, e.g. my-group/my-subgroup/my-project
@@ -34,6 +36,17 @@ jobs:
         env:
           TARGET_TOKEN: ${{ secrets.CODE_EUROPA_TOKEN }}
         run: |
+          missing=0
+          if [ -z "$TARGET_TOKEN" ]; then
+            echo "::error::Secret CODE_EUROPA_TOKEN is empty or not available to this run"
+            missing=1
+          fi
+          if [ -z "$TARGET_REPO_RAW" ]; then
+            echo "::error::Secret CODE_EUROPA_REPO is empty or not available to this run"
+            missing=1
+          fi
+          [ "$missing" -eq 0 ] || exit 1
+
           API="https://code.europa.eu/api/v4"
           # Normalise the path: drop whitespace, https://code.europa.eu/, .git and stray slashes
           TARGET_REPO="$(printf '%s' "$TARGET_REPO_RAW" | tr -d '[:space:]')"

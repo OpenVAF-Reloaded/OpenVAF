@@ -1,0 +1,24 @@
+error: event control is not allowed in analog initial block
+  --> /analog_initial_event_control.va:8:9
+  |
+8 |         @(initial_step) x = 1.0;
+  |         ------------------------ not allowed here
+  |
+  = help: event control statements are only allowed in module-level analog blocks
+
+error: event control is not allowed in analog initial block
+  --> /analog_initial_event_control.va:9:9
+  |
+9 |         @(initial_step) x = V(a);
+  |         ------------------------- not allowed here
+  |
+  = help: event control statements are only allowed in module-level analog blocks
+
+error: nature access is not allowed in analog initial block
+  --> /analog_initial_event_control.va:9:29
+  |
+9 |         @(initial_step) x = V(a);
+  |                             ^^^^ not allowed here
+  |
+  = help: nature access is only allowed in module-level analog blocks
+

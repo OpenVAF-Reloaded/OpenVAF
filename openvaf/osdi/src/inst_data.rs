@@ -3,7 +3,9 @@ use core::ptr::NonNull;
 use std::hash::BuildHasherDefault;
 
 use hir::{CompilationDB, ParamSysFun, Parameter, Variable};
-use hir_lower::{HirInterner, LimitState, ParamKind, PlaceKind};
+use hir_lower::{
+    CallBackKind, HiddenStateKey, HirInterner, LimitState, ParamKind, PlaceKind, TransitionSlot,
+};
 use indexmap::IndexMap;
 use llvm_sys::core::{
     LLVMBuildFAdd,
@@ -19,7 +21,7 @@ use llvm_sys::core::{
 };
 use llvm_sys::target::{LLVMOffsetOfElement, LLVMTargetDataRef};
 use llvm_sys::LLVMIntPredicate;
-use mir::{strip_optbarrier, Const, Function, Param, ValueDef, F_ZERO};
+use mir::{strip_optbarrier, Const, Function, InstructionData, Param, ValueDef, F_ZERO};
 use mir_llvm::{CodegenCx, MemLoc, UNNAMED};
 use rustc_hash::FxHasher;
 use sim_back::dae::{self, MatrixEntryId, SimUnknown};
@@ -237,7 +239,46 @@ pub struct OsdiInstanceData<'ll> {
     /// One eval-output slot per absdelay slot with `has_maxdelay`, storing the
     /// current raw (unclamped) `tdmax` value. `None` for slots without a maxdelay.
     pub delay_maxes: Vec<Option<EvalOutputSlot>>,
+    /// Hidden state with its llvm types. Each hidden state has two slots after
+    /// the constants section: all accepted slots followed by all pending slots.
+    /// Eval reads the accepted slot and writes the pending slot.
+    pub hidden_state:
+        IndexMap<HiddenStateKey, &'ll llvm_sys::LLVMType, BuildHasherDefault<FxHasher>>,
+    /// Number of `transition()` call sites. Each has the slots
+    /// [`TRANSITION_SLOTS`] after the hidden state slots.
+    pub num_transitions: u32,
+    /// An integer slot after the transition slots holding the smallest nonnegative
+    /// `$discontinuity` degree of the last eval (-1 if none)
+    pub discontinuity: bool,
 }
+
+/// The discontinuity slot is needed if, after optimization, eval still calls
+/// `$discontinuity` with an argument that is not a negative constant
+fn has_discontinuity_slot(module: &OsdiModule<'_>) -> bool {
+    let func = module.eval;
+    func.layout.blocks().any(|bb| {
+        func.layout.block_insts(bb).any(|inst| {
+            let InstructionData::Call { func_ref, .. } = func.dfg.insts[inst] else {
+                return false;
+            };
+            if !matches!(module.intern.callbacks[func_ref], CallBackKind::Discontinuity { .. }) {
+                return false;
+            }
+            let degree = func.dfg.instr_args(inst)[0];
+            !matches!(func.dfg.value_def(degree), ValueDef::Const(Const::Int(i)) if i < 0)
+        })
+    })
+}
+
+/// Instance data slots of a `transition()` call site, the output is written by
+/// the simulator
+pub const TRANSITION_SLOTS: [Option<TransitionSlot>; 5] = [
+    Some(TransitionSlot::Begin),
+    Some(TransitionSlot::Rise),
+    Some(TransitionSlot::Fall),
+    Some(TransitionSlot::TimeTol),
+    None,
+];
 
 impl<'ll> OsdiInstanceData<'ll> {
     pub fn new(db: &CompilationDB, module: &OsdiModule<'_>, cx: &CodegenCx<'_, 'll>) -> Self {
@@ -335,6 +376,13 @@ impl<'ll> OsdiInstanceData<'ll> {
         let cache_slots: TiVec<_, _> =
             module.init.cache_slots.raw.values().map(|ty| lltype(ty, cx)).collect();
 
+        let mut hidden_state = IndexMap::with_hasher(BuildHasherDefault::<FxHasher>::default());
+        hidden_state.extend(module.hidden_state.iter().map(|&key| (key, lltype(&key.ty(db), cx))));
+        let num_transitions =
+            hidden_state.keys().filter(|key| matches!(key, HiddenStateKey::Transition(_))).count()
+                as u32;
+        let discontinuity = has_discontinuity_slot(module);
+
         let state_idx = cx.ty_array(cx.ty_int(), module.intern.lim_state.len() as u32);
         let static_fields: [_; NUM_CONST_FIELDS as usize] = [
             param_given,
@@ -353,6 +401,10 @@ impl<'ll> OsdiInstanceData<'ll> {
             .chain(cache_slots.iter().copied())
             .chain(eval_outputs.raw.values().copied())
             .chain(consts.iter().map(|_| ty_f64))
+            .chain(hidden_state.values().copied())
+            .chain(hidden_state.values().copied())
+            .chain((0..num_transitions as usize * TRANSITION_SLOTS.len()).map(|_| ty_f64))
+            .chain(discontinuity.then_some(ty_u32))
             .collect();
 
         let name = &module.sym;
@@ -378,6 +430,9 @@ impl<'ll> OsdiInstanceData<'ll> {
             bound_step,
             delay_times,
             delay_maxes,
+            hidden_state,
+            num_transitions,
+            discontinuity,
         }
     }
 
@@ -1119,6 +1174,185 @@ impl<'ll> OsdiInstanceData<'ll> {
         }
     }
 
+    /// Struct element of the accepted (`pending == false`) or the pending
+    /// (`pending == true`) slot of the `pos`-th hidden state
+    pub fn hidden_state_elem(&self, pos: u32, pending: bool) -> u32 {
+        let num = self.hidden_state.len() as u32;
+        NUM_CONST_FIELDS
+            + self.params.len() as u32
+            + self.cache_slots.len() as u32
+            + self.eval_outputs.len() as u32
+            + self.consts.len() as u32
+            + if pending { num } else { 0 }
+            + pos
+    }
+
+    pub fn hidden_state_loc(
+        &self,
+        cx: &CodegenCx<'_, 'll>,
+        key: HiddenStateKey,
+        pending: bool,
+        ptr: &'ll llvm_sys::LLVMValue,
+    ) -> MemLoc<'ll> {
+        let (pos, _, &ty) = self.hidden_state.get_full(&key).unwrap();
+        MemLoc::struct_gep(ptr, self.ty, ty, self.hidden_state_elem(pos as u32, pending), cx)
+    }
+
+    pub fn hidden_state_ptr(
+        &self,
+        llbuilder: &llvm_sys::LLVMBuilder,
+        key: HiddenStateKey,
+        pending: bool,
+        ptr: &'ll llvm_sys::LLVMValue,
+    ) -> (&'ll llvm_sys::LLVMValue, &'ll llvm_sys::LLVMType) {
+        let (pos, _, &ty) = self.hidden_state.get_full(&key).unwrap();
+        let ptr = unsafe {
+            &*LLVMBuildStructGEP2(
+                NonNull::from(llbuilder).as_ptr(),
+                NonNull::from(self.ty).as_ptr(),
+                NonNull::from(ptr).as_ptr(),
+                self.hidden_state_elem(pos as u32, pending),
+                UNNAMED,
+            )
+        };
+        (ptr, ty)
+    }
+
+    /// Stores the final value of every hidden state in its pending slot
+    pub unsafe fn store_hidden_state(
+        &self,
+        module: &OsdiModule,
+        ptr: &'ll llvm_sys::LLVMValue,
+        builder: &mir_llvm::Builder<'_, '_, 'll>,
+    ) {
+        for &key in self.hidden_state.keys() {
+            let val = module.intern.outputs[&key.output()].unwrap_unchecked();
+            let val = builder.values[val].get(builder);
+            let (ptr, _) = self.hidden_state_ptr(builder.llbuilder, key, true, ptr);
+            builder.store(ptr, val)
+        }
+    }
+
+    /// Struct element of the `slot`-th entry of [`TRANSITION_SLOTS`] of the `i`-th
+    /// `transition()` call site
+    pub fn transition_elem(&self, i: u32, slot: usize) -> u32 {
+        self.hidden_state_elem(0, false)
+            + 2 * self.hidden_state.len() as u32
+            + i * TRANSITION_SLOTS.len() as u32
+            + slot as u32
+    }
+
+    pub fn transition_ptr(
+        &self,
+        llbuilder: &llvm_sys::LLVMBuilder,
+        i: u32,
+        slot: usize,
+        ptr: &'ll llvm_sys::LLVMValue,
+    ) -> &'ll llvm_sys::LLVMValue {
+        unsafe {
+            &*LLVMBuildStructGEP2(
+                NonNull::from(llbuilder).as_ptr(),
+                NonNull::from(self.ty).as_ptr(),
+                NonNull::from(ptr).as_ptr(),
+                self.transition_elem(i, slot),
+                UNNAMED,
+            )
+        }
+    }
+
+    /// Location of the output slot (written by the simulator) of the `i`-th
+    /// `transition()` call site
+    pub fn transition_output_loc(
+        &self,
+        cx: &CodegenCx<'_, 'll>,
+        i: u32,
+        ptr: &'ll llvm_sys::LLVMValue,
+    ) -> MemLoc<'ll> {
+        let elem = self.transition_elem(i, TRANSITION_SLOTS.len() - 1);
+        MemLoc::struct_gep(ptr, self.ty, cx.ty_double(), elem, cx)
+    }
+
+    /// Stores the slots of every `transition()` call site written by eval
+    pub unsafe fn store_transitions(
+        &self,
+        module: &OsdiModule,
+        ptr: &'ll llvm_sys::LLVMValue,
+        builder: &mir_llvm::Builder<'_, '_, 'll>,
+    ) {
+        for i in 0..self.num_transitions {
+            for (pos, slot) in TRANSITION_SLOTS.iter().enumerate() {
+                let Some(slot) = *slot else { continue };
+                let val = module.intern.outputs[&PlaceKind::Transition(i, slot)].unwrap_unchecked();
+                let val = builder.values[val].get(builder);
+                builder.store(self.transition_ptr(builder.llbuilder, i, pos, ptr), val)
+            }
+        }
+    }
+
+    /// Byte offsets of the [`TRANSITION_SLOTS`] of the `i`-th `transition()` call site
+    pub fn transition_offsets(
+        &self,
+        i: u32,
+        target_data: &LLVMTargetDataRef,
+    ) -> [u32; TRANSITION_SLOTS.len()] {
+        std::array::from_fn(|slot| unsafe {
+            LLVMOffsetOfElement(
+                *target_data,
+                NonNull::from(self.ty).as_ptr(),
+                self.transition_elem(i, slot),
+            ) as u32
+        })
+    }
+
+    /// Pointer to the discontinuity slot, `None` if the module has none
+    pub fn discontinuity_ptr(
+        &self,
+        llbuilder: &llvm_sys::LLVMBuilder,
+        ptr: &'ll llvm_sys::LLVMValue,
+    ) -> Option<&'ll llvm_sys::LLVMValue> {
+        self.discontinuity.then(|| unsafe {
+            &*LLVMBuildStructGEP2(
+                NonNull::from(llbuilder).as_ptr(),
+                NonNull::from(self.ty).as_ptr(),
+                NonNull::from(ptr).as_ptr(),
+                self.transition_elem(self.num_transitions, 0),
+                UNNAMED,
+            )
+        })
+    }
+
+    /// Byte offset of the discontinuity slot, `u32::MAX` if the module has none
+    pub fn discontinuity_offset(&self, target_data: &LLVMTargetDataRef) -> u32 {
+        if !self.discontinuity {
+            return u32::MAX;
+        }
+        unsafe {
+            LLVMOffsetOfElement(
+                *target_data,
+                NonNull::from(self.ty).as_ptr(),
+                self.transition_elem(self.num_transitions, 0),
+            ) as u32
+        }
+    }
+
+    /// Byte offset of the accepted (`pending == false`) or the pending
+    /// (`pending == true`) slot of the hidden state `key`
+    pub fn hidden_state_offset(
+        &self,
+        key: HiddenStateKey,
+        pending: bool,
+        target_data: &LLVMTargetDataRef,
+    ) -> u32 {
+        let pos = self.hidden_state.get_index_of(&key).unwrap() as u32;
+        unsafe {
+            LLVMOffsetOfElement(
+                *target_data,
+                NonNull::from(self.ty).as_ptr(),
+                self.hidden_state_elem(pos, pending),
+            ) as u32
+        }
+    }
+
     pub fn cache_slot_elem(&self, slot: CacheSlot) -> u32 {
         NUM_CONST_FIELDS + self.params.len() as u32 + u32::from(slot)
     }
@@ -1317,17 +1551,23 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                         .param_ptr(OsdiInstanceParam::Builtin(func), inst_ptr, llbuilder)
                         .unwrap(),
 
-                    ParamKind::HiddenState(_) => todo!("hidden state"),
+                    ParamKind::HiddenState(var) => {
+                        inst_data.hidden_state_ptr(llbuilder, var, false, inst_ptr)
+                    }
 
                     ParamKind::Voltage { .. }
                     | ParamKind::Current(_)
                     | ParamKind::PortConnected { .. }
                     | ParamKind::ParamGiven { .. }
                     | ParamKind::Abstime
+                    | ParamKind::TimeStep
                     | ParamKind::EnableIntegration
                     | ParamKind::EnableLim
+                    | ParamKind::InitialStep
+                    | ParamKind::FinalStep
                     | ParamKind::PrevState(_)
                     | ParamKind::NewState(_)
+                    | ParamKind::TransitionOutput(_)
                     | ParamKind::ImplicitUnknown(_) => unreachable!(),
                 }
             }
@@ -1400,7 +1640,9 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                         .param_ptr(OsdiInstanceParam::Builtin(func), inst_ptr, llbuilder)
                         .unwrap(),
 
-                    ParamKind::HiddenState(_) => todo!("hidden state"),
+                    ParamKind::HiddenState(var) => {
+                        inst_data.hidden_state_ptr(llbuilder, var, false, inst_ptr)
+                    }
 
                     ParamKind::Voltage { .. }
                     | ParamKind::Current(_)
@@ -1408,9 +1650,13 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                     | ParamKind::ParamGiven { .. }
                     | ParamKind::EnableIntegration { .. }
                     | ParamKind::Abstime
+                    | ParamKind::TimeStep
                     | ParamKind::EnableLim
+                    | ParamKind::InitialStep
+                    | ParamKind::FinalStep
                     | ParamKind::PrevState(_)
                     | ParamKind::NewState(_)
+                    | ParamKind::TransitionOutput(_)
                     | ParamKind::ImplicitUnknown(_) => unreachable!(),
                 }
             }

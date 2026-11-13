@@ -3,17 +3,21 @@ use std::mem::replace;
 use ahash::{HashMap, HashSet};
 use hir_def::body::Body;
 use hir_def::{
-    BranchId, BuiltIn, DefWithBodyId, DisciplineId, Expr, ExprId, FunctionArgLoc, Literal, Lookup,
-    NatureId, NodeId, ParamId, Path, Stmt, StmtId, VarId,
+    BranchId, BuiltIn, DefWithBodyId, DisciplineId, Expr, ExprId, FunctionArgLoc, FunctionId,
+    Literal, Lookup, NatureId, NodeId, ParamId, Path, Stmt, StmtId, VarId,
 };
 use stdx::impl_display;
 use syntax::ast::AssignOp;
 use syntax::name::{AsIdent, Name};
 
 use crate::builtin::{
-    ABSDELAY_MAX, DDT_TOL, IDT_IC_ASSERT_TOL, NATURE_ACCESS_BRANCH, NATURE_ACCESS_NODES,
-    NATURE_ACCESS_NODE_GND, NATURE_ACCESS_PORT_FLOW, NOISE_TABLE_INLINE, NOISE_TABLE_INLINE_NAME,
-    TRANSITION_DELAY_RISET_FALLT_TOL,
+    ABSDELAY_MAX, ARANDOM_CONST_SEED, ARANDOM_NO_SEED, ARANDOM_SEED, ARANDOM_TYPED, DDT_TOL,
+    IDT_IC_ASSERT_TOL, NATURE_ACCESS_BRANCH, NATURE_ACCESS_NODES, NATURE_ACCESS_NODE_GND,
+    NATURE_ACCESS_PORT_FLOW, NOISE_TABLE_INLINE, NOISE_TABLE_INLINE_NAME, RANDOM_NO_SEED,
+    RANDOM_SEED, RDIST_1_ARG_CONST_SEED, RDIST_1_ARG_SEED, RDIST_1_ARG_TYPED,
+    RDIST_2_ARG_CONST_SEED, RDIST_2_ARG_SEED, RDIST_2_ARG_TYPED, RDIST_NORMAL_CONST_SEED,
+    RDIST_NORMAL_SEED, RDIST_NORMAL_TYPED, RDIST_UNIFORM_CONST_SEED, RDIST_UNIFORM_SEED,
+    RDIST_UNIFORM_TYPED, TRANSITION_DELAY_RISET_FALLT_TOL,
 };
 use crate::db::HirTyDB;
 use crate::inference::{BranchWrite, InferenceResult, ResolvedFun};
@@ -25,6 +29,7 @@ pub enum IllegalCtxAccessKind {
     NatureAccess,
     AnalogOperator { name: Name, is_standard: bool, non_const_dominator: Box<[ExprId]> },
     AnalysisFun { name: Name },
+    Builtin { name: Name },
     Var(VarId),
 }
 
@@ -51,6 +56,10 @@ pub enum BodyValidationDiagnostic {
         branch: Option<BranchId>,
     },
     IllegalContribute {
+        stmt: StmtId,
+        ctx: BodyCtx,
+    },
+    IllegalEventControl {
         stmt: StmtId,
         ctx: BodyCtx,
     },
@@ -96,6 +105,106 @@ pub enum BodyValidationDiagnostic {
         node1: NodeId,
         node2: NodeId,
     },
+
+    /// Illegal `$random`/`$arandom` call. If `fun` is set, `expr` is a call of
+    /// that function, which (possibly indirectly) contains the illegal call.
+    IllegalRandom {
+        expr: ExprId,
+        kind: IllegalRandomKind,
+        fun: Option<FunctionId>,
+    },
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum IllegalRandomKind {
+    /// Untyped forms need hidden state (`-s`)
+    RequiresFullSemantics,
+    /// Untyped forms are not allowed in analog initial blocks
+    AnalogInitial,
+    /// Only `$arandom` and `$rdist_*` with a constant seed are allowed in
+    /// parameter initializers
+    ParamInit,
+    /// Only a constant seed is allowed in variable initializers
+    VarInit,
+    /// The seed is neither an integer variable nor a constant expression
+    NonConstSeed,
+    /// The type string is not "global" or "instance"
+    InvalidType,
+}
+
+/// Signature of a call whose signature inference does not record (builtins with a
+/// single signature), the same as `BodyRef::get_call_signature` returns
+const NO_SIGNATURE: Signature = Signature(u32::MAX);
+
+/// Form of a `$random`/`$arandom`/`$dist_*`/`$rdist_*` call
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum RandomForm {
+    /// `$random()`, `$arandom()`
+    NoSeed,
+    /// `$random(var)`, `$arandom(var)`, `$dist_*(var, ...)`, `$rdist_*(var, ...)`
+    VarSeed,
+    /// `$arandom(constant)`, `$rdist_*(constant, ...)`
+    ConstSeed,
+    /// `$arandom(seed, type)`, `$rdist_*(seed, ..., type)`
+    Typed,
+}
+
+impl RandomForm {
+    /// `signature` is ignored for builtins with a single signature (inference does
+    /// not record it for them)
+    pub fn new(call: BuiltIn, signature: Signature) -> Option<RandomForm> {
+        let form = match (call, signature) {
+            (BuiltIn::random, RANDOM_NO_SEED) | (BuiltIn::arandom, ARANDOM_NO_SEED) => {
+                RandomForm::NoSeed
+            }
+            (BuiltIn::random, RANDOM_SEED)
+            | (BuiltIn::arandom, ARANDOM_SEED)
+            | (
+                BuiltIn::dist_uniform
+                | BuiltIn::dist_normal
+                | BuiltIn::dist_exponential
+                | BuiltIn::dist_poisson
+                | BuiltIn::dist_chi_square
+                | BuiltIn::dist_t
+                | BuiltIn::dist_erlang,
+                _,
+            ) => RandomForm::VarSeed,
+            (BuiltIn::rdist_uniform, RDIST_UNIFORM_SEED)
+            | (BuiltIn::rdist_normal, RDIST_NORMAL_SEED)
+            | (
+                BuiltIn::rdist_exponential
+                | BuiltIn::rdist_poisson
+                | BuiltIn::rdist_chi_square
+                | BuiltIn::rdist_t,
+                RDIST_1_ARG_SEED,
+            )
+            | (BuiltIn::rdist_erlang, RDIST_2_ARG_SEED) => RandomForm::VarSeed,
+            (BuiltIn::arandom, ARANDOM_CONST_SEED)
+            | (BuiltIn::rdist_uniform, RDIST_UNIFORM_CONST_SEED)
+            | (BuiltIn::rdist_normal, RDIST_NORMAL_CONST_SEED)
+            | (
+                BuiltIn::rdist_exponential
+                | BuiltIn::rdist_poisson
+                | BuiltIn::rdist_chi_square
+                | BuiltIn::rdist_t,
+                RDIST_1_ARG_CONST_SEED,
+            )
+            | (BuiltIn::rdist_erlang, RDIST_2_ARG_CONST_SEED) => RandomForm::ConstSeed,
+            (BuiltIn::arandom, ARANDOM_TYPED)
+            | (BuiltIn::rdist_uniform, RDIST_UNIFORM_TYPED)
+            | (BuiltIn::rdist_normal, RDIST_NORMAL_TYPED)
+            | (
+                BuiltIn::rdist_exponential
+                | BuiltIn::rdist_poisson
+                | BuiltIn::rdist_chi_square
+                | BuiltIn::rdist_t,
+                RDIST_1_ARG_TYPED,
+            )
+            | (BuiltIn::rdist_erlang, RDIST_2_ARG_TYPED) => RandomForm::Typed,
+            _ => return None,
+        };
+        Some(form)
+    }
 }
 
 impl BodyValidationDiagnostic {
@@ -168,6 +277,11 @@ impl BodyCtx {
         !matches!(self, Self::Const)
     }
 
+    /// `$stop`, `$abstime`, `analysis()` and `$discontinuity` require a running analysis
+    fn allow_analysis_state(self) -> bool {
+        !matches!(self, Self::AnalogInitialBlock)
+    }
+
     fn allow_var_ref(self) -> bool {
         !matches!(self, Self::Const | Self::ConstOrAnalysis)
     }
@@ -215,6 +329,15 @@ impl BodyValidator<'_> {
                 return;
             }
             Stmt::EventControl { body, .. } => {
+                // keep the analog initial context so that its body is still checked
+                if self.ctx == BodyCtx::AnalogInitialBlock {
+                    self.diagnostics.push(BodyValidationDiagnostic::IllegalEventControl {
+                        stmt,
+                        ctx: self.ctx,
+                    });
+                    self.validate_stmt(body);
+                    return;
+                }
                 let old = replace(&mut self.ctx, BodyCtx::EventControl);
                 self.validate_stmt(body);
                 self.ctx = old;
@@ -473,6 +596,7 @@ impl ExprValidator<'_, '_> {
                         self.validate_nature_access(*nature, expr, args);
                         return;
                     }
+                    Some(&ResolvedFun::User { func, .. }) => self.validate_user_call(expr, func),
                     _ => (),
                 }
             }
@@ -539,6 +663,94 @@ impl ExprValidator<'_, '_> {
         self.parent.body.exprs[expr].walk_child_exprs(|child| self.validate_expr(child))
     }
 
+    /// Checks a `$random`/`$arandom`/`$dist_*`/`$rdist_*` call. Typed calls
+    /// (`$arandom(seed, type)`) are allowed everywhere. Untyped calls need full
+    /// Verilog-A semantics and are not allowed in analog initial blocks. In
+    /// initializers only a constant seed is allowed (only `$arandom` and
+    /// `$rdist_*`).
+    fn validate_random(
+        &mut self,
+        expr: ExprId,
+        args: &[ExprId],
+        call: BuiltIn,
+        signature: Option<Signature>,
+    ) {
+        let signature = signature.unwrap_or(NO_SIGNATURE);
+        let Some(form) = RandomForm::new(call, signature) else { return };
+        let kind = match form {
+            RandomForm::Typed => {
+                let valid = matches!(
+                    &self.parent.body.exprs[*args.last().unwrap()],
+                    Expr::Literal(Literal::String(ty)) if matches!(&**ty, "global" | "instance")
+                );
+                if valid {
+                    return;
+                }
+                IllegalRandomKind::InvalidType
+            }
+            _ if !self.parent.db.full_semantics() => IllegalRandomKind::RequiresFullSemantics,
+            _ => {
+                let init_kind = match self.parent.owner {
+                    DefWithBodyId::ModuleId { initial: true, .. } => {
+                        Some(IllegalRandomKind::AnalogInitial)
+                    }
+                    DefWithBodyId::VarId(_) => Some(IllegalRandomKind::VarInit),
+                    DefWithBodyId::ModuleId { initial: false, .. }
+                    | DefWithBodyId::FunctionId(_) => None,
+                    _ => Some(IllegalRandomKind::ParamInit),
+                };
+                match (form, init_kind) {
+                    (_, Some(IllegalRandomKind::AnalogInitial)) => IllegalRandomKind::AnalogInitial,
+                    (RandomForm::ConstSeed, _) if !self.is_const_expr(args[0]) => {
+                        IllegalRandomKind::NonConstSeed
+                    }
+                    (RandomForm::ConstSeed, _) | (_, None) => return,
+                    (_, Some(kind)) => kind,
+                }
+            }
+        };
+        self.report(BodyValidationDiagnostic::IllegalRandom { expr, kind, fun: None })
+    }
+
+    /// Analog initial blocks and initializers must not call functions that contain
+    /// untyped `$random`/`$arandom` calls (initializers allow a constant seed).
+    fn validate_user_call(&mut self, expr: ExprId, fun: FunctionId) {
+        let (kind, allow_const) = match self.parent.owner {
+            DefWithBodyId::ModuleId { initial: true, .. } => {
+                (IllegalRandomKind::AnalogInitial, false)
+            }
+            DefWithBodyId::VarId(_) => (IllegalRandomKind::VarInit, true),
+            DefWithBodyId::ParamId(_) => (IllegalRandomKind::ParamInit, true),
+            _ => return,
+        };
+        // without full semantics the function body reports the calls
+        if !self.parent.db.full_semantics() {
+            return;
+        }
+        let mut visited = HashSet::default();
+        if calls_untyped_random(self.parent.db, fun, allow_const, &mut visited) {
+            self.report(BodyValidationDiagnostic::IllegalRandom { expr, kind, fun: Some(fun) })
+        }
+    }
+
+    /// Constant expression: literals and parameters combined with operators
+    fn is_const_expr(&self, expr: ExprId) -> bool {
+        match self.parent.body.exprs[expr] {
+            Expr::Literal(_) => true,
+            Expr::Path { port: false, .. } => {
+                matches!(self.parent.infer.expr_types[expr], Ty::Param(..))
+            }
+            Expr::UnaryOp { expr, .. } => self.is_const_expr(expr),
+            Expr::BinaryOp { lhs, rhs, .. } => self.is_const_expr(lhs) && self.is_const_expr(rhs),
+            Expr::Select { cond, then_val, else_val } => {
+                self.is_const_expr(cond)
+                    && self.is_const_expr(then_val)
+                    && self.is_const_expr(else_val)
+            }
+            _ => false,
+        }
+    }
+
     fn validate_builtin(
         &mut self,
         name: &Option<Path>,
@@ -547,6 +759,28 @@ impl ExprValidator<'_, '_> {
         call: BuiltIn,
         signature: Option<Signature>,
     ) {
+        if matches!(
+            call,
+            BuiltIn::random
+                | BuiltIn::arandom
+                | BuiltIn::dist_uniform
+                | BuiltIn::dist_normal
+                | BuiltIn::dist_exponential
+                | BuiltIn::dist_poisson
+                | BuiltIn::dist_chi_square
+                | BuiltIn::dist_t
+                | BuiltIn::dist_erlang
+                | BuiltIn::rdist_uniform
+                | BuiltIn::rdist_normal
+                | BuiltIn::rdist_exponential
+                | BuiltIn::rdist_poisson
+                | BuiltIn::rdist_chi_square
+                | BuiltIn::rdist_t
+                | BuiltIn::rdist_erlang
+        ) {
+            self.validate_random(expr, args, call, signature.clone());
+        }
+
         match call {
             _ if call.is_unsupported() => self
                 .parent
@@ -585,6 +819,16 @@ impl ExprValidator<'_, '_> {
                     },
                     expr,
                 ),
+            BuiltIn::stop | BuiltIn::abstime | BuiltIn::analysis | BuiltIn::discontinuity
+                if !self.parent.ctx.allow_analysis_state() =>
+            {
+                self.report_illegal_access(
+                    IllegalCtxAccessKind::Builtin {
+                        name: name.as_ref().and_then(|p| p.as_ident()).unwrap(),
+                    },
+                    expr,
+                )
+            }
             _ => (),
         }
 
@@ -683,6 +927,7 @@ impl ExprValidator<'_, '_> {
                 BuiltIn::noise_table | BuiltIn::noise_table_log,
                 Some(NOISE_TABLE_INLINE | NOISE_TABLE_INLINE_NAME),
             ) => self.validate_const_expr(args[0]),
+            (BuiltIn::discontinuity, _) if !args.is_empty() => self.validate_const_expr(args[0]),
             (func @ (BuiltIn::simparam | BuiltIn::simparam_str), _) => {
                 if self.parent.ctx == BodyCtx::Const {
                     let known = if let Expr::Literal(Literal::String(name)) =
@@ -773,4 +1018,49 @@ impl ExprValidator<'_, '_> {
         self.cond_diagnostic_sink = sink;
         self.parent.ctx = old;
     }
+}
+
+/// Whether `fun` or a function it calls contains an untyped `$random`/`$arandom`/
+/// `$rdist_*` or a `$dist_*` call (other than a constant seed if
+/// `allow_const` is set)
+fn calls_untyped_random(
+    db: &dyn HirTyDB,
+    fun: FunctionId,
+    allow_const: bool,
+    visited: &mut HashSet<FunctionId>,
+) -> bool {
+    if !visited.insert(fun) {
+        return false;
+    }
+    let infer = db.inference_result(DefWithBodyId::FunctionId(fun));
+    infer.resolved_calls.iter().any(|(expr, call)| match *call {
+        ResolvedFun::BuiltIn(
+            builtin @ (BuiltIn::random
+            | BuiltIn::arandom
+            | BuiltIn::dist_uniform
+            | BuiltIn::dist_normal
+            | BuiltIn::dist_exponential
+            | BuiltIn::dist_poisson
+            | BuiltIn::dist_chi_square
+            | BuiltIn::dist_t
+            | BuiltIn::dist_erlang
+            | BuiltIn::rdist_uniform
+            | BuiltIn::rdist_normal
+            | BuiltIn::rdist_exponential
+            | BuiltIn::rdist_poisson
+            | BuiltIn::rdist_chi_square
+            | BuiltIn::rdist_t
+            | BuiltIn::rdist_erlang),
+        ) => {
+            let sig = infer.resolved_signatures.get(expr).cloned().unwrap_or(NO_SIGNATURE);
+            let form = RandomForm::new(builtin, sig);
+            match form {
+                Some(RandomForm::Typed) | None => false,
+                Some(RandomForm::ConstSeed) => !allow_const,
+                Some(_) => true,
+            }
+        }
+        ResolvedFun::User { func, .. } => calls_untyped_random(db, func, allow_const, visited),
+        _ => false,
+    })
 }

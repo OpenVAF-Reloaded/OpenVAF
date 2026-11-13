@@ -203,7 +203,8 @@ impl ModelImpl for OsdiModel {
             vals_str: ptr::null_mut(),
         };
 
-        let mut res = OsdiInitInfo { flags: 0, num_errors: 0, errors: ptr::null_mut() };
+        let mut res =
+            OsdiInitInfo { flags: 0, num_errors: 0, errors: ptr::null_mut(), entity_seed: 0 };
         self.descriptor.setup_model(
             b"foo\0".as_ptr() as *mut c_void,
             self.data,
@@ -366,7 +367,8 @@ impl InstanceImpl for OsdiInstance {
             vals_str: ptr::null_mut(),
         };
 
-        let mut res = OsdiInitInfo { flags: 0, num_errors: 0, errors: ptr::null_mut() };
+        let mut res =
+            OsdiInitInfo { flags: 0, num_errors: 0, errors: ptr::null_mut(), entity_seed: 0 };
         self.descriptor.setup_instance(
             b"foo\0".as_ptr() as *mut c_void,
             self.data,
@@ -475,6 +477,7 @@ impl InstanceImpl for OsdiInstance {
             prev_state: ptr::null_mut(),
             next_state: ptr::null_mut(),
             flags: sim_info.flags.bits(),
+            dt: 0.0,
         };
 
         let ret_flags = self.descriptor.eval(

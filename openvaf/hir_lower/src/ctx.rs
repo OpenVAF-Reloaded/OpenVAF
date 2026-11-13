@@ -8,8 +8,8 @@ use mir_build::{FuncInstBuilder, FunctionBuilder, Place};
 use typed_indexmap::TiSet;
 
 use crate::{
-    CallBackKind, HirInterner, ImplicitEquation, ImplicitEquationKind, LimitState, ParamKind,
-    PlaceKind,
+    CallBackKind, HiddenStateKey, HirInterner, ImplicitEquation, ImplicitEquationKind, LimitState,
+    ParamKind, PlaceKind,
 };
 
 pub struct LoweringCtx<'a, 'c> {
@@ -20,11 +20,26 @@ pub struct LoweringCtx<'a, 'c> {
     pub places: TiSet<Place, PlaceKind>,
     tagged_vars: AHashSet<Variable>,
     pub inside_lim: bool,
+    /// Compact model: event bodies (`@(initial_step)`) run in every evaluation.
+    /// Otherwise they are gated on their events.
+    pub compact: bool,
     /// We create a dedicated callback for each noise source
     /// by giving each callback a unique index. Kind of ineffcient
     /// but necessary to avoid accidental correlation/opimization.
     /// For example white_noise(x) - white_noise(x) is not zero.
     pub num_noise_sources: u32,
+    /// Number of `slew()` call sites with hidden state lowered so far
+    pub num_slews: u32,
+    /// Number of `last_crossing()` call sites with hidden state lowered so far
+    pub num_last_crossings: u32,
+    /// Number of `transition()` call sites with hidden state lowered so far
+    pub num_transitions: u32,
+    /// Number of random number generators with hidden state (site ids) so far
+    pub num_randoms: u32,
+    /// Lowering an initializer: random number generators are pure
+    pub pure_random: bool,
+    /// Site id, body and seed of each `$arandom(constant)` with hidden state
+    pub random_seeds: Vec<(u32, hir::Body, hir::ExprId)>,
 }
 
 impl<'a, 'c> LoweringCtx<'a, 'c> {
@@ -41,8 +56,15 @@ impl<'a, 'c> LoweringCtx<'a, 'c> {
             places: TiSet::default(),
             tagged_vars: AHashSet::default(),
             inside_lim: false,
+            compact: true,
             intern,
             num_noise_sources: 0,
+            num_slews: 0,
+            num_last_crossings: 0,
+            num_transitions: 0,
+            num_randoms: 0,
+            pure_random: false,
+            random_seeds: Vec::new(),
         }
     }
 
@@ -79,13 +101,30 @@ impl<'a, 'c> LoweringCtx<'a, 'c> {
                 | PlaceKind::ParamMin(_)
                 | PlaceKind::ParamMax(_) => return place,
 
-                PlaceKind::Var(var) => self.use_param(ParamKind::HiddenState(var)),
+                PlaceKind::Var(var) => {
+                    self.use_param(ParamKind::HiddenState(HiddenStateKey::Var(var)))
+                }
+                // keeps its previous value if the call site is not executed
+                PlaceKind::SlewOutput(i) => {
+                    self.use_param(ParamKind::HiddenState(HiddenStateKey::Slew(i)))
+                }
+                PlaceKind::LastCrossingOutput(i, slot) => {
+                    self.use_param(ParamKind::HiddenState(HiddenStateKey::LastCrossing(i, slot)))
+                }
+                PlaceKind::RandomOutput(i) => {
+                    self.use_param(ParamKind::HiddenState(HiddenStateKey::Random(i)))
+                }
                 PlaceKind::ImplicitResidual { .. } | PlaceKind::Contribute { .. } => F_ZERO,
                 PlaceKind::CollapseImplicitEquation(_) => TRUE,
                 PlaceKind::IsVoltageSrc(_) => FALSE,
                 PlaceKind::BoundStep => INFINITY,
                 PlaceKind::AbsDelayTime(_) => F_ZERO,
                 PlaceKind::AbsDelayMax(_) => F_ZERO,
+                // transition() is never called conditionally
+                PlaceKind::Transition(..) => F_ZERO,
+                PlaceKind::HiddenStateInit(_) | PlaceKind::RandomInit(_) => {
+                    unreachable!("{kind:?} is not a place")
+                }
             };
             let entry = self.func.func.layout.entry_block().unwrap();
             self.func.def_var_at(place, init, entry);

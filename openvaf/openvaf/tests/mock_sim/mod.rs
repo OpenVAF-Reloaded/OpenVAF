@@ -25,6 +25,8 @@ pub struct MockSimulation {
     pub state_1: Vec<f64>,
     pub state_2: Vec<f64>,
     pub noise_dense: Vec<f64>,
+    pub abstime: f64,
+    pub dt: f64,
 }
 impl MockSimulation {
     fn new() -> MockSimulation {
@@ -47,6 +49,8 @@ impl MockSimulation {
             state_1: Vec::new(),
             state_2: Vec::new(),
             noise_dense: Vec::new(),
+            abstime: 0.0,
+            dt: 0.0,
         }
     }
 
@@ -240,11 +244,12 @@ impl OsdiInstance {
         };
         let mut sim_info = OsdiSimInfo {
             paras: sim_params,
-            abstime: 0.0,
+            abstime: sim.abstime,
             prev_solve: sim.solve.as_ptr() as *mut f64,
             prev_state: sim.state_1.as_mut_ptr(),
             next_state: sim.state_2.as_mut_ptr(),
             flags: flags.bits(),
+            dt: sim.dt,
         };
         let flags = self.descriptor.eval(
             b"foo\0".as_ptr() as *mut c_void,
@@ -253,5 +258,42 @@ impl OsdiInstance {
             &mut sim_info,
         );
         EvalRetFlags::from_bits(flags).unwrap()
+    }
+
+    /// Accepts the last evaluation at `abstime` with time step `dt`
+    pub fn accept(&self, model: &OsdiModel, abstime: f64, dt: f64) {
+        let sim_params = OsdiSimParas {
+            names: &mut ptr::null_mut(),
+            vals: ptr::null_mut(),
+            names_str: &mut ptr::null_mut(),
+            vals_str: ptr::null_mut(),
+        };
+        let mut sim_info = OsdiSimInfo {
+            paras: sim_params,
+            abstime,
+            prev_solve: ptr::null_mut(),
+            prev_state: ptr::null_mut(),
+            next_state: ptr::null_mut(),
+            flags: 0,
+            dt,
+        };
+        self.descriptor.accept(self.data, model.data, &mut sim_info);
+    }
+
+    /// Writes the output of the `i`-th `transition()` call site (done by the
+    /// simulator before eval)
+    pub fn set_transition_output(&self, i: usize, val: f64) {
+        let offset = self.descriptor.transitions()[i].output_offset;
+        unsafe { *(self.data as *mut u8).add(offset as usize).cast::<f64>() = val };
+    }
+
+    /// Reads the slot at `offset` of the instance data
+    pub fn read_f64(&self, offset: u32) -> f64 {
+        unsafe { *(self.data as *mut u8).add(offset as usize).cast::<f64>() }
+    }
+
+    /// Reads the integer slot at `offset` of the instance data
+    pub fn read_i32(&self, offset: u32) -> i32 {
+        unsafe { *(self.data as *mut u8).add(offset as usize).cast::<i32>() }
     }
 }

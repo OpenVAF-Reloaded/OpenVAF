@@ -15,7 +15,8 @@ pub use types::TypeValidationDiagnostic;
 
 use crate::db::HirTyDB;
 use crate::inference::BranchWrite;
-use crate::validation::body::{BodyCtx, IllegalCtxAccess, IllegalCtxAccessKind};
+pub use crate::validation::body::RandomForm;
+use crate::validation::body::{BodyCtx, IllegalCtxAccess, IllegalCtxAccessKind, IllegalRandomKind};
 use crate::validation::types::DuplicateItem;
 
 mod body;
@@ -226,6 +227,25 @@ impl Diagnostic for BodyValidationDiagnosticWrapped<'_> {
                             .to_owned(),
                     ])
             }
+            BodyValidationDiagnostic::IllegalEventControl { stmt, ctx } => {
+                let FileSpan { range, file } = self.parse.to_file_span(
+                    self.body_sm.stmt_map_back[stmt].as_ref().unwrap().range(),
+                    self.sm,
+                );
+
+                Report::error()
+                    .with_message(format!("event control is not allowed in {}", ctx))
+                    .with_labels(vec![Label {
+                        style: LabelStyle::Secondary,
+                        file_id: file,
+                        range: range.into(),
+                        message: "not allowed here".to_owned(),
+                    }])
+                    .with_notes(vec![
+                        "help: event control statements are only allowed in module-level analog blocks"
+                            .to_owned(),
+                    ])
+            }
             BodyValidationDiagnostic::WriteToInputArg { expr, arg } => {
                 let FileSpan { range, file } = self.expr_src(expr);
                 let arg_name = arg.name(self.db.upcast());
@@ -337,6 +357,9 @@ impl Diagnostic for BodyValidationDiagnosticWrapped<'_> {
                         "analysis function '{}' is not allowed in constants",
                         name
                     )),
+                    IllegalCtxAccessKind::Builtin { name } => {
+                        res.with_message(format!("'{}' is not allowed in {}", name, ctx))
+                    }
                     IllegalCtxAccessKind::Var(var) => {
                         let name = var.lookup(self.db.upcast()).name(self.db.upcast());
                         let def = var.lookup(self.db.upcast()).ast_ptr(self.db.upcast()).range();
@@ -454,6 +477,52 @@ impl Diagnostic for BodyValidationDiagnosticWrapped<'_> {
                     }])
                     .with_message(format!("'{name}' access of branch without {name}"))
                     .with_notes(vec![format!("help: this branches nodes have a discipline without the '{name}' attribute")])
+            }
+            BodyValidationDiagnostic::IllegalRandom { expr, kind, fun } => {
+                let FileSpan { range, file } = self.expr_src(expr);
+                let (message, note) = match kind {
+                    IllegalRandomKind::RequiresFullSemantics => (
+                        "untyped random number generation requires full Verilog-A semantics",
+                        "help: compile with -s or use $arandom(seed, \"global\"|\"instance\")",
+                    ),
+                    IllegalRandomKind::AnalogInitial => (
+                        "untyped random number generation is not allowed in the analog initial block",
+                        "help: use $arandom(seed, \"global\"|\"instance\")",
+                    ),
+                    IllegalRandomKind::ParamInit => (
+                        "only $arandom and $rdist_* with a constant seed are allowed in parameter initializers",
+                        "help: use $arandom(constant) or $arandom(seed, \"global\"|\"instance\")",
+                    ),
+                    IllegalRandomKind::VarInit => (
+                        "only $arandom and $rdist_* with a constant seed are allowed in variable initializers",
+                        "help: use $arandom(constant) or $arandom(seed, \"global\"|\"instance\")",
+                    ),
+                    IllegalRandomKind::NonConstSeed => (
+                        "the seed must be an integer variable or a constant expression",
+                        "help: constant expressions contain only literals, parameters and operators",
+                    ),
+                    IllegalRandomKind::InvalidType => (
+                        "the type of $arandom must be \"global\" or \"instance\"",
+                        "help: use $arandom(seed, \"global\") or $arandom(seed, \"instance\")",
+                    ),
+                };
+                let mut notes = vec![note.to_owned()];
+                if let Some(fun) = fun {
+                    let name = &self.db.function_data(fun).name;
+                    notes.insert(
+                        0,
+                        format!("note: called function '{name}' generates random numbers"),
+                    );
+                }
+                Report::error()
+                    .with_message(message.to_owned())
+                    .with_labels(vec![Label {
+                        style: LabelStyle::Primary,
+                        file_id: file,
+                        range: range.into(),
+                        message: "not allowed here".to_owned(),
+                    }])
+                    .with_notes(notes)
             }
             BodyValidationDiagnostic::IncompatibleImplicitBranch { access, node1, node2 } => {
                 let node1_ = self.db.node_data(node1);

@@ -36,10 +36,13 @@ pub const ANALYSIS_TRAN: u32 = 8192;
 pub const ANALYSIS_IC: u32 = 16384;
 pub const ANALYSIS_STATIC: u32 = 32768;
 pub const ANALYSIS_NODESET: u32 = 65536;
+pub const INITIAL_STEP: u32 = 131072;
+pub const FINAL_STEP: u32 = 262144;
 pub const EVAL_RET_FLAG_LIM: u32 = 1;
 pub const EVAL_RET_FLAG_FATAL: u32 = 2;
 pub const EVAL_RET_FLAG_FINISH: u32 = 4;
 pub const EVAL_RET_FLAG_STOP: u32 = 8;
+pub const INIT_HIDDEN_STATE: u32 = 1;
 pub const LOG_LVL_MASK: u32 = 7;
 pub const LOG_LVL_DEBUG: u32 = 0;
 pub const LOG_LVL_DISPLAY: u32 = 1;
@@ -63,6 +66,10 @@ pub const NOISE_TYPE_WHITE: u32 = 0;
 pub const NOISE_TYPE_FLICKER: u32 = 1;
 pub const NOISE_TYPE_TABLE: u32 = 2;
 pub const MODULEFLAG_ABSTIME: u32 = 1;
+pub const MODULEFLAG_HIDDEN_STATE: u32 = 2;
+pub const MODULEFLAG_INITIAL_STEP: u32 = 4;
+pub const MODULEFLAG_FINAL_STEP: u32 = 8;
+pub const MODULEFLAG_COMPACT: u32 = 16;
 
 #[repr(C)]
 pub struct OsdiLimFunction {
@@ -85,6 +92,7 @@ pub struct OsdiSimInfo {
     pub prev_state: *mut f64,
     pub next_state: *mut f64,
     pub flags: u32,
+    pub dt: f64,
 }
 #[repr(C)]
 pub union OsdiInitErrorPayload {
@@ -100,6 +108,7 @@ pub struct OsdiInitInfo {
     pub flags: u32,
     pub num_errors: u32,
     pub errors: *mut OsdiInitError,
+    pub entity_seed: u32,
 }
 #[repr(C)]
 pub struct OsdiNodePair {
@@ -155,6 +164,16 @@ pub struct OsdiAbsDelay {
     pub z_node: u32,
     pub td_offset: u32,
     pub maxdelay_offset: u32,
+}
+#[repr(C)]
+pub struct OsdiTransition {
+    pub tbegin_offset: u32,
+    pub tr_offset: u32,
+    pub tf_offset: u32,
+    pub time_tol_offset: u32,
+    pub input_pending_offset: u32,
+    pub input_accepted_offset: u32,
+    pub output_offset: u32,
 }
 #[repr(C)]
 #[non_exhaustive]
@@ -214,6 +233,10 @@ pub struct OsdiDescriptor {
     pub absdelay_count: u32,
     pub absdelays: *mut OsdiAbsDelay,
     pub jacobian_values: *mut OsdiJacobianValue,
+    pub accept: fn(*mut c_void, *mut c_void, *mut OsdiSimInfo),
+    pub transition_count: u32,
+    pub transitions: *mut OsdiTransition,
+    pub discontinuity_offset: u32,
 }
 impl OsdiDescriptor {
     pub fn access(
@@ -350,6 +373,9 @@ impl OsdiDescriptor {
         exponent: *mut f64,
     ) {
         (self.load_noise_params)(inst, model, power, exponent)
+    }
+    pub fn accept(&self, inst: *mut c_void, model: *mut c_void, info: *mut OsdiSimInfo) {
+        (self.accept)(inst, model, info)
     }
 }
 #[repr(C)]

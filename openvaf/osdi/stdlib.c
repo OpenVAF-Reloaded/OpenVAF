@@ -733,6 +733,9 @@ VAMS_RANDOM_PAIR(vams_erlang_int, int32_t, rtl_dist_erlang_alt,
 // Uniformly distributed real on (a, b)
 VAMS_RANDOM_PAIR(vams_uniform_real, double, uniform_alt,
                  (, double a, double b), (, a, b))
+// Normally distributed real
+VAMS_RANDOM_PAIR(vams_normal_real, double, normal_alt,
+                 (, double mean, double sd), (, mean, sd))
 
 // IEEE 1364-2005 generator wrappers
 // $random/$arandom
@@ -760,6 +763,9 @@ VAMS_RANDOM_PAIR(vams_erlang_int_ieee, int32_t, rtl_dist_erlang,
 // Uniformly distributed real on [start, end] (start >= end: [0, 2^31-1])
 VAMS_RANDOM_PAIR(vams_uniform_real_ieee, double, uniform,
                  (, double start, double end), (, start, end))
+// Normally distributed real
+VAMS_RANDOM_PAIR(vams_normal_real_ieee, double, normal,
+                 (, double mean, double sd), (, mean, sd))
 
 // Initial state of the random number generator with site id site_id that is
 // seeded by the simulator. Reads entity_seed only if INIT_HIDDEN_STATE is set

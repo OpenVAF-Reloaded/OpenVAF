@@ -1071,6 +1071,7 @@ harness! {
         Test::new("random_dist_normal", &random::dist_normal),
         Test::new("random_dist_other", &random::dist_other),
         Test::new("random_rdist_uniform", &random::rdist_uniform),
+        Test::new("random_rdist_normal", &random::rdist_normal),
         Test::new("bus_port_dac", &bus_port_dac_test),
         Test::new("hierarchy_bus_slices", &hierarchy_bus_slices_test),
         Test::new("hierarchy_variable_width_slices", &hierarchy_variable_width_slices_test),

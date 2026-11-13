@@ -108,6 +108,8 @@ pub enum RandomGen {
     ErlangInt,
     /// `$rdist_uniform(seed, start, end)`
     UniformReal,
+    /// `$rdist_normal(seed, mean, standard_deviation)`
+    NormalReal,
 }
 
 impl RandomGen {
@@ -132,6 +134,8 @@ impl RandomGen {
             (RandomGen::ErlangInt, true) => "vams_erlang_int_ieee",
             (RandomGen::UniformReal, false) => "vams_uniform_real",
             (RandomGen::UniformReal, true) => "vams_uniform_real_ieee",
+            (RandomGen::NormalReal, false) => "vams_normal_real",
+            (RandomGen::NormalReal, true) => "vams_normal_real_ieee",
         }
     }
 
@@ -146,14 +150,15 @@ impl RandomGen {
             RandomGen::UniformInt
             | RandomGen::NormalInt
             | RandomGen::ErlangInt
-            | RandomGen::UniformReal => 2,
+            | RandomGen::UniformReal
+            | RandomGen::NormalReal => 2,
         }
     }
 
     /// Whether the arguments after the state and the value are real (otherwise
     /// integer). The state is always an integer.
     pub fn is_real(self) -> bool {
-        matches!(self, RandomGen::UniformReal)
+        matches!(self, RandomGen::UniformReal | RandomGen::NormalReal)
     }
 }
 

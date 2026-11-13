@@ -490,11 +490,11 @@ impl Diagnostic for BodyValidationDiagnosticWrapped<'_> {
                         "help: use $arandom(seed, \"global\"|\"instance\")",
                     ),
                     IllegalRandomKind::ParamInit => (
-                        "only $arandom and $rdist_uniform with a constant seed are allowed in parameter initializers",
+                        "only $arandom and $rdist_* with a constant seed are allowed in parameter initializers",
                         "help: use $arandom(constant) or $arandom(seed, \"global\"|\"instance\")",
                     ),
                     IllegalRandomKind::VarInit => (
-                        "only $arandom and $rdist_uniform with a constant seed are allowed in variable initializers",
+                        "only $arandom and $rdist_* with a constant seed are allowed in variable initializers",
                         "help: use $arandom(constant) or $arandom(seed, \"global\"|\"instance\")",
                     ),
                     IllegalRandomKind::NonConstSeed => (

@@ -742,14 +742,6 @@ pub fn rdist_uniform() -> Result<()> {
         return Ok(());
     }
 
-    // the C code may fuse multiply-adds
-    fn assert_close(got: f64, expected: f64, msg: &str) {
-        assert!(
-            (got - expected).abs() <= 1e-12 * expected.abs().max(1.0),
-            "{msg}: {got} != {expected}"
-        );
-    }
-
     let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
     for ieee in [false, true] {
         let gen = if ieee { ieee_uniform_real } else { uniform_alt };
@@ -790,6 +782,99 @@ pub fn rdist_uniform() -> Result<()> {
             s2 = next;
             let f = y + s2 as f64;
             assert_close(sim.read_residual("f").0, f, &format!("ieee {ieee} f step {step}"));
+            instance.accept(&model, t, 1e-6);
+        }
+    }
+    Ok(())
+}
+
+/// Real values computed by the stdlib (the C code may fuse multiply-adds)
+fn assert_close(got: f64, expected: f64, msg: &str) {
+    assert!(
+        (got - expected).abs() <= 1e-12 * expected.abs().max(1.0),
+        "{msg}: {got} != {expected}"
+    );
+}
+
+/// `normal_alt(seed, mean, sd)`, returns the new seed and the value
+fn normal_real(seed: i32, mean: f64, sd: f64) -> (i32, f64) {
+    polar(seed, mean, sd, |s| uniform_alt(s, -1.0, 1.0))
+}
+
+/// IEEE 1364-2005 `normal(seed, mean, sd)`, returns the new seed and the value
+fn ieee_normal_real(seed: i32, mean: f64, sd: f64) -> (i32, f64) {
+    polar(seed, mean, sd, |s| ieee_uniform(s, -1, 1))
+}
+
+const RDIST_NORMAL_SRC: &str = r#"`include "disciplines.vams"
+module rdist_normal_test(a, b, c, d, e, f);
+    inout a, b, c, d, e, f;
+    electrical a, b, c, d, e, f;
+    parameter real m = 1.5;
+    parameter real p = $rdist_normal(11, 1.0, 0.25);
+    real x = $rdist_normal(13, m, 2.0);
+    integer s = 3, s2 = 9;
+    real y;
+    analog begin
+        I(a) <+ $rdist_normal(s, m, 0.1);
+        I(b) <+ $rdist_normal(5, -2.0, 3.0);
+        I(c) <+ p;
+        I(d) <+ x;
+        // the mean, the seed is not advanced
+        I(e) <+ $rdist_normal(s, 4.25, 2.0, "instance");
+        // integer arguments: the variable seed is advanced
+        y = $rdist_normal(s2, 0, 1);
+        I(f) <+ y + s2;
+    end
+endmodule
+"#;
+
+/// `$rdist_normal(seed, mean, sd [, type])` with both generators, the same seed forms
+/// as `$rdist_uniform`. The typed form returns the mean.
+pub fn rdist_normal() -> Result<()> {
+    if stdx::IS_CI && cfg!(windows) {
+        return Ok(());
+    }
+
+    let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;
+    for ieee in [false, true] {
+        let gen = if ieee { ieee_normal_real } else { normal_real };
+        let root_file = tmp_dir.join(format!("openvaf_rdist_normal_{ieee}.va"));
+        std::fs::write(&root_file, RDIST_NORMAL_SRC)?;
+        let mut opts = compile_opts(&root_file, false);
+        opts.ieee1364 = ieee;
+        let libs = compile_and_load_modules_with(&opts);
+        assert_eq!(libs.len(), 1);
+        let desc = &libs[0];
+        let model = desc.new_model();
+        model.process_params()?;
+        let mut instance = model.new_instance();
+        let mut sim = instance.mock_simulation(&model, desc.num_terminals, 300.0)?;
+
+        let p = gen(11, 1.0, 0.25).1;
+        let x = gen(13, 1.5, 2.0).1;
+        let (mut s, mut b_state, mut s2) = (3, 5, 9);
+        for step in 1..=20 {
+            let t = step as f64 * 1e-6;
+            sim.abstime = t;
+            sim.dt = 1e-6;
+            sim.clear();
+            instance.eval(&model, &mut sim, EvalFlags::ANALYSIS_TRAN);
+            instance.load_dae(&model, &mut sim);
+
+            let msg = |node: &str| format!("ieee {ieee} {node} step {step}");
+            let (next, a) = gen(s, 1.5, 0.1);
+            s = next;
+            assert_close(sim.read_residual("a").0, a, &msg("a"));
+            let (next, b) = gen(b_state, -2.0, 3.0);
+            b_state = next;
+            assert_close(sim.read_residual("b").0, b, &msg("b"));
+            assert_close(sim.read_residual("c").0, p, &msg("c"));
+            assert_close(sim.read_residual("d").0, x, &msg("d"));
+            assert_eq!(sim.read_residual("e").0, 4.25, "{}", msg("e"));
+            let (next, y) = gen(s2, 0.0, 1.0);
+            s2 = next;
+            assert_close(sim.read_residual("f").0, y + s2 as f64, &msg("f"));
             instance.accept(&model, t, 1e-6);
         }
     }
@@ -989,6 +1074,16 @@ pub fn errors() -> Result<()> {
         ("parameter real p = $rdist_uniform(seed, 0, 1);", "", "I(a) <+ p;", false, true),
         ("real y = $rdist_uniform(seed * 2, 0, 1);", "", "I(a) <+ y;", false, true),
         ("real y = $rdist_uniform(s, 0, 1);", "", "I(a) <+ y;", false, false),
+        ("", "", "I(a) <+ $rdist_normal(s, 0, 1);", false, true),
+        ("", "", "I(a) <+ $rdist_normal(seed, 0, 1);", false, true),
+        ("", "", "I(a) <+ $rdist_normal(s, 0, 1, \"global\");", true, true),
+        ("", "", "I(a) <+ $rdist_normal(1, 0, 1, \"local\");", false, false),
+        ("", "", "I(a) <+ $rdist_normal(r, 0, 1);", false, false),
+        ("", "r = $rdist_normal(3, 0, 1, \"instance\");", "I(a) <+ r;", true, true),
+        ("", "r = $rdist_normal(s, 0, 1);", "I(a) <+ r;", false, false),
+        ("parameter real p = $rdist_normal(seed, 0, 1);", "", "I(a) <+ p;", false, true),
+        ("real y = $rdist_normal(seed * 2, 0, 1);", "", "I(a) <+ y;", false, true),
+        ("real y = $rdist_normal(s, 0, 1);", "", "I(a) <+ y;", false, false),
     ];
 
     let tmp_dir = Utf8PathBuf::try_from(std::env::temp_dir())?;

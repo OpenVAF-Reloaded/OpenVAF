@@ -204,7 +204,6 @@ impl BuiltIn {
             | BuiltIn::rdist_exponential
             | BuiltIn::rdist_poisson
             | BuiltIn::rdist_erlang
-            | BuiltIn::rdist_normal
             | BuiltIn::rdist_t => true,
             _ => false,
         }

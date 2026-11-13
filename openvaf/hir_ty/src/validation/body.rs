@@ -14,7 +14,8 @@ use crate::builtin::{
     ABSDELAY_MAX, ARANDOM_CONST_SEED, ARANDOM_NO_SEED, ARANDOM_SEED, ARANDOM_TYPED, DDT_TOL,
     IDT_IC_ASSERT_TOL, NATURE_ACCESS_BRANCH, NATURE_ACCESS_NODES, NATURE_ACCESS_NODE_GND,
     NATURE_ACCESS_PORT_FLOW, NOISE_TABLE_INLINE, NOISE_TABLE_INLINE_NAME, RANDOM_NO_SEED,
-    RANDOM_SEED, RDIST_UNIFORM_CONST_SEED, RDIST_UNIFORM_SEED, RDIST_UNIFORM_TYPED,
+    RANDOM_SEED, RDIST_NORMAL_CONST_SEED, RDIST_NORMAL_SEED, RDIST_NORMAL_TYPED,
+    RDIST_UNIFORM_CONST_SEED, RDIST_UNIFORM_SEED, RDIST_UNIFORM_TYPED,
     TRANSITION_DELAY_RISET_FALLT_TOL,
 };
 use crate::db::HirTyDB;
@@ -119,7 +120,7 @@ pub enum IllegalRandomKind {
     RequiresFullSemantics,
     /// Untyped forms are not allowed in analog initial blocks
     AnalogInitial,
-    /// Only `$arandom` and `$rdist_uniform` with a constant seed are allowed in
+    /// Only `$arandom` and `$rdist_*` with a constant seed are allowed in
     /// parameter initializers
     ParamInit,
     /// Only a constant seed is allowed in variable initializers
@@ -134,16 +135,16 @@ pub enum IllegalRandomKind {
 /// single signature), the same as `BodyRef::get_call_signature` returns
 const NO_SIGNATURE: Signature = Signature(u32::MAX);
 
-/// Form of a `$random`/`$arandom`/`$dist_*`/`$rdist_uniform` call
+/// Form of a `$random`/`$arandom`/`$dist_*`/`$rdist_*` call
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum RandomForm {
     /// `$random()`, `$arandom()`
     NoSeed,
-    /// `$random(var)`, `$arandom(var)`, `$dist_*(var, ...)`, `$rdist_uniform(var, ...)`
+    /// `$random(var)`, `$arandom(var)`, `$dist_*(var, ...)`, `$rdist_*(var, ...)`
     VarSeed,
-    /// `$arandom(constant)`, `$rdist_uniform(constant, ...)`
+    /// `$arandom(constant)`, `$rdist_*(constant, ...)`
     ConstSeed,
-    /// `$arandom(seed, type)`, `$rdist_uniform(seed, ..., type)`
+    /// `$arandom(seed, type)`, `$rdist_*(seed, ..., type)`
     Typed,
 }
 
@@ -167,12 +168,14 @@ impl RandomForm {
                 | BuiltIn::dist_erlang,
                 _,
             ) => RandomForm::VarSeed,
-            (BuiltIn::rdist_uniform, RDIST_UNIFORM_SEED) => RandomForm::VarSeed,
+            (BuiltIn::rdist_uniform, RDIST_UNIFORM_SEED)
+            | (BuiltIn::rdist_normal, RDIST_NORMAL_SEED) => RandomForm::VarSeed,
             (BuiltIn::arandom, ARANDOM_CONST_SEED)
-            | (BuiltIn::rdist_uniform, RDIST_UNIFORM_CONST_SEED) => RandomForm::ConstSeed,
-            (BuiltIn::arandom, ARANDOM_TYPED) | (BuiltIn::rdist_uniform, RDIST_UNIFORM_TYPED) => {
-                RandomForm::Typed
-            }
+            | (BuiltIn::rdist_uniform, RDIST_UNIFORM_CONST_SEED)
+            | (BuiltIn::rdist_normal, RDIST_NORMAL_CONST_SEED) => RandomForm::ConstSeed,
+            (BuiltIn::arandom, ARANDOM_TYPED)
+            | (BuiltIn::rdist_uniform, RDIST_UNIFORM_TYPED)
+            | (BuiltIn::rdist_normal, RDIST_NORMAL_TYPED) => RandomForm::Typed,
             _ => return None,
         };
         Some(form)
@@ -635,11 +638,11 @@ impl ExprValidator<'_, '_> {
         self.parent.body.exprs[expr].walk_child_exprs(|child| self.validate_expr(child))
     }
 
-    /// Checks a `$random`/`$arandom`/`$dist_*`/`$rdist_uniform` call. Typed calls
+    /// Checks a `$random`/`$arandom`/`$dist_*`/`$rdist_*` call. Typed calls
     /// (`$arandom(seed, type)`) are allowed everywhere. Untyped calls need full
     /// Verilog-A semantics and are not allowed in analog initial blocks. In
     /// initializers only a constant seed is allowed (only `$arandom` and
-    /// `$rdist_uniform`).
+    /// `$rdist_*`).
     fn validate_random(
         &mut self,
         expr: ExprId,
@@ -743,6 +746,7 @@ impl ExprValidator<'_, '_> {
                 | BuiltIn::dist_t
                 | BuiltIn::dist_erlang
                 | BuiltIn::rdist_uniform
+                | BuiltIn::rdist_normal
         ) {
             self.validate_random(expr, args, call, signature.clone());
         }
@@ -987,7 +991,7 @@ impl ExprValidator<'_, '_> {
 }
 
 /// Whether `fun` or a function it calls contains an untyped `$random`/`$arandom`/
-/// `$rdist_uniform` or a `$dist_*` call (other than a constant seed if
+/// `$rdist_*` or a `$dist_*` call (other than a constant seed if
 /// `allow_const` is set)
 fn calls_untyped_random(
     db: &dyn HirTyDB,
@@ -1010,7 +1014,8 @@ fn calls_untyped_random(
             | BuiltIn::dist_chi_square
             | BuiltIn::dist_t
             | BuiltIn::dist_erlang
-            | BuiltIn::rdist_uniform),
+            | BuiltIn::rdist_uniform
+            | BuiltIn::rdist_normal),
         ) => {
             let sig = infer.resolved_signatures.get(expr).cloned().unwrap_or(NO_SIGNATURE);
             let form = RandomForm::new(builtin, sig);

@@ -741,23 +741,25 @@ impl BodyLoweringCtx<'_, '_, '_> {
             | BuiltIn::dist_poisson
             | BuiltIn::dist_chi_square
             | BuiltIn::dist_t
-            | BuiltIn::dist_erlang => self.lower_random(builtin, signature, args),
+            | BuiltIn::dist_erlang
+            | BuiltIn::rdist_uniform => self.lower_random(builtin, signature, args),
 
             _ => unreachable!(),
         }
     }
 
-    /// Lowers `$random`/`$arandom`/`$dist_*`.
+    /// Lowers `$random`/`$arandom`/`$dist_*`/`$rdist_uniform`.
     ///
-    /// - `$arandom(seed, type)` returns the mean of the distribution (0), the seed
-    ///   is ignored.
-    /// - `$random(var)`, `$arandom(var)`, `$dist_*(var, ...)`: the generator state
-    ///   is the variable.
-    /// - In initializers `$arandom(constant)` is pure: it returns the first value
-    ///   of the sequence of the seed.
-    /// - `$random()`, `$arandom()`, `$arandom(constant)`: the generator state is
-    ///   hidden state. Each call site gets a site id. Init seeds the state with the
-    ///   constant or (without one) with the entity seed mixed with the site id.
+    /// - `$arandom(seed, type)`, `$rdist_uniform(seed, start, end, type)` return the
+    ///   mean of the distribution (0, (start + end) / 2), the seed is ignored.
+    /// - `$random(var)`, `$arandom(var)`, `$dist_*(var, ...)`,
+    ///   `$rdist_uniform(var, ...)`: the generator state is the variable.
+    /// - In initializers `$arandom(constant)` and `$rdist_uniform(constant, ...)` are
+    ///   pure: they return the first value of the sequence of the seed.
+    /// - `$random()`, `$arandom()`, `$arandom(constant)`,
+    ///   `$rdist_uniform(constant, ...)`: the generator state is hidden state. Each
+    ///   call site gets a site id. Init seeds the state with the constant or
+    ///   (without one) with the entity seed mixed with the site id.
     ///
     /// A generator call computes the next state and returns its random value.
     fn lower_random(
@@ -776,14 +778,23 @@ impl BodyLoweringCtx<'_, '_, '_> {
             BuiltIn::dist_chi_square => RandomGen::ChiSquareInt,
             BuiltIn::dist_t => RandomGen::TInt,
             BuiltIn::dist_erlang => RandomGen::ErlangInt,
+            BuiltIn::rdist_uniform => RandomGen::UniformReal,
             _ => RandomGen::Random,
         };
         let next_cb = CallBackKind::RandomNext { gen, ieee1364 };
         let value_cb = CallBackKind::RandomValue { gen, ieee1364 };
+        let zero = if gen.is_real() { F_ZERO } else { ZERO };
         // RandomNext and RandomValue both take the old state (followed by the
         // generator arguments)
         match RandomForm::new(builtin, signature).unwrap() {
-            RandomForm::Typed => ZERO,
+            RandomForm::Typed if builtin == BuiltIn::rdist_uniform => {
+                let start = self.lower_expr(args[1]);
+                let end = self.lower_expr(args[2]);
+                let sum = self.ctx.ins().fadd(start, end);
+                let half = self.ctx.fconst(0.5);
+                self.ctx.ins().fmul(sum, half)
+            }
+            RandomForm::Typed => zero,
             RandomForm::VarSeed => {
                 let state = self.lower_expr(args[0]);
                 let mut operands = vec![state];
@@ -794,11 +805,11 @@ impl BodyLoweringCtx<'_, '_, '_> {
                 self.ctx.call1(value_cb, &operands)
             }
             RandomForm::ConstSeed if self.ctx.pure_random => {
-                let seed = self.lower_expr(args[0]);
-                self.ctx.call1(value_cb, &[seed])
+                let operands: Vec<_> = args.iter().map(|&arg| self.lower_expr(arg)).collect();
+                self.ctx.call1(value_cb, &operands)
             }
             // rejected by validation (requires full Verilog-A semantics)
-            _ if self.ctx.compact || self.ctx.pure_random => ZERO,
+            _ if self.ctx.compact || self.ctx.pure_random => zero,
             _ => {
                 let idx = self.ctx.num_randoms;
                 self.ctx.num_randoms += 1;
@@ -808,9 +819,12 @@ impl BodyLoweringCtx<'_, '_, '_> {
                 // the current state (initialized with the accepted state at entry) so that
                 // each execution of the call (e.g. in a loop) advances the generator
                 let state = self.ctx.use_place(PlaceKind::RandomOutput(idx));
-                let next = self.ctx.call1(next_cb, &[state]);
+                // the arguments after the (constant) seed
+                let mut operands = vec![state];
+                operands.extend(args.iter().skip(1).map(|&arg| self.lower_expr(arg)));
+                let next = self.ctx.call1(next_cb, &operands);
                 self.ctx.def_place(PlaceKind::RandomOutput(idx), next);
-                self.ctx.call1(value_cb, &[state])
+                self.ctx.call1(value_cb, &operands)
             }
         }
     }

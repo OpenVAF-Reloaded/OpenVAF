@@ -331,6 +331,14 @@ bultins! {
     }
 
 
+    // $rdist_uniform(seed, start, end [, type]): the seed forms follow $arandom,
+    // there is no form without a seed. The seed of the typed form is ignored.
+    RDIST_UNIFORM = {
+        fn RDIST_UNIFORM_SEED(Var(Integer),Val(Real),Val(Real)) -> Real;
+        fn RDIST_UNIFORM_CONST_SEED(Val(Integer),Val(Real),Val(Real)) -> Real;
+        fn RDIST_UNIFORM_TYPED(Val(Integer),Val(Real),Val(Real),Literal(String)) -> Real;
+    }
+
     RDIST_1_ARG = const {
         fn RDIST_1_ARG_SEED(Var(Integer),Val(Real)) -> Real;
         fn RDIST_1_ARG_CONST_SEED(Param(Integer),Val(Real)) -> Real;
@@ -501,7 +509,6 @@ copied_builtins! {
     RDIST_POISSON = RDIST_1_ARG
     RDIST_T = RDIST_1_ARG
 
-    RDIST_UNIFORM = RDIST_2_ARG
     RDIST_ERLANG = RDIST_2_ARG
     RDIST_NORMAL = RDIST_2_ARG
 

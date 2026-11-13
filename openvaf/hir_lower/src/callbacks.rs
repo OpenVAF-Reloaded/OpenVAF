@@ -106,6 +106,8 @@ pub enum RandomGen {
     TInt,
     /// `$dist_erlang(seed, k_stage, mean)`
     ErlangInt,
+    /// `$rdist_uniform(seed, start, end)`
+    UniformReal,
 }
 
 impl RandomGen {
@@ -128,10 +130,12 @@ impl RandomGen {
             (RandomGen::TInt, true) => "vams_t_int_ieee",
             (RandomGen::ErlangInt, false) => "vams_erlang_int",
             (RandomGen::ErlangInt, true) => "vams_erlang_int_ieee",
+            (RandomGen::UniformReal, false) => "vams_uniform_real",
+            (RandomGen::UniformReal, true) => "vams_uniform_real_ieee",
         }
     }
 
-    /// Number of integer arguments after the state
+    /// Number of arguments after the state
     pub fn num_args(self) -> u16 {
         match self {
             RandomGen::Random => 0,
@@ -139,8 +143,17 @@ impl RandomGen {
             | RandomGen::PoissonInt
             | RandomGen::ChiSquareInt
             | RandomGen::TInt => 1,
-            RandomGen::UniformInt | RandomGen::NormalInt | RandomGen::ErlangInt => 2,
+            RandomGen::UniformInt
+            | RandomGen::NormalInt
+            | RandomGen::ErlangInt
+            | RandomGen::UniformReal => 2,
         }
+    }
+
+    /// Whether the arguments after the state and the value are real (otherwise
+    /// integer). The state is always an integer.
+    pub fn is_real(self) -> bool {
+        matches!(self, RandomGen::UniformReal)
     }
 }
 

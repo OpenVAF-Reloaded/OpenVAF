@@ -79,9 +79,15 @@ pub fn stub_callbacks<'ll>(
                     CallbackFun::Prebuilt(cx.const_callback(&[cx.ty_ptr()], cx.const_int(1)))
                 }
                 // compact models have no untyped random number generators
-                CallBackKind::RandomNext { .. } | CallBackKind::RandomValue { .. } => {
-                    let params = vec![cx.ty_int(); kind.signature().params as usize];
-                    CallbackFun::Prebuilt(cx.const_callback(&params, cx.const_int(0)))
+                CallBackKind::RandomNext { gen, .. } | CallBackKind::RandomValue { gen, .. } => {
+                    let ty_val = if gen.is_real() { cx.ty_double() } else { cx.ty_int() };
+                    let mut params = vec![ty_val; kind.signature().params as usize];
+                    params[0] = cx.ty_int();
+                    let ret = match kind {
+                        CallBackKind::RandomValue { .. } if gen.is_real() => cx.const_real(0.0),
+                        _ => cx.const_int(0),
+                    };
+                    CallbackFun::Prebuilt(cx.const_callback(&params, ret))
                 }
             };
 

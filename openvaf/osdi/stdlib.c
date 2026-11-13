@@ -736,6 +736,20 @@ VAMS_RANDOM_PAIR(vams_uniform_real, double, uniform_alt,
 // Normally distributed real
 VAMS_RANDOM_PAIR(vams_normal_real, double, normal_alt,
                  (, double mean, double sd), (, mean, sd))
+// Exponentially distributed real
+VAMS_RANDOM_PAIR(vams_exponential_real, double, exponential_alt,
+                 (, double mean), (, mean))
+// Poisson distributed real (integer-valued)
+VAMS_RANDOM_PAIR(vams_poisson_real, double, poisson_alt,
+                 (, double mean), (, mean))
+// Chi square distributed real
+VAMS_RANDOM_PAIR(vams_chi_square_real, double, chi_square_alt,
+                 (, double df), (, df))
+// t distributed real
+VAMS_RANDOM_PAIR(vams_t_real, double, t_alt, (, double df), (, df))
+// Erlangian distributed real
+VAMS_RANDOM_PAIR(vams_erlang_real, double, erlang_alt,
+                 (, double k, double mean), (, k, mean))
 
 // IEEE 1364-2005 generator wrappers
 // $random/$arandom
@@ -766,6 +780,20 @@ VAMS_RANDOM_PAIR(vams_uniform_real_ieee, double, uniform,
 // Normally distributed real
 VAMS_RANDOM_PAIR(vams_normal_real_ieee, double, normal,
                  (, double mean, double sd), (, mean, sd))
+// Exponentially distributed real
+VAMS_RANDOM_PAIR(vams_exponential_real_ieee, double, exponential,
+                 (, double mean), (, mean))
+// Poisson distributed real (integer-valued)
+VAMS_RANDOM_PAIR(vams_poisson_real_ieee, double, poisson,
+                 (, double mean), (, mean))
+// Chi square distributed real
+VAMS_RANDOM_PAIR(vams_chi_square_real_ieee, double, chi_square,
+                 (, double df), (, df))
+// t distributed real
+VAMS_RANDOM_PAIR(vams_t_real_ieee, double, t, (, double df), (, df))
+// Erlangian distributed real
+VAMS_RANDOM_PAIR(vams_erlang_real_ieee, double, erlangian,
+                 (, double k, double mean), (, k, mean))
 
 // Initial state of the random number generator with site id site_id that is
 // seeded by the simulator. Reads entity_seed only if INIT_HIDDEN_STATE is set

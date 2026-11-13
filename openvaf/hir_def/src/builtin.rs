@@ -199,12 +199,7 @@ impl BuiltIn {
             | BuiltIn::fflush
             | BuiltIn::ferror
             | BuiltIn::feof
-            | BuiltIn::fdebug
-            | BuiltIn::rdist_chi_square
-            | BuiltIn::rdist_exponential
-            | BuiltIn::rdist_poisson
-            | BuiltIn::rdist_erlang
-            | BuiltIn::rdist_t => true,
+            | BuiltIn::fdebug => true,
             _ => false,
         }
     }

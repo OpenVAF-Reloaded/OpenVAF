@@ -14,9 +14,10 @@ use crate::builtin::{
     ABSDELAY_MAX, ARANDOM_CONST_SEED, ARANDOM_NO_SEED, ARANDOM_SEED, ARANDOM_TYPED, DDT_TOL,
     IDT_IC_ASSERT_TOL, NATURE_ACCESS_BRANCH, NATURE_ACCESS_NODES, NATURE_ACCESS_NODE_GND,
     NATURE_ACCESS_PORT_FLOW, NOISE_TABLE_INLINE, NOISE_TABLE_INLINE_NAME, RANDOM_NO_SEED,
-    RANDOM_SEED, RDIST_NORMAL_CONST_SEED, RDIST_NORMAL_SEED, RDIST_NORMAL_TYPED,
-    RDIST_UNIFORM_CONST_SEED, RDIST_UNIFORM_SEED, RDIST_UNIFORM_TYPED,
-    TRANSITION_DELAY_RISET_FALLT_TOL,
+    RANDOM_SEED, RDIST_1_ARG_CONST_SEED, RDIST_1_ARG_SEED, RDIST_1_ARG_TYPED,
+    RDIST_2_ARG_CONST_SEED, RDIST_2_ARG_SEED, RDIST_2_ARG_TYPED, RDIST_NORMAL_CONST_SEED,
+    RDIST_NORMAL_SEED, RDIST_NORMAL_TYPED, RDIST_UNIFORM_CONST_SEED, RDIST_UNIFORM_SEED,
+    RDIST_UNIFORM_TYPED, TRANSITION_DELAY_RISET_FALLT_TOL,
 };
 use crate::db::HirTyDB;
 use crate::inference::{BranchWrite, InferenceResult, ResolvedFun};
@@ -169,13 +170,37 @@ impl RandomForm {
                 _,
             ) => RandomForm::VarSeed,
             (BuiltIn::rdist_uniform, RDIST_UNIFORM_SEED)
-            | (BuiltIn::rdist_normal, RDIST_NORMAL_SEED) => RandomForm::VarSeed,
+            | (BuiltIn::rdist_normal, RDIST_NORMAL_SEED)
+            | (
+                BuiltIn::rdist_exponential
+                | BuiltIn::rdist_poisson
+                | BuiltIn::rdist_chi_square
+                | BuiltIn::rdist_t,
+                RDIST_1_ARG_SEED,
+            )
+            | (BuiltIn::rdist_erlang, RDIST_2_ARG_SEED) => RandomForm::VarSeed,
             (BuiltIn::arandom, ARANDOM_CONST_SEED)
             | (BuiltIn::rdist_uniform, RDIST_UNIFORM_CONST_SEED)
-            | (BuiltIn::rdist_normal, RDIST_NORMAL_CONST_SEED) => RandomForm::ConstSeed,
+            | (BuiltIn::rdist_normal, RDIST_NORMAL_CONST_SEED)
+            | (
+                BuiltIn::rdist_exponential
+                | BuiltIn::rdist_poisson
+                | BuiltIn::rdist_chi_square
+                | BuiltIn::rdist_t,
+                RDIST_1_ARG_CONST_SEED,
+            )
+            | (BuiltIn::rdist_erlang, RDIST_2_ARG_CONST_SEED) => RandomForm::ConstSeed,
             (BuiltIn::arandom, ARANDOM_TYPED)
             | (BuiltIn::rdist_uniform, RDIST_UNIFORM_TYPED)
-            | (BuiltIn::rdist_normal, RDIST_NORMAL_TYPED) => RandomForm::Typed,
+            | (BuiltIn::rdist_normal, RDIST_NORMAL_TYPED)
+            | (
+                BuiltIn::rdist_exponential
+                | BuiltIn::rdist_poisson
+                | BuiltIn::rdist_chi_square
+                | BuiltIn::rdist_t,
+                RDIST_1_ARG_TYPED,
+            )
+            | (BuiltIn::rdist_erlang, RDIST_2_ARG_TYPED) => RandomForm::Typed,
             _ => return None,
         };
         Some(form)
@@ -747,6 +772,11 @@ impl ExprValidator<'_, '_> {
                 | BuiltIn::dist_erlang
                 | BuiltIn::rdist_uniform
                 | BuiltIn::rdist_normal
+                | BuiltIn::rdist_exponential
+                | BuiltIn::rdist_poisson
+                | BuiltIn::rdist_chi_square
+                | BuiltIn::rdist_t
+                | BuiltIn::rdist_erlang
         ) {
             self.validate_random(expr, args, call, signature.clone());
         }
@@ -1015,7 +1045,12 @@ fn calls_untyped_random(
             | BuiltIn::dist_t
             | BuiltIn::dist_erlang
             | BuiltIn::rdist_uniform
-            | BuiltIn::rdist_normal),
+            | BuiltIn::rdist_normal
+            | BuiltIn::rdist_exponential
+            | BuiltIn::rdist_poisson
+            | BuiltIn::rdist_chi_square
+            | BuiltIn::rdist_t
+            | BuiltIn::rdist_erlang),
         ) => {
             let sig = infer.resolved_signatures.get(expr).cloned().unwrap_or(NO_SIGNATURE);
             let form = RandomForm::new(builtin, sig);

@@ -110,6 +110,16 @@ pub enum RandomGen {
     UniformReal,
     /// `$rdist_normal(seed, mean, standard_deviation)`
     NormalReal,
+    /// `$rdist_exponential(seed, mean)`
+    ExponentialReal,
+    /// `$rdist_poisson(seed, mean)`
+    PoissonReal,
+    /// `$rdist_chi_square(seed, degree_of_freedom)`
+    ChiSquareReal,
+    /// `$rdist_t(seed, degree_of_freedom)`
+    TReal,
+    /// `$rdist_erlang(seed, k_stage, mean)`
+    ErlangReal,
 }
 
 impl RandomGen {
@@ -136,6 +146,16 @@ impl RandomGen {
             (RandomGen::UniformReal, true) => "vams_uniform_real_ieee",
             (RandomGen::NormalReal, false) => "vams_normal_real",
             (RandomGen::NormalReal, true) => "vams_normal_real_ieee",
+            (RandomGen::ExponentialReal, false) => "vams_exponential_real",
+            (RandomGen::ExponentialReal, true) => "vams_exponential_real_ieee",
+            (RandomGen::PoissonReal, false) => "vams_poisson_real",
+            (RandomGen::PoissonReal, true) => "vams_poisson_real_ieee",
+            (RandomGen::ChiSquareReal, false) => "vams_chi_square_real",
+            (RandomGen::ChiSquareReal, true) => "vams_chi_square_real_ieee",
+            (RandomGen::TReal, false) => "vams_t_real",
+            (RandomGen::TReal, true) => "vams_t_real_ieee",
+            (RandomGen::ErlangReal, false) => "vams_erlang_real",
+            (RandomGen::ErlangReal, true) => "vams_erlang_real_ieee",
         }
     }
 
@@ -146,19 +166,33 @@ impl RandomGen {
             RandomGen::ExponentialInt
             | RandomGen::PoissonInt
             | RandomGen::ChiSquareInt
-            | RandomGen::TInt => 1,
+            | RandomGen::TInt
+            | RandomGen::ExponentialReal
+            | RandomGen::PoissonReal
+            | RandomGen::ChiSquareReal
+            | RandomGen::TReal => 1,
             RandomGen::UniformInt
             | RandomGen::NormalInt
             | RandomGen::ErlangInt
             | RandomGen::UniformReal
-            | RandomGen::NormalReal => 2,
+            | RandomGen::NormalReal
+            | RandomGen::ErlangReal => 2,
         }
     }
 
     /// Whether the arguments after the state and the value are real (otherwise
     /// integer). The state is always an integer.
     pub fn is_real(self) -> bool {
-        matches!(self, RandomGen::UniformReal | RandomGen::NormalReal)
+        matches!(
+            self,
+            RandomGen::UniformReal
+                | RandomGen::NormalReal
+                | RandomGen::ExponentialReal
+                | RandomGen::PoissonReal
+                | RandomGen::ChiSquareReal
+                | RandomGen::TReal
+                | RandomGen::ErlangReal
+        )
     }
 }
 

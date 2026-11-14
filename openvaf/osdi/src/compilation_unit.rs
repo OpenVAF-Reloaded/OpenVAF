@@ -15,10 +15,10 @@ use llvm_sys::core::{
 use llvm_sys::{LLVMIntPredicate, LLVMLinkage, LLVMUnnamedAddr, LLVMValue};
 use mir::{FuncRef, Function};
 use mir_llvm::{BuiltCallbackFun, CallbackFun, CodegenCx, LLVMBackend, ModuleLlvm, UNNAMED};
-use sim_back::dae::DaeSystem;
+use sim_back::dae::{DaeSystem, MatrixEntryId};
 use sim_back::init::Initialization;
 use sim_back::node_collapse::NodeCollapse;
-use sim_back::{CompiledModule, ModuleInfo};
+use sim_back::{CompiledModule, JacobianConstness, ModuleInfo};
 use typed_index_collections::TiVec;
 use typed_indexmap::TiSet;
 
@@ -132,6 +132,8 @@ impl<'a, 'b, 'll> OsdiCompilationUnit<'a, 'b, 'll> {
 pub struct OsdiModule<'a> {
     pub info: &'a ModuleInfo,
     pub dae_system: &'a DaeSystem,
+    /// Constness of the entries in `dae_system.jacobian`
+    pub jacobian_constness: &'a TiVec<MatrixEntryId, JacobianConstness>,
     pub eval: &'a Function,
     pub intern: &'a HirInterner,
     pub init: &'a Initialization,
@@ -156,6 +158,7 @@ impl<'a> OsdiModule<'a> {
         let CompiledModule {
             info,
             dae_system,
+            jacobian_constness,
             eval,
             intern,
             init,
@@ -171,6 +174,7 @@ impl<'a> OsdiModule<'a> {
             lim_table,
             info,
             dae_system,
+            jacobian_constness,
             eval,
             intern,
             init,

@@ -9,15 +9,19 @@ use mir_opt::{simplify_cfg, sparse_conditional_constant_propagation};
 pub use module_info::{collect_modules, ModuleInfo};
 use stdx::impl_debug_display;
 
+use typed_index_collections::TiVec;
+
 use crate::context::{Context, OptimiziationStage};
-use crate::dae::DaeSystem;
+use crate::dae::{DaeSystem, MatrixEntryId};
 use crate::init::Initialization;
+pub use crate::jacobian_const::JacobianConstness;
 use crate::node_collapse::NodeCollapse;
 use crate::topology::Topology;
 
 mod context;
 pub mod dae;
 pub mod init;
+mod jacobian_const;
 mod module_info;
 pub mod node_collapse;
 mod noise;
@@ -46,6 +50,8 @@ impl_debug_display! {
 pub struct CompiledModule<'a> {
     pub info: &'a ModuleInfo,
     pub dae_system: DaeSystem,
+    /// Constness of the entries in `dae_system.jacobian`
+    pub jacobian_constness: TiVec<MatrixEntryId, JacobianConstness>,
     pub eval: Function,
     pub intern: HirInterner,
     pub init: Initialization,
@@ -248,6 +254,9 @@ impl<'a> CompiledModule<'a> {
         debug_assert!(cx.func.validate());
         debug_assert!(init.func.validate());
 
+        // Constness of Jacobian entries, computed on the final eval MIR
+        let jacobian_constness = jacobian_const::jacobian_constness(&mut cx, &dae_system);
+
         // TODO: refactor param intilization to use tables
         // Make a list of instance parameters
         let inst_params: Vec<_> = module
@@ -294,6 +303,7 @@ impl<'a> CompiledModule<'a> {
             intern: cx.intern,
             info: module,
             dae_system,
+            jacobian_constness,
             init,
             model_param_intern,
             model_param_setup,

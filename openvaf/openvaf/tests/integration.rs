@@ -16,6 +16,7 @@ use crate::load::{
 };
 use crate::mock_sim::{MockSimulation, ALPHA};
 
+mod jacobian_const;
 mod laplace;
 mod load;
 mod mock_sim;
@@ -1076,6 +1077,7 @@ harness! {
         Test::new("bus_port_dac", &bus_port_dac_test),
         Test::new("hierarchy_bus_slices", &hierarchy_bus_slices_test),
         Test::new("hierarchy_variable_width_slices", &hierarchy_variable_width_slices_test),
+        Test::new("jacobian_const", &jacobian_const::flags_test),
         Test::new("laplace_nd", &laplace::nd),
         Test::new("laplace_nd_array_vars", &laplace::nd_array_vars)
         // Disabled until the enhancement in brackets fixes the bug they expose:

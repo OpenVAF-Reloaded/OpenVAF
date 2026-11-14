@@ -16,9 +16,9 @@ use llvm_sys::target::{
     LLVMPointerSize, LLVMTargetDataRef,
 };
 use llvm_sys::LLVMValue;
-use mir::{ValueDef, F_ZERO};
+use mir::F_ZERO;
 use mir_llvm::CodegenCx;
-use sim_back::dae::{MatrixEntry, NoiseSourceKind, ResidualNatureKind};
+use sim_back::dae::{NoiseSourceKind, ResidualNatureKind};
 use sim_back::SimUnknownKind;
 use smol_str::SmolStr;
 use stdx::iter::zip;
@@ -32,11 +32,12 @@ use crate::load::JacobianLoadType;
 use crate::metadata::osdi_0_5::{
     OsdiAbsDelay, OsdiDescriptor, OsdiJacobianEntry, OsdiJacobianValue, OsdiNatureRef, OsdiNode,
     OsdiNodePair, OsdiNoiseSource, OsdiParamOpvar, OsdiTransition, OsdiTys, JACOBIAN_ENTRY_REACT,
-    JACOBIAN_ENTRY_REACT_CONST, JACOBIAN_ENTRY_RESIST, JACOBIAN_ENTRY_RESIST_CONST,
-    MODULEFLAG_ABSTIME, MODULEFLAG_COMPACT, MODULEFLAG_FINAL_STEP, MODULEFLAG_HIDDEN_STATE,
-    MODULEFLAG_INITIAL_STEP, NATREF_DISCIPLINE_FLOW, NATREF_DISCIPLINE_POTENTIAL, NATREF_NONE,
-    NOISE_TYPE_FLICKER, NOISE_TYPE_TABLE, NOISE_TYPE_WHITE, PARA_KIND_INST, PARA_KIND_MODEL,
-    PARA_KIND_OPVAR, PARA_TY_INT, PARA_TY_REAL, PARA_TY_STR,
+    JACOBIAN_ENTRY_REACT_CONST, JACOBIAN_ENTRY_REACT_OPTIME_CONST, JACOBIAN_ENTRY_RESIST,
+    JACOBIAN_ENTRY_RESIST_CONST, JACOBIAN_ENTRY_RESIST_OPTIME_CONST, MODULEFLAG_ABSTIME,
+    MODULEFLAG_COMPACT, MODULEFLAG_FINAL_STEP, MODULEFLAG_HIDDEN_STATE, MODULEFLAG_INITIAL_STEP,
+    NATREF_DISCIPLINE_FLOW, NATREF_DISCIPLINE_POTENTIAL, NATREF_NONE, NOISE_TYPE_FLICKER,
+    NOISE_TYPE_TABLE, NOISE_TYPE_WHITE, PARA_KIND_INST, PARA_KIND_MODEL, PARA_KIND_OPVAR,
+    PARA_TY_INT, PARA_TY_REAL, PARA_TY_STR,
 };
 use crate::ty_len;
 
@@ -302,21 +303,6 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             .collect()
     }
 
-    fn is_const(&self, entry: &MatrixEntry, reactive: bool) -> bool {
-        let entry = if reactive { entry.react } else { entry.resist };
-        match self.module.eval.dfg.value_def(entry) {
-            ValueDef::Result(_, _) => false,
-            ValueDef::Param(param) => self
-                .module
-                .intern
-                .params
-                .get_index(param)
-                .map_or(true, |(kind, _)| !kind.op_dependent()),
-            ValueDef::Const(_) => true,
-            ValueDef::Invalid => unreachable!(),
-        }
-    }
-
     pub fn jacobian_entries(&self, target_data: &LLVMTargetDataRef) -> Vec<OsdiJacobianEntry> {
         let OsdiCompilationUnit { inst_data, module, .. } = self;
         let mut jacobian_ptr_react_offset = unsafe {
@@ -333,16 +319,25 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             .dae_system
             .jacobian
             .iter()
-            .map(|entry| {
+            .zip(module.jacobian_constness.iter())
+            .map(|(entry, constness)| {
                 let mut flags = 0;
                 let mut react_ptr_off = u32::MAX;
 
-                if self.is_const(entry, false) {
+                if constness.resist_const {
                     flags |= JACOBIAN_ENTRY_RESIST_CONST
                 }
 
-                if self.is_const(entry, true) {
+                if constness.react_const {
                     flags |= JACOBIAN_ENTRY_REACT_CONST
+                }
+
+                if constness.resist_optime_const {
+                    flags |= JACOBIAN_ENTRY_RESIST_OPTIME_CONST
+                }
+
+                if constness.react_optime_const {
+                    flags |= JACOBIAN_ENTRY_REACT_OPTIME_CONST
                 }
 
                 if entry.resist != F_ZERO {

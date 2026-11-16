@@ -8,12 +8,12 @@ use hir_lower::{CurrentKind, ImplicitEquation, ParamKind};
 use lasso::{Rodeo, Spur};
 use llvm_sys::core::{
     LLVMConstArray2, LLVMConstInt, LLVMConstPtrToInt, LLVMGetArrayLength2, LLVMGetDataLayoutStr,
-    LLVMGetElementType, LLVMGetUndef,
+    LLVMGetElementType, LLVMGetIntTypeWidth, LLVMGetUndef,
 };
 use llvm_sys::prelude::LLVMValueRef;
 use llvm_sys::target::{
     LLVMABISizeOfType, LLVMByteOrder, LLVMByteOrdering, LLVMCreateTargetData, LLVMOffsetOfElement,
-    LLVMTargetDataRef,
+    LLVMPointerSize, LLVMTargetDataRef,
 };
 use llvm_sys::LLVMValue;
 use mir::{ValueDef, F_ZERO};
@@ -73,8 +73,9 @@ impl osdi_0_5::OsdiAttributeValue {
         let ty = tys.osdi_attribute_value;
         unsafe {
             // TODO: handle endianness. Currently works for little endian (PC, x86 & arm64 MACS).
-            // Array elements are i64 or larger. When lowering integers/pointers/doubles that are
-            // smaller than the array element this is wrong on big endian.
+            // Array elements are pointer-sized integers (or smaller if the union's alignment
+            // is smaller). Lowering integers smaller than an element and splitting doubles
+            // into several elements assumes little endian.
             // Check target (it must be little endian)
             let data_layout = LLVMGetDataLayoutStr(NonNull::from(ctx.llmod).as_ptr());
             let target_data = LLVMCreateTargetData(data_layout);
@@ -86,13 +87,17 @@ impl osdi_0_5::OsdiAttributeValue {
             let raw_ty = NonNull::from(ty).as_ptr();
             // Get array length
             let len = LLVMGetArrayLength2(raw_ty);
-            // Get array member size in bytes
+            // Get array member type and its size in bits
             let elem_ty = LLVMGetElementType(raw_ty);
-            // Element size is >= entry size
+            let elem_bits = LLVMGetIntTypeWidth(elem_ty);
             // Initializer array with undef values
             let mut elems = vec![LLVMGetUndef(elem_ty); len as usize];
             match self {
                 osdi_0_5::OsdiAttributeValue::String(s) => {
+                    // A pointer must fit exactly into one array element, a pointer cannot be
+                    // converted to a wider integer in a static initializer (e.g. on wasm32)
+                    let ptr_bits = 8 * LLVMPointerSize(target_data);
+                    assert_eq!(elem_bits, ptr_bits, "union element is not pointer-sized");
                     // Constant global string
                     let llval = ctx.const_str_uninterned(s);
                     let valref = llval as *const LLVMValue as LLVMValueRef;
@@ -102,12 +107,14 @@ impl osdi_0_5::OsdiAttributeValue {
                     elems[0] = ptr_as_int;
                 }
                 osdi_0_5::OsdiAttributeValue::Real(f) => {
-                    // Real number
+                    // Real number, split into array elements (least significant first)
                     let ipat = f.to_bits();
-                    // Create array entry
-                    let entry = LLVMConstInt(elem_ty, ipat, 0);
-                    // Fill initializer array
-                    elems[0] = entry;
+                    let n = (64 / elem_bits) as usize;
+                    assert!(n >= 1 && n <= elems.len(), "union too small for a double");
+                    for (k, elem) in elems.iter_mut().take(n).enumerate() {
+                        // LLVMConstInt truncates to the element width
+                        *elem = LLVMConstInt(elem_ty, ipat >> (k as u32 * elem_bits), 0);
+                    }
                 }
                 osdi_0_5::OsdiAttributeValue::Integer(i) => {
                     // Integer (i32)
@@ -120,6 +127,52 @@ impl osdi_0_5::OsdiAttributeValue {
             // Construct array
             &*LLVMConstArray2(elem_ty, elems.as_mut_ptr(), len)
         }
+    }
+}
+
+/// Checks that the LLVM layout of `OsdiAttribute` matches the C layout and
+/// returns the C alignment of `OsdiAttribute`.
+///
+/// The union `OsdiAttributeValue` is lowered as an array of at most
+/// pointer-sized integers. When pointers are narrower than the union's C
+/// alignment (e.g. wasm32 with 8-byte aligned doubles) the LLVM type is less
+/// aligned than the C type, so arrays of `OsdiAttribute` must get the C
+/// alignment explicitly.
+pub fn osdi_attribute_c_align(
+    cx: &CodegenCx<'_, '_>,
+    tys: &OsdiTys<'_>,
+    target_data: LLVMTargetDataRef,
+) -> u32 {
+    fn round_up(x: u64, align: u64) -> u64 {
+        x.div_ceil(align) * align
+    }
+    unsafe {
+        let align = |ty: &llvm_sys::LLVMType| {
+            llvm_sys::target::LLVMABIAlignmentOfType(target_data, NonNull::from(ty).as_ptr()) as u64
+        };
+        let size =
+            |ty: &llvm_sys::LLVMType| LLVMABISizeOfType(target_data, NonNull::from(ty).as_ptr());
+        let (ptr, int, double) = (cx.ty_ptr(), cx.ty_int(), cx.ty_double());
+
+        // C layout of struct OsdiAttribute { char *name; uint32_t value_type; OsdiAttributeValue value; }
+        let union_align = align(ptr).max(align(int)).max(align(double));
+        let union_size = round_up(size(ptr).max(size(int)).max(size(double)), union_align);
+        let value_off = round_up(round_up(size(ptr), align(int)) + size(int), union_align);
+        let struct_align = align(ptr).max(align(int)).max(union_align);
+        let struct_size = round_up(value_off + union_size, struct_align);
+
+        let attr = NonNull::from(tys.osdi_attribute).as_ptr();
+        assert_eq!(
+            LLVMOffsetOfElement(target_data, attr, 2),
+            value_off,
+            "OsdiAttribute.value offset differs from C"
+        );
+        assert_eq!(
+            LLVMABISizeOfType(target_data, attr),
+            struct_size,
+            "OsdiAttribute size differs from C"
+        );
+        struct_align as u32
     }
 }
 

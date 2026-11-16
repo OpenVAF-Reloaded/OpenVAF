@@ -38,7 +38,7 @@ use typed_indexmap::TiSet;
 
 use crate::compilation_unit::{new_codegen, OsdiCompilationUnit, OsdiModule};
 use crate::metadata::osdi_0_5::OsdiTys;
-use crate::metadata::OsdiLimFunction;
+use crate::metadata::{osdi_attribute_c_align, OsdiLimFunction};
 
 mod access;
 mod bitfield;
@@ -365,7 +365,11 @@ pub fn compile<'a>(
             attributes_vec.iter().map(|entry| entry.to_ll_val(&cx, &tys)).collect();
         // Export, but only if array has nonzero length
         if !disciplines.is_empty() {
-            cx.export_array("OSDI_ATTRIBUTES", tys.osdi_attribute, &attributes, true, false);
+            let arr =
+                cx.export_array("OSDI_ATTRIBUTES", tys.osdi_attribute, &attributes, true, false);
+            // The LLVM type of OsdiAttribute can be less aligned than the C type
+            let align = osdi_attribute_c_align(&cx, &tys, NonNull::from(target_data).as_ptr());
+            unsafe { llvm_sys::core::LLVMSetAlignment(NonNull::from(arr).as_ptr(), align) };
             cx.export_val(
                 "OSDI_ATTRIBUTES_LEN",
                 cx.ty_int(),

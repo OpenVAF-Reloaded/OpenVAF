@@ -158,6 +158,7 @@ impl OsdiTyBuilder<'_, '_, '_> {
             .into_iter()
             .max()
             .unwrap();
+            let chunk = align.min(llvm_sys::target::LLVMPointerSize(self.target_data.clone()));
             let mut size = [llvm_sys::target::LLVMABISizeOfType(
                 self.target_data.clone(),
                 core::ptr::NonNull::from(ctx.ty_int()).as_ptr(),
@@ -165,8 +166,8 @@ impl OsdiTyBuilder<'_, '_, '_> {
             .into_iter()
             .max()
             .unwrap() as u32;
-            size = (size + align - 1) / align;
-            let elem = ctx.ty_aint(align * 8);
+            size = (size + chunk - 1) / chunk;
+            let elem = ctx.ty_aint(chunk * 8);
             let ty = ctx.ty_array(elem, size);
             self.osdi_init_error_payload = Some(ty);
         }
@@ -742,6 +743,7 @@ impl OsdiTyBuilder<'_, '_, '_> {
             .into_iter()
             .max()
             .unwrap();
+            let chunk = align.min(llvm_sys::target::LLVMPointerSize(self.target_data.clone()));
             let mut size = [
                 llvm_sys::target::LLVMABISizeOfType(
                     self.target_data.clone(),
@@ -759,8 +761,8 @@ impl OsdiTyBuilder<'_, '_, '_> {
             .into_iter()
             .max()
             .unwrap() as u32;
-            size = (size + align - 1) / align;
-            let elem = ctx.ty_aint(align * 8);
+            size = (size + chunk - 1) / chunk;
+            let elem = ctx.ty_aint(chunk * 8);
             let ty = ctx.ty_array(elem, size);
             self.osdi_attribute_value = Some(ty);
         }

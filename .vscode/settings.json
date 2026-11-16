@@ -1,5 +1,8 @@
 {
-    "rust-analyzer.cargo.features": ["llvm18"],
+    "rust-analyzer.cargo.features": [
+        "llvm18"
+    ],
+    "cmake.sourceDirectory": "/home/arpadb/OpenVAF/OpenVAF/external/vacask",
     // "rust-analyzer.cargo.extraEnv": {
     //     "LLVM_SYS_181_PREFIX": "/usr/local",
     //     "LIBCLANG_PATH": "/usr/lib/llvm-18/lib",

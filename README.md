@@ -64,6 +64,7 @@ Some internals of the OpenVAF compiler are documented in the [internals.md](inte
 - vector port support
 - laplace_* operators
 - hierarchy support via flattening
+- WebAssembly support
 
 
 # What about binaries? 
@@ -149,6 +150,12 @@ make -j <number of processors to use>
 make install
 ```
 
+**Note on LLVM targets:** OpenVAF can only generate code for targets whose backend is built into the LLVM it links against. `X86;ARM;AArch64` covers the native targets; `WebAssembly` is required for `--target wasm32-unknown-emscripten` (Pyodide side modules). Without it, compiling for that target fails with *"No available targets are compatible with triple"* and the `cli::link_diode_wasm` test fails. Check which backends an existing LLVM installation has with
+```
+<LLVM install directory>/bin/llvm-config --targets-built
+```
+If `WebAssembly` is missing, rebuild LLVM with the `cmake` command above. Distribution packages (apt, Homebrew) normally include all targets.
+
 ## Setting up the dependencies under Windows
 
 Download [rustup](https://win.rustup.rs), run it to install Rust. 
@@ -167,6 +174,8 @@ Enter build directory and run Ninja (build and install)
 ninja 
 ninja install 
 ```
+
+Keep `WebAssembly` in `LLVM_TARGETS_TO_BUILD` if you want to compile models for Pyodide (see the note on LLVM targets in the Debian/Ubuntu section).
 
 Add the LLVM binary directory (`<LLVM install directory>\bin`) to the PATH. Set the `LLVM_SYS_211_PREFIX` environmental variable to `<LLVM install directory>`.
 

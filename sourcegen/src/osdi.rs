@@ -598,16 +598,20 @@ impl ToTokens for OsdiStructInterp<'_, '_> {
             let field_ll_tys2 = field_ll_tys.clone();
             // Use ty_aint() with element size=alignment*8 bits so that
             // llvm will correctly align the union and its parent.
-            // The number of chunks of size align*8 bits is given by size.
+            // The element is at most pointer-sized so that a pointer member
+            // can be stored in one element (a pointer cannot be converted to
+            // a wider integer in a static initializer, e.g. on wasm32).
+            // The number of chunks of size chunk*8 bits is given by size.
             quote! {
                 impl OsdiTyBuilder<'_, '_, '_>{
                     fn #llvm_ty_ident(&mut self){
                         let ctx = self.ctx;
                         unsafe{
                             let align = [#(llvm_sys::target::LLVMABIAlignmentOfType(self.target_data.clone(), core::ptr::NonNull::from(#field_ll_tys).as_ptr())),*].into_iter().max().unwrap();
+                            let chunk = align.min(llvm_sys::target::LLVMPointerSize(self.target_data.clone()));
                             let mut size = [#(llvm_sys::target::LLVMABISizeOfType(self.target_data.clone(), core::ptr::NonNull::from(#field_ll_tys2).as_ptr())),*].into_iter().max().unwrap() as u32;
-                            size = (size + align - 1) / align;
-                            let elem = ctx.ty_aint(align*8);
+                            size = (size + chunk - 1) / chunk;
+                            let elem = ctx.ty_aint(chunk*8);
                             let ty = ctx.ty_array(elem, size);
                             self.#llvm_ty_ident = Some(ty);
                         }

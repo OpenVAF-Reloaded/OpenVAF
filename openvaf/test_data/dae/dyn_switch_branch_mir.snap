@@ -1,4 +1,4 @@
-function %(v16, v19, v22, v33) {
+function %(v16, v19, v23, v33) {
     // v1 = bconst false
     // v2 = bconst true
     v3 = fconst 0.0
@@ -13,13 +13,13 @@ function %(v16, v19, v22, v33) {
                                     jmp block4
 
                                 block3:
-@0015                               v23 = fmul v19, v16
+@0015                               v22 = fmul v19, v16
                                     jmp block4
 
                                 block4:
                                     v29 = phi [v20, block2], [v3, block3]
                                     v38 = phi [v19, block2], [v3, block3]
-                                    v27 = phi [v3, block2], [v23, block3]
+                                    v27 = phi [v3, block2], [v22, block3]
                                     v39 = phi [v3, block2], [v19, block3]
                                     v25 = phi [v2, block2], [v1, block3]
                                     br v25, block6, block7
@@ -28,7 +28,7 @@ function %(v16, v19, v22, v33) {
                                     jmp block7
 
                                 block7:
-                                    v31 = phi [v22, block4], [v16, block6]
+                                    v31 = phi [v23, block4], [v16, block6]
                                     v40 = phi [v3, block4], [v6, block6]
                                     v41 = phi [v6, block4], [v3, block6]
                                     v32 = phi [v27, block4], [v29, block6]
@@ -37,9 +37,9 @@ function %(v16, v19, v22, v33) {
                                     v35 = fsub v34, v31
                                     v43 = fsub v42, v40
                                     v44 = fsub v3, v41
-                                    v51 = fmul v33, v22
+                                    v51 = fmul v33, v23
                                     v36 = optbarrier v51
-                                    v37 = fneg v22
+                                    v37 = fneg v23
                                     v57 = fmul v33, v7
                                     v47 = optbarrier v57
                                     v48 = fneg v43

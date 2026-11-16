@@ -3,10 +3,15 @@ use crate::grammar::call::{call, sys_fun_call};
 use crate::grammar::paths::path;
 
 const EXPR_EXPECTED: &[SyntaxKind] =
-    &[T!['('], T!["'{"], SYSFUN, NAME, LITERAL, T![~], T![!], T![+], T![-]];
+    &[T!['('], T!["'{"], T!['{'], SYSFUN, NAME, LITERAL, T![~], T![!], T![+], T![-]];
 
 pub(super) fn expr(p: &mut Parser) -> Option<CompletedMarker> {
-    expr_bp(p, 1)
+    expr_bp(p, 1, false)
+}
+
+/// Port actuals additionally allow constant bus part-selects.
+pub(super) fn port_expr(p: &mut Parser) -> Option<CompletedMarker> {
+    expr_bp(p, 1, true)
 }
 
 /// Binding powers of operators for a Pratt parser.
@@ -56,8 +61,8 @@ fn current_op(p: &Parser) -> (u8, SyntaxKind) {
 }
 
 // Parses expression with binding power of at least bp.
-fn expr_bp(p: &mut Parser, bp: u8) -> Option<CompletedMarker> {
-    let mut lhs = atom_expr(p)?;
+fn expr_bp(p: &mut Parser, bp: u8, port_actual: bool) -> Option<CompletedMarker> {
+    let mut lhs = atom_expr(p, port_actual)?;
 
     loop {
         let (op_bp, op) = current_op(p);
@@ -78,7 +83,7 @@ fn expr_bp(p: &mut Parser, bp: u8) -> Option<CompletedMarker> {
         let m = lhs.precede(p);
         p.bump(op);
 
-        expr_bp(p, op_bp + 1);
+        expr_bp(p, op_bp + 1, port_actual);
         lhs = m.complete(p, BIN_EXPR);
     }
     Some(lhs)
@@ -94,24 +99,39 @@ pub(crate) const EXPR_RECOVERY_SET: TokenSet = TokenSet::new(&[
     T![end],
 ]);
 
-fn atom_expr(p: &mut Parser) -> Option<CompletedMarker> {
+fn atom_expr(p: &mut Parser, port_actual: bool) -> Option<CompletedMarker> {
     // if let Some(m) = literal(p) {
     //     return Some(m);
     // }
 
     let done = match p.current() {
         T!['('] => paren_expr(p),
-        // T!["'{"] => array_expr(p), TODO properly implement arrays
+        T!["'{"] | T!['{'] => array_expr(p),
         T![~] | T![!] | T![-] | T![+] => {
             let m = p.start();
             p.bump_ts(TokenSet::new(&[T![~], T![!], T![-], T![+]]));
-            atom_expr(p);
+            atom_expr(p, port_actual);
             m.complete(p, PREFIX_EXPR)
         }
         IDENT | ROOT_KW => {
             let m = path(p);
             if p.at(T!('(')) {
                 call(p, m)
+            } else if p.at(T!['[']) {
+                let m = m.precede(p);
+                let range = p.start();
+                p.bump(T!['[']);
+                expr(p);
+                if port_actual && p.eat(T![:]) {
+                    expr(p);
+                    p.expect(T![']']);
+                    range.complete(p, RANGE);
+                    m.complete(p, PART_SELECT_EXPR)
+                } else {
+                    p.expect(T![']']);
+                    range.abandon(p);
+                    m.complete(p, BIT_SELECT_EXPR)
+                }
             } else {
                 let m = m.precede(p);
                 m.complete(p, PATH_EXPR)
@@ -159,21 +179,19 @@ fn paren_expr(p: &mut Parser) -> CompletedMarker {
     m.complete(p, PAREN_EXPR)
 }
 
-// fn array_expr(p: &mut Parser) -> CompletedMarker {
-//     let m = p.start();
-//     p.bump(T!["'{"]);
-//     while !p.at(EOF) && !p.at(T![']']) {
-//         // test array_attrs
-//         // const A: &[i64] = &[1, #[cfg(test)] 2];
-//         if expr(p).is_none() {
-//             break;
-//         }
+fn array_expr(p: &mut Parser) -> CompletedMarker {
+    let m = p.start();
+    p.bump_ts(TokenSet::new(&[T!["'{"], T!['{']]));
+    while !p.at(EOF) && !p.at(T!['}']) {
+        if expr(p).is_none() {
+            break;
+        }
 
-//         if !p.at(T!['}']) && !p.expect(T![,]) {
-//             break;
-//         }
-//     }
-//     p.expect(T!['}']);
+        if !p.at(T!['}']) && !p.expect(T![,]) {
+            break;
+        }
+    }
+    p.expect(T!['}']);
 
-//     m.complete(p, ARRAY_EXPR)
-// }
+    m.complete(p, ARRAY_EXPR)
+}

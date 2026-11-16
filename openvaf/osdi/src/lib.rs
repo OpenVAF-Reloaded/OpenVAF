@@ -37,8 +37,8 @@ use target::spec::Target;
 use typed_indexmap::TiSet;
 
 use crate::compilation_unit::{new_codegen, OsdiCompilationUnit, OsdiModule};
-use crate::metadata::osdi_0_4::OsdiTys;
-use crate::metadata::OsdiLimFunction;
+use crate::metadata::osdi_0_5::OsdiTys;
+use crate::metadata::{osdi_attribute_c_align, OsdiLimFunction};
 
 mod access;
 mod bitfield;
@@ -52,8 +52,9 @@ mod load;
 mod ndatable;
 mod noise;
 mod setup;
+mod symbols;
 
-const OSDI_VERSION: (u32, u32) = (0, 4);
+const OSDI_VERSION: (u32, u32) = (0, 5);
 
 use std::sync::Once;
 
@@ -69,6 +70,13 @@ fn initialize_llvm() {
         if LLVM_InitializeNativeAsmPrinter() != 0 {
             panic!("Failed to initialize native ASM printer");
         }
+        // Also initialize every other target this LLVM was built with, for
+        // cross compilation (--target). Targets missing from the LLVM build
+        // fail later with an error from LLVMGetTargetFromTriple.
+        llvm_sys::target::LLVM_InitializeAllTargetInfos();
+        llvm_sys::target::LLVM_InitializeAllTargets();
+        llvm_sys::target::LLVM_InitializeAllTargetMCs();
+        llvm_sys::target::LLVM_InitializeAllAsmPrinters();
     });
 }
 
@@ -166,6 +174,9 @@ pub fn compile<'a>(
 
                 if emit {
                     let path = &paths[i * 4];
+                    if symbols::needs_local_symbols(target) {
+                        symbols::localize_symbols(&llmod);
+                    }
                     llmod.optimize();
                     assert_eq!(llmod.emit_object(path.as_ref()), Ok(()))
                 }
@@ -196,6 +207,9 @@ pub fn compile<'a>(
 
                 if emit {
                     let path = &paths[i * 4 + 1];
+                    if symbols::needs_local_symbols(target) {
+                        symbols::localize_symbols(&llmod);
+                    }
                     llmod.optimize();
                     assert_eq!(llmod.emit_object(path.as_ref()), Ok(()))
                 }
@@ -228,6 +242,9 @@ pub fn compile<'a>(
 
                 if emit {
                     let path = &paths[i * 4 + 2];
+                    if symbols::needs_local_symbols(target) {
+                        symbols::localize_symbols(&llmod);
+                    }
                     llmod.optimize();
                     assert_eq!(llmod.emit_object(path.as_ref()), Ok(()))
                 }
@@ -258,6 +275,9 @@ pub fn compile<'a>(
 
                 if emit {
                     let path = &paths[i * 4 + 3];
+                    if symbols::needs_local_symbols(target) {
+                        symbols::localize_symbols(&llmod);
+                    }
                     llmod.optimize();
                     assert_eq!(llmod.emit_object(path.as_ref()), Ok(()))
                 }
@@ -277,7 +297,8 @@ pub fn compile<'a>(
             .iter()
             .map(|module| {
                 let cguint = OsdiCompilationUnit::new(&db, module, &cx, &tys, false);
-                let descriptor = cguint.descriptor(&NonNull::from(target_data).as_ptr(), &db);
+                let td_ptr = NonNull::from(target_data).as_ptr();
+                let descriptor = cguint.descriptor(&td_ptr, &db);
                 descriptor.to_ll_val(&cx, &tys)
             })
             .collect();
@@ -344,7 +365,11 @@ pub fn compile<'a>(
             attributes_vec.iter().map(|entry| entry.to_ll_val(&cx, &tys)).collect();
         // Export, but only if array has nonzero length
         if !disciplines.is_empty() {
-            cx.export_array("OSDI_ATTRIBUTES", tys.osdi_attribute, &attributes, true, false);
+            let arr =
+                cx.export_array("OSDI_ATTRIBUTES", tys.osdi_attribute, &attributes, true, false);
+            // The LLVM type of OsdiAttribute can be less aligned than the C type
+            let align = osdi_attribute_c_align(&cx, &tys, NonNull::from(target_data).as_ptr());
+            unsafe { llvm_sys::core::LLVMSetAlignment(NonNull::from(arr).as_ptr(), align) };
             cx.export_val(
                 "OSDI_ATTRIBUTES_LEN",
                 cx.ty_int(),
@@ -390,6 +415,9 @@ pub fn compile<'a>(
 
         if emit {
             // println!("{}", llmod.to_str());
+            if symbols::needs_local_symbols(target) {
+                symbols::localize_symbols(&llmod);
+            }
             llmod.optimize();
             // println!("{}", llmod.to_str());
             assert_eq!(llmod.emit_object(main_file.as_ref()), Ok(()))

@@ -1,0 +1,10 @@
+`include "disciplines.vams"
+
+module indirect_requires_equality(out, pin, nin);
+    inout out, pin, nin;
+    electrical out, pin, nin;
+    analog begin
+        V(out) : V(pin, nin);
+        V(out) : V(pin, nin) > 0;
+    end
+endmodule

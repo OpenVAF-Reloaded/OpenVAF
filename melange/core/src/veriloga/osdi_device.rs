@@ -14,7 +14,7 @@ use typed_index_collections::TiSlice;
 use crate::circuit::Node;
 use crate::devices::{DeviceImpl, DeviceParams, InstanceImpl, ModelImpl, ParamId, Type};
 use crate::simulation::{MatrixEntryIter, SimBuilder, SimInfo};
-use crate::veriloga::osdi_0_4::{
+use crate::veriloga::osdi_0_5::{
     OsdiDescriptor, OsdiInitInfo, OsdiJacobianEntry, OsdiNode, OsdiNodePair, OsdiParamOpvar,
     OsdiSimInfo, OsdiSimParas, ACCESS_FLAG_SET, EVAL_RET_FLAG_FATAL, INIT_ERR_OUT_OF_BOUNDS,
     PARA_KIND_INST, PARA_TY_INT, PARA_TY_MASK, PARA_TY_REAL, PARA_TY_STR,

@@ -10,41 +10,43 @@
 
 # OpenVAF-reloaded
 
-OpenVAF is a Verilog-A compiler written by Pascal Kuthe. The compiler outputs a dynamic library whose functionality can be accessed via the OSDI API. The original compiler received no support since end of 2023. This fork of [the original repository](https://github.com/pascalkuthe/OpenVAF) was started by Árpád Bűrmen in early 2024. Since then several small bugs were fixed that prevented the use of OpenVAF for building SPICE3-equivalent device models. 
+OpenVAF is a Verilog-A compiler written by Pascal Kuthe. The compiler outputs a dynamic library whose functionality can be accessed via the OSDI API. The original compiler received no support since end of 2023. This fork of [the original repository](https://github.com/pascalkuthe/OpenVAF) was started by Árpád Bűrmen in early 2024. Since then several small bugs were fixed that prevented the use of OpenVAF for building SPICE3-equivalent device models.
 
-To add new functionality to OpenVAF the OSDI interface has been modified. Consequently the current version of OSDI API is 0.4. OSDI API 0.4 differs from version 0.3 in the module descriptor. It also exports `OSDI_DESCRIPTOR_SIZE` which can be used to traverse the array of descriptors without relying on the definition of the `OsdiDescriptor` structure (i.e. size of the structure in the OSDI header file used by the simulator). New members are added after the first part of the descriptor which still complies with the OSDI 0.3 specification. Simulators that support only OSDI 0.3 can still use models exposing the newer OSDI API by applying some minor changes. 
+To add new functionality to OpenVAF the OSDI interface has been modified. Consequently the current version of OSDI API is 0.5. OSDI API 0.5 differs from version 0.3 in the module descriptor. It also exports `OSDI_DESCRIPTOR_SIZE` which can be used to traverse the array of descriptors without relying on the definition of the `OsdiDescriptor` structure (i.e. size of the structure in the OSDI header file used by the simulator). New members are added after the first part of the descriptor which still complies with the OSDI 0.3 specification. Simulators that support only OSDI 0.3 can still use models exposing the newer OSDI API by applying some minor changes. 
 
 The last version of OpenVAF before the project was renamed to **OpenVAF-reloaded** and the binary was renamed to `openvaf-r` is tagged with `osdi_0.3`. The `master` branch includes several extensions of the compiler and exposes the OSDI 0.4 API in the generated models. 
 
 The next version of OSDI is 0.5. Work on it is ongoing in the `mb-experimental` branch where extensions developed by Meisam Bahadori are getting merged. 
 
 
-# OSDI 0.4
+# OSDI 0.5
 
-In OSDI 0.4 new members are added to the module descriptor data structure after the members defined in the OSDI 0.3 specification. The descriptor (if cast to the declaration given in the OSDI 0.3 header file) remains compatible with OSDI 0.3 and should work just like before. Simulators using OSDI API 0.3 can be adapted to use version 0.4 by applying the following changes 
-- allowing major.minor version >=0.4 beside 0.3, 
+OSDI 0.5 is the continuation of OSDI 0.4 with support for extensions developed by Meisam Bahadori. Just like in OSDI 0.4 new members are added to the module descriptor data structure after the members defined in the OSDI 0.4 specification. The descriptor (if cast to the declaration given in the OSDI 0.3 header file) remains compatible with OSDI 0.3 and should work just like before. Simulators using OSDI API 0.3 can be adapted to use version 0.5 by applying the following changes 
+- allowing major.minor version >=0.5 beside 0.3, 
 - reading the `OSDI_DESCRIPTOR_SIZE` symbol of type `uint32` specifying the descriptor size, 
 - making sure the table of descriptors (pointed to by the `OSDI_DESCRIPTORS` symbol) is traversed in steps of size `OSDI_DESCRIPTOR_SIZE` instead of `sizeof(OsdiDescriptor)`, and
 - casting each descriptor to the structure declared in the OSDI header file, version 0.3. 
 
-This is the current state of OSDI 0.4 support
+This is the current state of OSDI 0.5 support
 
 |Simulator|OSDI version supported|Comment|
 |---------------|------------|---------------------------------------------------------------|
-|[Ngspice](https://ngspice.sourceforge.io/) 43            |0.3         |        |
-|[Ngspice](https://ngspice.sourceforge.io/) >=44          |0.3 & 0.4   |uses only 0.3 features        |
-|[SPICE OPUS](https://www.spiceopus.si/) 3.0              |0.3         |                                                               |
-|[VACASK](https://codeberg.org/arpadbuermen/VACASK) 0.1.2 |0.3         |                                                               |
-|[VACASK](https://codeberg.org/arpadbuermen/VACASK) >=0.2 |0.4         |                                                               |
+|[Ngspice](https://ngspice.sourceforge.io/) 43             |0.3         |        |
+|[Ngspice](https://ngspice.sourceforge.io/) >=44           |0.3 & 0.4   |uses only 0.3 features        |
+|[Ngspice](https://ngspice.sourceforge.io/) >=48           |0.3-0.5     ||
+|[SPICE OPUS](https://www.spiceopus.si/) 3.0               |0.3         |                                                               |
+|[VACASK](https://codeberg.org/arpadbuermen/VACASK) 0.1.2  |0.3         |                                                               |
+|[VACASK](https://codeberg.org/arpadbuermen/VACASK) >=0.2  |0.4         |                                                               |
+|[VACASK](https://codeberg.org/arpadbuermen/VACASK) >0.3.3 |0.4 & 0.5         |                                                               |
 
 If you know of any other simulator supporting OSDI models generated by OpenVAF, let me know. 
 
 Some internals of the OpenVAF compiler are documented in the [internals.md](internals.md) file. 
 
-## What is new in OSDI 0.4 and OpenVAF in general? 
+## What is new in OSDI 0.5 and OpenVAF in general? 
 
-- OSDI descriptor size for traversing the OSDI descriptor table in simulators not supporting OSDI 0.4 
-- Support for reading param given flags of parameters in the instance and model data structures. This is pretty much self-explanatory. Look at the [OSDI 0.4 header file](openvaf/osdi/header/osdi_0_4.h). This one takes care of issue #76 in the original repository. 
+- OSDI descriptor size for traversing the OSDI descriptor table in simulators not supporting OSDI 0.5 
+- Support for reading param given flags of parameters in the instance and model data structures. This is pretty much self-explanatory. Look at the [OSDI 0.5 header file](openvaf/osdi/header/osdi_0_5.h). This one takes care of issue #76 in the original repository. 
 - Support for writing nonzero resistive and reactive Jacobian contributions to an array of doubles. 
 - List of model inputs (node pairs). 
 - Functions for loading Jacobians with offset (for harmonic balance analysis). 
@@ -57,6 +59,12 @@ Some internals of the OpenVAF compiler are documented in the [internals.md](inte
 - Initalization of instance parameters from model defaults now works. 
 - Access to noise source type and parameters (white and flicker noise). 
 - limexp() is now a stateless builtin (not an operator) so it can be used in conditionals that depend on OP. 
+- absdelay() support
+- indirect contribution support
+- vector port support
+- laplace_* operators
+- hierarchy support via flattening
+- WebAssembly support
 
 
 # What about binaries? 
@@ -67,10 +75,7 @@ Yes, binaries for 64-bit Linux and Windows are available [here](https://fides.fe
 openvaf-reloaded-<version>-<platform>
 ```
 
-The version name is generated with `git --describe`. The OpenVAF-reloaded that produces models with the OSDI API 0.3 is version `osdi_0.3`. All newer versions (`osdi_0.4`) produce models with OSDI API 0.4. 
-
-If the binary is named `openvaf` it comes from the `branches/osdi_0.3` branch and produces models with the OSDI 0.3 API (note that this branch is no longer maintained). If the binary is named `openvaf-r` it comes from the `master` branch and produces models with the OSDI 0.4 API. 
-
+The version name is generated with `git --describe`. The OpenVAF-reloaded that produces models with the OSDI API 0.3 is version `osdi_0.3`. Newer versions `osdi_0.4` and `osdi_0.5` produce models with OSDI API 0.4 and 0.5, respectively. 
 
 # Building OpenVAF-reloaded
 
@@ -136,7 +141,7 @@ export PATH=/usr/lib/llvm-21/bin:$PATH
 
 If you need to build LLVM from source, download [LLVM 21.1.6 sources](https://github.com/llvm/llvm-project/releases/tag/llvmorg-21.1.6) (or 18.1.8 for LLVM 18). Unpack them and create a build directory:
 ```
-cmake -S <path to souces>/llvm -B <path to build dir> -DCMAKE_INSTALL_PREFIX=<LLVM install directory> -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64" -DLLVM_ENABLE_PROJECTS="llvm;clang;lld"
+cmake -S <path to souces>/llvm -B <path to build dir> -DCMAKE_INSTALL_PREFIX=<LLVM install directory> -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64;WebAssembly" -DLLVM_ENABLE_PROJECTS="llvm;clang;lld"
 ```
 
 Enter the build directory and type:
@@ -144,6 +149,12 @@ Enter the build directory and type:
 make -j <number of processors to use>
 make install
 ```
+
+**Note on LLVM targets:** OpenVAF can only generate code for targets whose backend is built into the LLVM it links against. `X86;ARM;AArch64` covers the native targets; `WebAssembly` is required for `--target wasm32-unknown-emscripten` (Pyodide side modules). Without it, compiling for that target fails with *"No available targets are compatible with triple"* and the `cli::link_diode_wasm` test fails. Check which backends an existing LLVM installation has with
+```
+<LLVM install directory>/bin/llvm-config --targets-built
+```
+If `WebAssembly` is missing, rebuild LLVM with the `cmake` command above. Distribution packages (apt, Homebrew) normally include all targets.
 
 ## Setting up the dependencies under Windows
 
@@ -156,13 +167,15 @@ Build LLVM and Clang. Download [LLVM 21.1.6 sources](https://github.com/llvm/llv
 
 Start Visual Studio x64 native command prompt. Run CMake, use Ninja as build system. Do not use default (nmake) because for me it always built the Debug version, even when I specified Release. 
 ```bash
-cmake -G Ninja -S path_to_sources/llvm -B path_to_build_dir -DCMAKE_INSTALL_PREFIX=LLVM_install_directory -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64" -DLLVM_ENABLE_PROJECTS="llvm;clang;lld"
+cmake -G Ninja -S path_to_sources/llvm -B path_to_build_dir -DCMAKE_INSTALL_PREFIX=LLVM_install_directory -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64;WebAssembly" -DLLVM_ENABLE_PROJECTS="llvm;clang;lld"
 ```
 Enter build directory and run Ninja (build and install)
 ```bash
 ninja 
 ninja install 
 ```
+
+Keep `WebAssembly` in `LLVM_TARGETS_TO_BUILD` if you want to compile models for Pyodide (see the note on LLVM targets in the Debian/Ubuntu section).
 
 Add the LLVM binary directory (`<LLVM install directory>\bin`) to the PATH. Set the `LLVM_SYS_211_PREFIX` environmental variable to `<LLVM install directory>`.
 
@@ -242,6 +255,26 @@ cargo build --features llvm21
 
 The release binary can be found in `target/release` while the debug binary is built in `target/debug`. 
 
+# WebAssembly side modules (Pyodide)
+
+OpenVAF-reloaded can compile models to WebAssembly for simulators running under
+[Pyodide](https://pyodide.org) or other Emscripten programs that load shared
+libraries with `dlopen`:
+```bash
+openvaf-r --target wasm32-unknown-emscripten model.va -o model.osdi
+```
+The result is an Emscripten side module, which imports the C library functions it
+uses (`malloc`, `exp`, `snprintf`, ...) from the main module. This needs
+
+- an LLVM built with the WebAssembly target (distribution packages and Homebrew
+  have it; add `WebAssembly` to `LLVM_TARGETS_TO_BUILD` when building LLVM yourself), and
+- the `wasm-ld` linker. OpenVAF uses the one given by the `OPENVAF_WASM_LD`
+  environment variable, else the one of the activated
+  [Emscripten SDK](https://emscripten.org) (`$EMSDK/upstream/bin/wasm-ld`), else
+  `wasm-ld` from the PATH.
+
+Use the Emscripten version of the Pyodide release the models are meant for.
+
 # Debugging OpenVAF-reloaded in Visual Studio Code 
 
 You will need two extensions: CodeLLDB (under Linux) / Microsoft C++ (under Windows) and rust-analyzer. In the `.vscode` directory there are two files: `launch-openvaf-r.json` (for working with the master branch) and `launch-openvaf.json` (for working with the branches/osdi_0.3 branch). Copy the one that matches your branch to `launch.json`. There are two debug setups available in that file (Linux and Windows). Set your breakpoints and run the program. If there are any changes since the last build they will be applied upon which the program will be started and then stop at the first breakpoint. 
@@ -273,7 +306,7 @@ cargo test --features llvm21
 cargo test --release --features llvm21
 ```
 
-By default only fast tests are run. To run all tests set the `RUN_SLOW_TEST` variable to 1, e.g.
+By default only fast tests are run. To run all tests set the `RUN_SLOW_TESTS` variable to 1, e.g.
 ```bash
 RUN_SLOW_TESTS=1 cargo test
 ```

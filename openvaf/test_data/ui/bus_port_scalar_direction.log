@@ -1,0 +1,9 @@
+error: no discipline for net 'd'
+  --> /bus_port_scalar_direction.va:3:34
+  |
+3 | module bus_port_scalar_direction(d, out);
+  |                                  ^ 'd' is missing a discipline
+  |
+  = info: disciplineless nets are digital and therefore not supported in Verilog-A
+  = help: add a discipline with 'electrical d'
+

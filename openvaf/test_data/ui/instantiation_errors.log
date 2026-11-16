@@ -1,0 +1,26 @@
+error: module 'a' instantiates itself (directly or transitively)
+   --> /instantiation_errors.va:21:5
+   |
+21 |     a a1(x, y);
+   |     ^^^^^^^^^^^ this instantiation creates a cycle
+   |
+   = help: a module cannot instantiate itself, directly or through a chain of other modules, since there would be no way to flatten it into a finite circuit
+
+error: module 'resistor' has no parameter named 'rr' (instance 'r1')
+   --> /instantiation_errors.va:27:5
+   |
+27 |     resistor #(.rr(1e3)) r1(in, out);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ 'rr' is not a parameter of 'resistor'
+
+error: instance 'r2' of module 'resistor' has 3 port connection(s), expected 2
+   --> /instantiation_errors.va:28:5
+   |
+28 |     resistor r2(in, out, gnd);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^ 'resistor' declares 2 port(s)
+
+error: unknown module 'nonexistent_module'
+   --> /instantiation_errors.va:29:5
+   |
+29 |     nonexistent_module m1(in, out);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no module named 'nonexistent_module' was found in this file
+

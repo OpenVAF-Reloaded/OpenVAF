@@ -146,3 +146,35 @@ fn dyn_switch_branch() {
     "#};
     run_test(src);
 }
+
+// Enhancement-2: indirect branch assignment `V(out) : V(pin,nin) == 0`. `out` is driven
+// by an implicit flow unknown whose equation is the residual `V(pin,nin) - 0`.
+#[test]
+fn indirect_opamp() {
+    let src = indoc! {r#"
+        `include "disciplines.vams"
+        module indirect_opamp(out, pin, nin);
+            inout out, pin, nin;
+            electrical out, pin, nin;
+            analog
+                V(out) : V(pin,nin) == 0;
+        endmodule
+    "#};
+    run_test(src);
+}
+
+// Enhancement-2: generalized left-hand side of the equality, the residual is
+// `2*V(pin,nin) + 1 - 1`.
+#[test]
+fn indirect_lhs() {
+    let src = indoc! {r#"
+        `include "disciplines.vams"
+        module indirect_lhs(out, pin, nin);
+            inout out, pin, nin;
+            electrical out, pin, nin;
+            analog
+                V(out) : 2*V(pin,nin) + 1 == 1;
+        endmodule
+    "#};
+    run_test(src);
+}

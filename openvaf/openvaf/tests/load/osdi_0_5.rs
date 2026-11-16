@@ -3,7 +3,7 @@
 use std::os::raw::{c_char, c_void};
 
 pub const OSDI_VERSION_MAJOR_CURR: u32 = 0;
-pub const OSDI_VERSION_MINOR_CURR: u32 = 4;
+pub const OSDI_VERSION_MINOR_CURR: u32 = 5;
 pub const PARA_TY_MASK: u32 = 3;
 pub const PARA_TY_REAL: u32 = 0;
 pub const PARA_TY_INT: u32 = 1;
@@ -113,6 +113,13 @@ pub struct OsdiJacobianEntry {
     pub flags: u32,
 }
 #[repr(C)]
+pub struct OsdiJacobianValue {
+    pub resist_flags: u32,
+    pub react_flags: u32,
+    pub resist_off: u32,
+    pub react_off: u32,
+}
+#[repr(C)]
 pub struct OsdiNode {
     pub name: *mut c_char,
     pub units: *mut c_char,
@@ -141,6 +148,13 @@ pub struct OsdiNoiseSource {
 pub struct OsdiNatureRef {
     pub ref_type: u32,
     pub index: u32,
+}
+#[repr(C)]
+pub struct OsdiAbsDelay {
+    pub y_node: u32,
+    pub z_node: u32,
+    pub td_offset: u32,
+    pub maxdelay_offset: u32,
 }
 #[repr(C)]
 #[non_exhaustive]
@@ -197,6 +211,9 @@ pub struct OsdiDescriptor {
     pub noise_source_type: *mut u32,
     pub load_noise_params: fn(*mut c_void, *mut c_void, *mut f64, *mut f64),
     pub module_flags: u32,
+    pub absdelay_count: u32,
+    pub absdelays: *mut OsdiAbsDelay,
+    pub jacobian_values: *mut OsdiJacobianValue,
 }
 impl OsdiDescriptor {
     pub fn access(

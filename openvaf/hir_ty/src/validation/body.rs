@@ -730,13 +730,26 @@ impl ExprValidator<'_, '_> {
                 BuiltIn::laplace_nd
                 | BuiltIn::laplace_np
                 | BuiltIn::laplace_zp
-                | BuiltIn::laplace_zd
-                | BuiltIn::zi_nd
-                | BuiltIn::zi_np
-                | BuiltIn::zi_zd
-                | BuiltIn::zi_zp,
+                | BuiltIn::laplace_zd,
                 Some(_),
             ) => {
+                // args[0] (input signal) and args[1]/args[2] (num/den, or zero/pole) are
+                // validated normally below: num/den may be either an array literal (whose
+                // elements may be ordinary runtime expressions, e.g. parameters) or a bare
+                // reference to a module-body array variable (Enhancement-4) -- neither is
+                // required to be a compile-time constant, since each element is lowered as an
+                // ordinary MIR value, not constant-folded. Only the optional trailing
+                // tolerance/nature argument (unused, see Enhancement-4.md §1.3) still must be
+                // constant.
+                if let [_in, _num, _den, const_args @ ..] = args {
+                    args = &args[..3];
+                    for arg in const_args {
+                        self.validate_const_expr(*arg)
+                    }
+                }
+            }
+
+            (BuiltIn::zi_nd | BuiltIn::zi_np | BuiltIn::zi_zd | BuiltIn::zi_zp, Some(_)) => {
                 if let [_expr, const_args @ ..] = args {
                     args = &args[..1];
                     for arg in const_args {

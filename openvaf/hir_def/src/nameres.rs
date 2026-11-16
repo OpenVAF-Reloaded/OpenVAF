@@ -16,8 +16,8 @@ use crate::builtin::{insert_builtin_scope, BuiltIn, ParamSysFun};
 use crate::db::HirDefDB;
 use crate::nameres::diagnostics::PathResolveError;
 use crate::{
-    AliasParamId, BlockId, BranchId, DisciplineId, FunctionArgId, FunctionId, Lookup, ModuleId,
-    NatureAttrId, NatureId, NodeId, ParamId, VarId,
+    AliasParamId, BlockId, BranchId, DisciplineId, FunctionArgId, FunctionId, InstantiationId,
+    Lookup, ModuleId, NatureAttrId, NatureId, NodeId, ParamId, VarId,
 };
 
 mod collect;
@@ -91,6 +91,7 @@ pub enum ScopeDefItem {
     FunctionReturn(FunctionId),
     FunctionArgId(FunctionArgId),
     NatureAttrId(NatureAttrId),
+    InstantiationId(InstantiationId),
 }
 
 impl ScopeDefItem {
@@ -112,6 +113,7 @@ impl ScopeDefItem {
             ScopeDefItem::BuiltIn(_) | ScopeDefItem::ParamSysFun(_) => return None,
             ScopeDefItem::AliasParamId(id) => id.lookup(db).ast_id(db).into(),
             ScopeDefItem::NatureAttrId(id) => id.lookup(db).ast_id(db).into(),
+            ScopeDefItem::InstantiationId(id) => id.lookup(db).ast_id(db).into(),
         };
         Some(id)
     }
@@ -188,6 +190,18 @@ impl ScopeDefItem {
             ScopeDefItem::BuiltIn(_) | ScopeDefItem::ParamSysFun(_) => return None,
             ScopeDefItem::AliasParamId(id) => ast_id_map.get(id.lookup(db).ast_id(db)).range(),
             ScopeDefItem::NatureAttrId(id) => ast_id_map.get(id.lookup(db).ast_id(db)).range(),
+            ScopeDefItem::InstantiationId(id) => {
+                let inst = id.lookup(db);
+                let unit_idx = inst.item_tree(db)[inst.id].unit_idx;
+                ast_id_map
+                    .get(inst.ast_id(db))
+                    .to_node(parse.tree().syntax())
+                    .instance_units()
+                    .nth(unit_idx)?
+                    .name()?
+                    .syntax()
+                    .text_range()
+            }
         };
 
         Some(res)
@@ -210,7 +224,8 @@ impl_from! {
     ParamSysFun,
     // DisciplineAttrId,
     FunctionArgId,
-    BuiltIn
+    BuiltIn,
+    InstantiationId
 
     for ScopeDefItem
 }
@@ -249,7 +264,8 @@ scope_item_kinds! {
     BranchId => "branch",
     FunctionId => "function",
     BuiltIn => "function",
-    FunctionArgId => "function argument"
+    FunctionArgId => "function argument",
+    InstantiationId => "instance"
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]

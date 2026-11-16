@@ -2,16 +2,16 @@ use hir::builtin::{
     FLICKER_NOISE_NAME, NOISE_TABLE_FILE_NAME, NOISE_TABLE_INLINE_NAME, WHITE_NOISE_NAME,
 };
 use hir::signatures::{
-    ABS_INT, ABS_REAL, BOOL_EQ, DDX_POT, IDTMOD_IC, IDTMOD_IC_MODULUS, IDTMOD_IC_MODULUS_OFFSET,
-    IDTMOD_IC_MODULUS_OFFSET_NATURE, IDTMOD_IC_MODULUS_OFFSET_TOL, IDTMOD_NO_IC, IDT_IC,
-    IDT_IC_ASSERT, IDT_IC_ASSERT_NATURE, IDT_IC_ASSERT_TOL, IDT_NO_IC, INT_EQ, INT_OP,
-    LIMIT_BUILTIN_FUNCTION, MAX_INT, MAX_REAL, NATURE_ACCESS_BRANCH, NATURE_ACCESS_NODES,
-    NATURE_ACCESS_NODE_GND, NATURE_ACCESS_PORT_FLOW, REAL_EQ, REAL_OP, SIMPARAM_DEFAULT,
-    SIMPARAM_NO_DEFAULT, STR_EQ,
+    ABSDELAY_MAX, ABS_INT, ABS_REAL, BOOL_EQ, DDX_POT, IDTMOD_IC, IDTMOD_IC_MODULUS,
+    IDTMOD_IC_MODULUS_OFFSET, IDTMOD_IC_MODULUS_OFFSET_NATURE, IDTMOD_IC_MODULUS_OFFSET_TOL,
+    IDTMOD_NO_IC, IDT_IC, IDT_IC_ASSERT, IDT_IC_ASSERT_NATURE, IDT_IC_ASSERT_TOL, IDT_NO_IC,
+    INT_EQ, INT_OP, LIMIT_BUILTIN_FUNCTION, MAX_INT, MAX_REAL, NATURE_ACCESS_BRANCH,
+    NATURE_ACCESS_NODES, NATURE_ACCESS_NODE_GND, NATURE_ACCESS_PORT_FLOW, REAL_EQ, REAL_OP,
+    SIMPARAM_DEFAULT, SIMPARAM_NO_DEFAULT, STR_EQ,
 };
 use hir::{Body, BuiltIn, Expr, ExprId, Literal, /*ParamSysFun,*/ Ref, ResolvedFun, Type};
 use mir::builder::InstBuilder;
-use mir::{Opcode, Value, FALSE, F_ZERO, GRAVESTONE, INFINITY, TRUE, ZERO};
+use mir::{Opcode, Value, FALSE, F_ONE, F_ZERO, GRAVESTONE, INFINITY, TRUE, ZERO};
 use stdx::iter::zip;
 use syntax::ast::{BinaryOp, UnaryOp};
 
@@ -689,39 +689,182 @@ impl BodyLoweringCtx<'_, '_, '_> {
                 GRAVESTONE
             }
 
-            /* TODO: absdelay
             BuiltIn::absdelay => {
-                let arg = self.lower_expr(args[0]);
-                let mut delay = self.lower_expr(args[1]);
-                let (eq1, res) = self.ctx.implicit_equation(ImplicitEquationKind::Absdelay);
-                let (eq2, intermediate) = self.ctx.implicit_equation(ImplicitEquationKind::Absdelay);
-                if signature == ABSDELAY_MAX {
-                    let max_delay = self.lower_expr(args[2]);
-                    let use_delay = self.ctx.ins().fle(delay, max_delay);
-                    delay = self.lower_select_with(use_delay, |_| delay, |_| max_delay);
-                } else {
-                    delay = self.ctx.call1(CallBackKind::StoreDelayTime(eq1), &[delay]);
+                let delay_idx = self.ctx.intern.absdelay_equations.len() as u32;
+                let y_expr = self.lower_expr(args[0]);
+                let mut td = self.lower_expr(args[1]);
+                let has_maxdelay = signature == ABSDELAY_MAX;
+                if has_maxdelay {
+                    let tdmax = self.lower_expr(args[2]);
+                    // Store the raw (unclamped) upper bound for OSDI exposure.
+                    self.ctx.def_place(PlaceKind::AbsDelayMax(delay_idx), tdmax);
+                    let use_td = self.ctx.ins().fle(td, tdmax);
+                    td = self.lower_select_with(use_td, |_| td, |_| tdmax);
                 }
 
-                let mut resist_val = self.ctx.ins().fsub(res, arg);
-                resist_val = self.ctx.ins().fdiv(resist_val, delay);
-                self.ctx.def_resist_residual(resist_val, eq1);
-                self.ctx.def_react_residual(intermediate, eq1);
+                // Synthetic input node: equation V(y_synth) = y_expr
+                let (eq_y, y_val) =
+                    self.ctx.implicit_equation(ImplicitEquationKind::AbsDelayInput(delay_idx));
+                // Output node: equation stamped entirely by the simulator (history lookup)
+                let (eq_z, z_val) =
+                    self.ctx.implicit_equation(ImplicitEquationKind::AbsDelayOutput(delay_idx));
 
-                let mut resist_val = self.ctx.ins().fsub(res, intermediate);
-                resist_val = self.ctx.ins().fdiv(resist_val, delay);
-                self.ctx.def_resist_residual(resist_val, eq2);
-                let react_val = self.ctx.ins().fdiv(res, F_THREE);
-                self.ctx.def_react_residual(react_val, eq2);
+                self.ctx.intern.absdelay_equations.push((eq_y, eq_z, has_maxdelay));
 
-                res
-            }*/
-            BuiltIn::slew | BuiltIn::transition | BuiltIn::limit | BuiltIn::absdelay => {
-                self.lower_expr(args[0])
+                // Resistive residual for eq_y: y_expr - V(y_synth) = 0
+                let resist_y = self.ctx.ins().fsub(y_expr, y_val);
+                self.ctx.def_resist_residual(resist_y, eq_y);
+
+                // Store td so the simulator can read it during matrix stamping
+                self.ctx.def_place(PlaceKind::AbsDelayTime(delay_idx), td);
+
+                // The absdelay result is V(z); eq_z's equation is handled by the simulator
+                z_val
             }
+            BuiltIn::slew | BuiltIn::transition | BuiltIn::limit => self.lower_expr(args[0]),
+
+            BuiltIn::laplace_nd
+            | BuiltIn::laplace_np
+            | BuiltIn::laplace_zd
+            | BuiltIn::laplace_zp => self.lower_laplace(builtin, args),
 
             _ => unreachable!(),
         }
+    }
+
+    /// Lowers `laplace_nd`/`laplace_np`/`laplace_zd`/`laplace_zp(in, num_or_zero, den_or_pole
+    /// [, tol|nature])`.
+    ///
+    /// The transfer function `H(s) = num(s)/den(s)` is converted at compile time into an
+    /// equivalent controllable-canonical-form state-space realization (a small system of
+    /// first-order ODEs), reusing the same `idt`-style implicit-equation + resistive/reactive
+    /// residual machinery as the `idt()` builtin. The output is then a purely algebraic
+    /// combination of the resulting state values, so this needs no special-casing anywhere
+    /// downstream (`sim_back`/`osdi` treat the states as ordinary implicit unknowns).
+    /// The optional trailing tolerance/nature argument is accepted for signature compatibility
+    /// but has no effect: the realization is an exact algebraic transformation, not an
+    /// approximation that could benefit from an error tolerance.
+    fn lower_laplace(&mut self, kind: BuiltIn, args: &[ExprId]) -> Value {
+        let input = self.lower_expr(args[0]);
+
+        let num_is_roots = matches!(kind, BuiltIn::laplace_zd | BuiltIn::laplace_zp);
+        let den_is_roots = matches!(kind, BuiltIn::laplace_np | BuiltIn::laplace_zp);
+
+        let num = self.lower_laplace_array_arg(args[1]);
+        let den = self.lower_laplace_array_arg(args[2]);
+
+        let num = if num_is_roots { self.laplace_roots_to_poly(&num) } else { num };
+        let den = if den_is_roots { self.laplace_roots_to_poly(&den) } else { den };
+
+        self.laplace_state_space(input, &num, &den)
+    }
+
+    /// Lowers a `num`/`den` (or `zero`/`pole`) argument of a `laplace_*` call to its element
+    /// `Value`s, in ascending order. Two shapes are accepted (see `hir_ty::inference::
+    /// infere_laplace_array_arg`): a bare reference to a module-body array variable, read
+    /// directly via `ctx.read_variable` per element (no array-literal `ExprId`s exist for this
+    /// case at all); or an ordinary array-literal expression (`'{a, b, c}'`/`{a, b, c}`), whose
+    /// elements are lowered individually via `lower_expr` (falling back to treating the whole
+    /// expression as a single-element array if it's neither — defensive, not expected to
+    /// trigger given the type-level `ArrayAnyLength` requirement).
+    fn lower_laplace_array_arg(&mut self, expr: ExprId) -> Vec<Value> {
+        if let Some(vars) = self.body.array_var_ref(expr) {
+            return vars.iter().map(|&var| self.ctx.read_variable(var)).collect();
+        }
+
+        let elem_ids: Vec<ExprId> = match self.body.get_expr(expr) {
+            Expr::Array(elems) => elems.to_vec(),
+            _ => vec![expr],
+        };
+        elem_ids.iter().map(|&e| self.lower_expr(e)).collect()
+    }
+
+    /// Expands a list of roots `[r0, r1, ...]` into ascending-power polynomial coefficients of
+    /// `(s - r0)(s - r1)...`, i.e. `poly[i]` is the coefficient of `s^i`.
+    fn laplace_roots_to_poly(&mut self, roots: &[Value]) -> Vec<Value> {
+        let mut poly = vec![F_ONE];
+        for &root in roots {
+            let n = poly.len();
+            let mut next = Vec::with_capacity(n + 1);
+            for i in 0..=n {
+                let rp = if i < n { Some(self.ctx.ins().fmul(root, poly[i])) } else { None };
+                let term = match (i >= 1 && i - 1 < n, rp) {
+                    (true, Some(rp)) => self.ctx.ins().fsub(poly[i - 1], rp),
+                    (true, None) => poly[i - 1],
+                    (false, Some(rp)) => self.ctx.ins().fneg(rp),
+                    (false, None) => F_ZERO,
+                };
+                next.push(term);
+            }
+            poly = next;
+        }
+        poly
+    }
+
+    /// Builds a controllable-canonical-form state-space realization of `H(s) = num(s)/den(s)`
+    /// (both ascending-power coefficient lists, `den` non-empty) driven by `input`, and returns
+    /// the algebraic output value `y`.
+    fn laplace_state_space(&mut self, input: Value, num: &[Value], den: &[Value]) -> Value {
+        let n = den.len() - 1;
+        let a_n = den[n];
+
+        if n == 0 {
+            // No dynamics: H(s) is a constant gain num[0]/den[0].
+            let b0 = num.first().copied().unwrap_or(F_ZERO);
+            let gain = self.ctx.ins().fdiv(b0, a_n);
+            return self.ctx.ins().fmul(gain, input);
+        }
+
+        // Normalized (monic) denominator coefficients a_bar_i = den[i] / a_n, i in 0..n.
+        let a_bar: Vec<Value> = (0..n).map(|i| self.ctx.ins().fdiv(den[i], a_n)).collect();
+
+        // Direct feedthrough d = num[n] / a_n, present only if num is exactly proper (deg == n).
+        let d = if num.len() == n + 1 { self.ctx.ins().fdiv(num[n], a_n) } else { F_ZERO };
+
+        // c_i = (b_i - d * den[i]) / a_n, i in 0..n, with b_i = num[i] (0 if out of range).
+        let c: Vec<Value> = (0..n)
+            .map(|i| {
+                let b_i = num.get(i).copied().unwrap_or(F_ZERO);
+                let d_a_i = self.ctx.ins().fmul(d, den[i]);
+                let numer = self.ctx.ins().fsub(b_i, d_a_i);
+                self.ctx.ins().fdiv(numer, a_n)
+            })
+            .collect();
+
+        // n state implicit equations, each an idt-style reactive/resistive residual pair.
+        let mut states = Vec::with_capacity(n);
+        for _ in 0..n {
+            let idx = self.ctx.intern.implicit_equations.len() as u32;
+            let state = self.ctx.implicit_equation(ImplicitEquationKind::LaplaceState(idx));
+            states.push(state);
+        }
+
+        for i in 0..n {
+            let (eq, _) = states[i];
+            let resist = if i + 1 < n {
+                // dx_i/dt = x_{i+1}  =>  resistive residual = -x_{i+1}
+                self.ctx.ins().fneg(states[i + 1].1)
+            } else {
+                // dx_{n-1}/dt = u - sum_j a_bar_j * x_j  =>  resistive residual = (sum) - u
+                let mut acc = F_ZERO;
+                for j in 0..n {
+                    let term = self.ctx.ins().fmul(a_bar[j], states[j].1);
+                    acc = self.ctx.ins().fadd(acc, term);
+                }
+                self.ctx.ins().fsub(acc, input)
+            };
+            self.ctx.def_resist_residual(resist, eq);
+            self.ctx.def_react_residual(states[i].1, eq);
+        }
+
+        // y = sum_i c_i * x_i + d * u
+        let mut y = F_ZERO;
+        for i in 0..n {
+            let term = self.ctx.ins().fmul(c[i], states[i].1);
+            y = self.ctx.ins().fadd(y, term);
+        }
+        let du = self.ctx.ins().fmul(d, input);
+        self.ctx.ins().fadd(y, du)
     }
 
     fn lower_integral(&mut self, kind: IdtKind, args: &[ExprId]) -> Value {

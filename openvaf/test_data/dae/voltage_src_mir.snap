@@ -1,8 +1,8 @@
 function %(v16, v17, v19, v20) {
     v7 = fconst -0x1.0000000000000p0
 block2:
-    v21 = optbarrier v17
-    v22 = fsub v21, v16
+    v21 = optbarrier v16
+    v22 = fsub v21, v17
     v31 = fmul v20, v19
     v23 = optbarrier v31
     v24 = fneg v19

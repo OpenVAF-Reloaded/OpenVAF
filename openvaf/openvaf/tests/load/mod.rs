@@ -16,9 +16,9 @@ use stdx::format_to;
 use stdx::iter::zip;
 
 #[allow(warnings)]
-mod osdi_0_4;
+mod osdi_0_5;
 
-pub use osdi_0_4::*;
+pub use osdi_0_5::*;
 
 impl OsdiDescriptor {
     pub fn nodes(&self) -> &[OsdiNode] {
@@ -328,7 +328,7 @@ pub unsafe fn load_osdi_lib(path: &Utf8Path) -> Result<&'static [OsdiDescriptor]
     let major_version: &u32 = *lib.get(b"OSDI_VERSION_MAJOR\0")?;
     let minor_version: &u32 = *lib.get(b"OSDI_VERSION_MINOR\0")?;
 
-    if *major_version != 0 || *minor_version != 4 {
+    if *major_version != 0 || *minor_version != 5 {
         bail!("invalid version v{major_version}.{minor_version}",);
     }
 

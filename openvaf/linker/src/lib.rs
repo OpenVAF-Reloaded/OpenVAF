@@ -165,7 +165,27 @@ fn get_linker<'a>(
             });
             Box::new(LdLinker { cmd: Command::new(path), target }) as Box<dyn Linker>
         }
+        LinkerFlavor::WasmLd => {
+            let path = path.unwrap_or_else(find_wasm_ld);
+            Box::new(WasmLdLinker { cmd: Command::new(path) }) as Box<dyn Linker>
+        }
     }
+}
+
+/// The WebAssembly linker: `OPENVAF_WASM_LD`, else the Emscripten SDK's
+/// `wasm-ld` (`$EMSDK/upstream/bin`), else `wasm-ld` on `PATH`.
+fn find_wasm_ld() -> PathBuf {
+    if let Some(path) = env::var_os("OPENVAF_WASM_LD") {
+        return path.into();
+    }
+    if let Some(emsdk) = env::var_os("EMSDK") {
+        let exe = if cfg!(windows) { "wasm-ld.exe" } else { "wasm-ld" };
+        let path = Path::new(&emsdk).join("upstream").join("bin").join(exe);
+        if path.exists() {
+            return path;
+        }
+    }
+    "wasm-ld".into()
 }
 
 fn is_msys2_environment() -> bool {
@@ -232,9 +252,7 @@ impl dyn Linker + '_ {
             self.args(args);
         }
         if let Ok(flags) = std::env::var("OPENVAF_LDFLAGS") {
-            let flags = flags
-                .split(' ')
-                .filter(|flag| flag.is_empty() && !flag.chars().all(|c| c.is_whitespace()));
+            let flags = flags.split(' ').filter(|flag| !flag.is_empty());
             self.args(flags)
         }
     }
@@ -289,6 +307,27 @@ impl<'a> Linker for LdLinker<'a> {
     fn set_output_kind(&mut self) {
         self.build_dylib();
     }
+}
+
+pub struct WasmLdLinker {
+    cmd: Command,
+}
+
+impl Linker for WasmLdLinker {
+    fn cmd(&mut self) -> &mut Command {
+        &mut self.cmd
+    }
+
+    fn output_filename(&mut self, path: &Utf8Path) {
+        self.cmd.arg("-o").arg(path.as_str());
+    }
+
+    fn add_object(&mut self, path: &Utf8Path) {
+        self.cmd.arg(path.as_str());
+    }
+
+    // -shared is part of the target's pre-link args
+    fn set_output_kind(&mut self) {}
 }
 
 pub struct MsvcLinker {

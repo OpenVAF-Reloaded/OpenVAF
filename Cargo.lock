@@ -555,12 +555,14 @@ dependencies = [
  "hir_def",
  "hir_ty",
  "indexmap 2.14.0",
+ "lexer",
  "mini_harness",
  "parking_lot",
  "salsa",
  "smol_str",
  "stdx",
  "syntax",
+ "tokens",
  "typed-index-collections",
 ]
 

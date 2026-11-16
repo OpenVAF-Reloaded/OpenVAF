@@ -4,16 +4,16 @@ use std::iter::once;
 use hir::{CompilationDB, ParamSysFun, Type};
 use hir_def::db::HirDefDB;
 use hir_def::ndatable::NDATable;
-use hir_lower::{CurrentKind, ParamKind};
+use hir_lower::{CurrentKind, ImplicitEquation, ParamKind};
 use lasso::{Rodeo, Spur};
 use llvm_sys::core::{
     LLVMConstArray2, LLVMConstInt, LLVMConstPtrToInt, LLVMGetArrayLength2, LLVMGetDataLayoutStr,
-    LLVMGetElementType, LLVMGetUndef,
+    LLVMGetElementType, LLVMGetIntTypeWidth, LLVMGetUndef,
 };
 use llvm_sys::prelude::LLVMValueRef;
 use llvm_sys::target::{
     LLVMABISizeOfType, LLVMByteOrder, LLVMByteOrdering, LLVMCreateTargetData, LLVMOffsetOfElement,
-    LLVMTargetDataRef,
+    LLVMPointerSize, LLVMTargetDataRef,
 };
 use llvm_sys::LLVMValue;
 use mir::{ValueDef, F_ZERO};
@@ -25,21 +25,22 @@ use stdx::iter::zip;
 
 use crate::compilation_unit::{OsdiCompilationUnit, OsdiModule};
 use crate::inst_data::{
-    OsdiInstanceParam, COLLAPSED, JACOBIAN_PTR_REACT, JACOBIAN_PTR_RESIST, NODE_MAPPING, STATE_IDX,
+    EvalOutput, OsdiInstanceParam, COLLAPSED, JACOBIAN_PTR_REACT, JACOBIAN_PTR_RESIST,
+    NODE_MAPPING, STATE_IDX, TEMPERATURE,
 };
 use crate::load::JacobianLoadType;
-use crate::metadata::osdi_0_4::{
-    OsdiDescriptor, OsdiJacobianEntry, OsdiNatureRef, OsdiNode, OsdiNodePair, OsdiNoiseSource,
-    OsdiParamOpvar, OsdiTys, JACOBIAN_ENTRY_REACT, JACOBIAN_ENTRY_REACT_CONST,
-    JACOBIAN_ENTRY_RESIST, JACOBIAN_ENTRY_RESIST_CONST, MODULEFLAG_ABSTIME, NATREF_DISCIPLINE_FLOW,
-    NATREF_DISCIPLINE_POTENTIAL, NATREF_NONE, NOISE_TYPE_FLICKER, NOISE_TYPE_TABLE,
-    NOISE_TYPE_WHITE, PARA_KIND_INST, PARA_KIND_MODEL, PARA_KIND_OPVAR, PARA_TY_INT, PARA_TY_REAL,
-    PARA_TY_STR,
+use crate::metadata::osdi_0_5::{
+    OsdiAbsDelay, OsdiDescriptor, OsdiJacobianEntry, OsdiJacobianValue, OsdiNatureRef, OsdiNode,
+    OsdiNodePair, OsdiNoiseSource, OsdiParamOpvar, OsdiTys, JACOBIAN_ENTRY_REACT,
+    JACOBIAN_ENTRY_REACT_CONST, JACOBIAN_ENTRY_RESIST, JACOBIAN_ENTRY_RESIST_CONST,
+    MODULEFLAG_ABSTIME, NATREF_DISCIPLINE_FLOW, NATREF_DISCIPLINE_POTENTIAL, NATREF_NONE,
+    NOISE_TYPE_FLICKER, NOISE_TYPE_TABLE, NOISE_TYPE_WHITE, PARA_KIND_INST, PARA_KIND_MODEL,
+    PARA_KIND_OPVAR, PARA_TY_INT, PARA_TY_REAL, PARA_TY_STR,
 };
 use crate::ty_len;
 
 #[allow(unused_parens, dead_code)]
-pub mod osdi_0_4;
+pub mod osdi_0_5;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct OsdiLimFunction {
@@ -53,7 +54,7 @@ impl OsdiLimFunction {
         ctx: &CodegenCx<'_, 'll>,
         tys: &'ll OsdiTys,
     ) -> &'ll llvm_sys::LLVMValue {
-        osdi_0_4::OsdiLimFunction {
+        osdi_0_5::OsdiLimFunction {
             name: ctx.literals.resolve(&self.name).to_owned(),
             num_args: self.num_args,
             func_ptr: ctx.const_null_ptr(),
@@ -62,7 +63,7 @@ impl OsdiLimFunction {
     }
 }
 
-impl osdi_0_4::OsdiAttributeValue {
+impl osdi_0_5::OsdiAttributeValue {
     pub fn to_ll_val<'ll>(
         &self,
         ctx: &CodegenCx<'_, 'll>,
@@ -72,8 +73,9 @@ impl osdi_0_4::OsdiAttributeValue {
         let ty = tys.osdi_attribute_value;
         unsafe {
             // TODO: handle endianness. Currently works for little endian (PC, x86 & arm64 MACS).
-            // Array elements are i64 or larger. When lowering integers/pointers/doubles that are
-            // smaller than the array element this is wrong on big endian.
+            // Array elements are pointer-sized integers (or smaller if the union's alignment
+            // is smaller). Lowering integers smaller than an element and splitting doubles
+            // into several elements assumes little endian.
             // Check target (it must be little endian)
             let data_layout = LLVMGetDataLayoutStr(NonNull::from(ctx.llmod).as_ptr());
             let target_data = LLVMCreateTargetData(data_layout);
@@ -85,13 +87,17 @@ impl osdi_0_4::OsdiAttributeValue {
             let raw_ty = NonNull::from(ty).as_ptr();
             // Get array length
             let len = LLVMGetArrayLength2(raw_ty);
-            // Get array member size in bytes
+            // Get array member type and its size in bits
             let elem_ty = LLVMGetElementType(raw_ty);
-            // Element size is >= entry size
+            let elem_bits = LLVMGetIntTypeWidth(elem_ty);
             // Initializer array with undef values
             let mut elems = vec![LLVMGetUndef(elem_ty); len as usize];
             match self {
-                osdi_0_4::OsdiAttributeValue::String(s) => {
+                osdi_0_5::OsdiAttributeValue::String(s) => {
+                    // A pointer must fit exactly into one array element, a pointer cannot be
+                    // converted to a wider integer in a static initializer (e.g. on wasm32)
+                    let ptr_bits = 8 * LLVMPointerSize(target_data);
+                    assert_eq!(elem_bits, ptr_bits, "union element is not pointer-sized");
                     // Constant global string
                     let llval = ctx.const_str_uninterned(s);
                     let valref = llval as *const LLVMValue as LLVMValueRef;
@@ -100,15 +106,17 @@ impl osdi_0_4::OsdiAttributeValue {
                     // Fill initializer array
                     elems[0] = ptr_as_int;
                 }
-                osdi_0_4::OsdiAttributeValue::Real(f) => {
-                    // Real number
+                osdi_0_5::OsdiAttributeValue::Real(f) => {
+                    // Real number, split into array elements (least significant first)
                     let ipat = f.to_bits();
-                    // Create array entry
-                    let entry = LLVMConstInt(elem_ty, ipat, 0);
-                    // Fill initializer array
-                    elems[0] = entry;
+                    let n = (64 / elem_bits) as usize;
+                    assert!(n >= 1 && n <= elems.len(), "union too small for a double");
+                    for (k, elem) in elems.iter_mut().take(n).enumerate() {
+                        // LLVMConstInt truncates to the element width
+                        *elem = LLVMConstInt(elem_ty, ipat >> (k as u32 * elem_bits), 0);
+                    }
                 }
-                osdi_0_4::OsdiAttributeValue::Integer(i) => {
+                osdi_0_5::OsdiAttributeValue::Integer(i) => {
                     // Integer (i32)
                     let entry = LLVMConstInt(elem_ty, *i as i64 as u64, 0);
                     // Fill initializer array
@@ -119,6 +127,52 @@ impl osdi_0_4::OsdiAttributeValue {
             // Construct array
             &*LLVMConstArray2(elem_ty, elems.as_mut_ptr(), len)
         }
+    }
+}
+
+/// Checks that the LLVM layout of `OsdiAttribute` matches the C layout and
+/// returns the C alignment of `OsdiAttribute`.
+///
+/// The union `OsdiAttributeValue` is lowered as an array of at most
+/// pointer-sized integers. When pointers are narrower than the union's C
+/// alignment (e.g. wasm32 with 8-byte aligned doubles) the LLVM type is less
+/// aligned than the C type, so arrays of `OsdiAttribute` must get the C
+/// alignment explicitly.
+pub fn osdi_attribute_c_align(
+    cx: &CodegenCx<'_, '_>,
+    tys: &OsdiTys<'_>,
+    target_data: LLVMTargetDataRef,
+) -> u32 {
+    fn round_up(x: u64, align: u64) -> u64 {
+        x.div_ceil(align) * align
+    }
+    unsafe {
+        let align = |ty: &llvm_sys::LLVMType| {
+            llvm_sys::target::LLVMABIAlignmentOfType(target_data, NonNull::from(ty).as_ptr()) as u64
+        };
+        let size =
+            |ty: &llvm_sys::LLVMType| LLVMABISizeOfType(target_data, NonNull::from(ty).as_ptr());
+        let (ptr, int, double) = (cx.ty_ptr(), cx.ty_int(), cx.ty_double());
+
+        // C layout of struct OsdiAttribute { char *name; uint32_t value_type; OsdiAttributeValue value; }
+        let union_align = align(ptr).max(align(int)).max(align(double));
+        let union_size = round_up(size(ptr).max(size(int)).max(size(double)), union_align);
+        let value_off = round_up(round_up(size(ptr), align(int)) + size(int), union_align);
+        let struct_align = align(ptr).max(align(int)).max(union_align);
+        let struct_size = round_up(value_off + union_size, struct_align);
+
+        let attr = NonNull::from(tys.osdi_attribute).as_ptr();
+        assert_eq!(
+            LLVMOffsetOfElement(target_data, attr, 2),
+            value_off,
+            "OsdiAttribute.value offset differs from C"
+        );
+        assert_eq!(
+            LLVMABISizeOfType(target_data, attr),
+            struct_size,
+            "OsdiAttribute size differs from C"
+        );
+        struct_align as u32
     }
 }
 
@@ -271,6 +325,8 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                 JACOBIAN_PTR_REACT,
             )
         } as u32;
+        // Stride of the reactive Jacobian pointer array (4 bytes on wasm32)
+        let ptr_size = unsafe { llvm_sys::target::LLVMPointerSize(*target_data) };
 
         module
             .dae_system
@@ -295,7 +351,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                 if entry.react != F_ZERO {
                     flags |= JACOBIAN_ENTRY_REACT;
                     react_ptr_off = jacobian_ptr_react_offset;
-                    jacobian_ptr_react_offset += 8;
+                    jacobian_ptr_react_offset += ptr_size;
                 }
                 OsdiJacobianEntry {
                     nodes: OsdiNodePair { node_1: entry.row.into(), node_2: entry.col.into() },
@@ -323,6 +379,81 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             .model_inputs
             .iter()
             .map(|(node1, node2)| OsdiNodePair { node_1: (*node1).into(), node_2: (*node2).into() })
+            .collect()
+    }
+
+    // Flags (model/instance, real) and byte offset of a Jacobian entry value,
+    // offset is u32::MAX if there is no such value
+    fn jacobian_value_loc(
+        &self,
+        output: Option<EvalOutput>,
+        target_data: &LLVMTargetDataRef,
+    ) -> (u32, u32) {
+        let OsdiCompilationUnit { inst_data, model_data, module, .. } = self;
+        let Some(output) = output else {
+            return (0, u32::MAX);
+        };
+        let (from_model, elem) = match output {
+            EvalOutput::Calculated(slot) => (false, inst_data.eval_output_slot_elem(slot)),
+            EvalOutput::Cache(slot) => (false, inst_data.cache_slot_elem(slot)),
+            EvalOutput::Const(val, _) => {
+                (false, inst_data.const_slot_elem(inst_data.const_slot(val).unwrap()))
+            }
+            EvalOutput::Param(param) => match *module.intern.params.get_index(param).unwrap().0 {
+                ParamKind::Param(param) => {
+                    match inst_data.param_elem(OsdiInstanceParam::User(param)) {
+                        Some(elem) => (false, elem),
+                        None => (true, model_data.param_elem(param).unwrap()),
+                    }
+                }
+                ParamKind::ParamSysFun(func) => {
+                    (false, inst_data.param_elem(OsdiInstanceParam::Builtin(func)).unwrap())
+                }
+                ParamKind::Temperature => (false, TEMPERATURE),
+                _ => unreachable!(),
+            },
+        };
+        let (ty, kind) = if from_model {
+            (model_data.ty, PARA_KIND_MODEL)
+        } else {
+            (inst_data.ty, PARA_KIND_INST)
+        };
+        let off = unsafe { LLVMOffsetOfElement(*target_data, NonNull::from(ty).as_ptr(), elem) };
+        (kind | PARA_TY_REAL, off as u32)
+    }
+
+    pub fn jacobian_values(&self, target_data: &LLVMTargetDataRef) -> Vec<OsdiJacobianValue> {
+        self.inst_data
+            .jacobian
+            .iter()
+            .map(|entry| {
+                let (resist_flags, resist_off) = self.jacobian_value_loc(entry.resist, target_data);
+                let (react_flags, react_off) = self.jacobian_value_loc(entry.react, target_data);
+                OsdiJacobianValue { resist_flags, react_flags, resist_off, react_off }
+            })
+            .collect()
+    }
+
+    pub fn absdelays(&self, target_data: &LLVMTargetDataRef) -> Vec<OsdiAbsDelay> {
+        let OsdiCompilationUnit { inst_data, module, .. } = self;
+        let find_node = |eq: ImplicitEquation| -> u32 {
+            module
+                .dae_system
+                .unknowns
+                .index(&SimUnknownKind::Implicit(eq))
+                .map_or(u32::MAX, u32::from)
+        };
+        module
+            .intern
+            .absdelay_equations
+            .iter()
+            .enumerate()
+            .map(|(i, &(eq_y, eq_z, _))| OsdiAbsDelay {
+                y_node: find_node(eq_y),
+                z_node: find_node(eq_z),
+                td_offset: inst_data.delay_time_offset(i, target_data).unwrap_or(u32::MAX),
+                maxdelay_offset: inst_data.delay_max_offset(i, target_data).unwrap_or(u32::MAX),
+            })
             .collect()
     }
 
@@ -466,6 +597,9 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                 noise_source_type,
                 load_noise_params: self.load_noise_params(),
                 module_flags,
+                absdelay_count: module.intern.absdelay_equations.len() as u32,
+                absdelays: self.absdelays(target_data),
+                jacobian_values: self.jacobian_values(target_data),
             }
         }
     }

@@ -1,0 +1,8 @@
+error: unexpected token '['; expected ',' or ')'
+  --> /bus_port_bit_select_in_head.va:3:37
+  |
+3 | module bus_port_bit_select_in_head(d[0], out);
+  |                                     ^-- skipping to next valid declaration
+  |                                     | 
+  |                                     expected ',' or ')'
+

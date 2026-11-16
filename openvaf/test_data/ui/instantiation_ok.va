@@ -1,0 +1,25 @@
+`include "disciplines.vams"
+
+module resistor(p, n);
+    inout p, n;
+    electrical p, n;
+    parameter real r = 1000;
+    analog begin
+        I(p, n) <+ V(p, n) / r;
+    end
+endmodule
+
+module buffer(in, out);
+    inout in, out;
+    electrical in, out;
+    resistor #(.r(1)) rb(in, out);
+endmodule
+
+module divider(in, out, gnd);
+    inout in, out, gnd;
+    electrical in, out, gnd;
+    buffer b1(in, out);
+    resistor #(.r(1e3)) r1(in, out);
+    resistor #(2e3) r2(.p(out), .n(gnd));
+    resistor rarr[0:1](out, gnd);
+endmodule

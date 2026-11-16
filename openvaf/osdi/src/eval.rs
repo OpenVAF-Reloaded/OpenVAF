@@ -18,7 +18,7 @@ use typed_index_collections::TiVec;
 use crate::bitfield::{is_flag_set, is_flag_set_mem, is_flag_unset};
 use crate::compilation_unit::{general_callbacks, OsdiCompilationUnit};
 use crate::inst_data::OsdiInstanceParam;
-use crate::metadata::osdi_0_4::{
+use crate::metadata::osdi_0_5::{
     ANALYSIS_IC, CALC_NOISE, CALC_OP, CALC_REACT_JACOBIAN, CALC_REACT_LIM_RHS, CALC_REACT_RESIDUAL,
     CALC_RESIST_JACOBIAN, CALC_RESIST_LIM_RHS, CALC_RESIST_RESIDUAL, ENABLE_LIM, EVAL_RET_FLAG_LIM,
     INIT_LIM,
@@ -430,6 +430,8 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             Self::build_store_results(&mut builder, llfunc, &flags, CALC_NOISE, &store_noise);
 
             inst_data.store_bound_step(instance, &builder);
+            inst_data.store_delay_times(instance, &builder);
+            inst_data.store_delay_maxes(instance, &builder);
 
             builder.ret();
         }

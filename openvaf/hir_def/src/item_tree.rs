@@ -10,6 +10,7 @@
 //! In general, any item in the `ItemTree` stores its `AstId`, which allows mapping it back to its
 //! surface syntax.
 
+pub mod diagnostics;
 mod lower;
 pub mod ndatable;
 mod pretty;
@@ -42,11 +43,53 @@ pub struct ItemTree {
     pub top_level: Box<[RootItem]>,
     pub data: ItemTreeData,
     pub(crate) blocks: AHashMap<AstId<BlockStmt>, Block>,
+    pub diagnostics: Vec<ItemTreeDiagnostic>,
+}
+
+/// Diagnostics produced while lowering the AST to the item tree (e.g. while
+/// processing a bus/vectored-net width clause).
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub enum ItemTreeDiagnostic {
+    /// A `[msb:lsb]` width clause on a net/port declaration did not
+    /// constant-fold to two integer literals; the declaration was treated as
+    /// an ordinary (non-vectored) declaration instead.
+    NonConstantBusWidth { ast_id: ErasedAstId },
+    /// A `branch` declaration referenced a bus by its bare base name with no
+    /// bit-select (e.g. `branch (bus, gnd) br;`).
+    BareBusReferenceInBranch { ast_id: ErasedAstId, bus_name: Name },
+    /// A `branch` declaration used a bit-select index that did not
+    /// constant-fold to an integer literal.
+    NonConstantBranchBitSelect { ast_id: ErasedAstId },
+    /// A `branch` declaration used a bit-select index that is out of the
+    /// bus's declared `[msb:lsb]` range.
+    BranchBitSelectOutOfRange {
+        ast_id: ErasedAstId,
+        bus_name: Name,
+        index: i32,
+        msb: i32,
+        lsb: i32,
+    },
+    /// A `[msb:lsb]` array-variable declaration (`real [0:4] x;`) appeared
+    /// inside an `analog function` or a nested `begin..end` block, where
+    /// array-variable bit-select resolution isn't supported (only module
+    /// body scope is); the width clause was dropped and the declaration
+    /// was treated as a single ordinary scalar variable.
+    ArrayVarUnsupportedScope { ast_id: ErasedAstId },
+    /// A `[msb:lsb]` instance-array range on a module instantiation
+    /// (`resistor r[0:3](...)`) did not constant-fold to two integer
+    /// literals; the instantiation was treated as a single (non-arrayed)
+    /// instance instead.
+    NonConstantInstanceArrayWidth { ast_id: ErasedAstId },
 }
 
 impl Default for ItemTree {
     fn default() -> Self {
-        Self { top_level: Default::default(), data: Default::default(), blocks: AHashMap::new() }
+        Self {
+            top_level: Default::default(),
+            data: Default::default(),
+            blocks: AHashMap::new(),
+            diagnostics: Vec::new(),
+        }
     }
 }
 
@@ -73,6 +116,7 @@ impl ItemTree {
             ports,
             branches,
             functions,
+            instantiations,
         } = &mut self.data;
         modules.shrink_to_fit();
         disciplines.shrink_to_fit();
@@ -85,6 +129,7 @@ impl ItemTree {
         ports.shrink_to_fit();
         branches.shrink_to_fit();
         functions.shrink_to_fit();
+        instantiations.shrink_to_fit();
         nature_attrs.shrink_to_fit();
         discipline_attrs.shrink_to_fit();
     }
@@ -109,6 +154,7 @@ pub struct ItemTreeData {
     pub ports: Arena<Port>,
     pub branches: Arena<Branch>,
     pub functions: Arena<Function>,
+    pub instantiations: Arena<Instantiation>,
 }
 
 /// Trait implemented by all item nodes in the item tree.
@@ -230,6 +276,7 @@ item_tree_nodes! {
     Function in functions -> ast::Function,
     NatureAttr in nature_attrs -> ast::NatureAttr,
     DisciplineAttr in discipline_attrs -> ast::DisciplineAttr,
+    Instantiation in instantiations -> ast::Instantiation,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -239,6 +286,55 @@ pub struct Module {
     pub num_ports: u32,
     pub items: Vec<ModuleItem>,
     pub ast_id: AstId<ast::ModuleDecl>,
+    /// Vectored-net ("bus") declarations in this module, used to resolve
+    /// bit-select expressions (`bus[i]`) and to diagnose bare references to
+    /// a bus without a bit-select.
+    pub buses: Vec<BusDecl>,
+    /// Array-variable declarations (`real [msb:lsb] x;`) at module body
+    /// scope, used to resolve bit-select expressions (`x[i]`) the same way
+    /// `buses` does for nets/ports. Kept as a separate list from `buses`
+    /// (rather than merged in) purely so the two declaration kinds stay
+    /// distinguishable in diagnostics/debugging, even though `BusDecl`
+    /// itself is reused verbatim — see `Enhancement-4.md` §3.
+    pub var_arrays: Vec<BusDecl>,
+}
+
+/// A vectored net/port declaration (e.g. `electrical [3:0] bus;`), or an
+/// array-variable declaration (e.g. `real [0:4] x;`) — both share the same
+/// shape (a base name plus an `[msb:lsb]` range expanding into independent
+/// scalar entries), so the same record type is reused for both; see
+/// `Module::buses` / `Module::var_arrays`.
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub struct BusDecl {
+    pub base_name: Name,
+    pub msb: i32,
+    pub lsb: i32,
+    pub ast_id: ErasedAstId,
+}
+
+/// Synthesizes the scalar node name for bit `bit` of bus `base_name` (e.g. `"bus[3]"`).
+pub fn bus_bit_name(base_name: &Name, bit: i32) -> Name {
+    Name::resolve(&format!("{}[{}]", base_name, bit))
+}
+
+impl BusDecl {
+    /// Returns the (inclusive) range bound order-independent: min..=max.
+    pub fn min_max(&self) -> (i32, i32) {
+        if self.msb >= self.lsb {
+            (self.lsb, self.msb)
+        } else {
+            (self.msb, self.lsb)
+        }
+    }
+
+    pub fn contains_bit(&self, bit: i32) -> bool {
+        let (lo, hi) = self.min_max();
+        bit >= lo && bit <= hi
+    }
+
+    pub fn bit_name(&self, bit: i32) -> Name {
+        Name::resolve(&format!("{}[{}]", self.base_name, bit))
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
@@ -250,6 +346,7 @@ pub enum ModuleItem {
     Branch(ItemTreeId<Branch>),
     Node(LocalNodeId),
     Function(ItemTreeId<Function>),
+    Instantiation(ItemTreeId<Instantiation>),
 }
 
 impl_from_typed! (
@@ -259,8 +356,33 @@ impl_from_typed! (
     Variable(ItemTreeId<Var>),
     Branch(ItemTreeId<Branch>),
     Node(LocalNodeId),
-    Function(ItemTreeId<Function>) for ModuleItem
+    Function(ItemTreeId<Function>),
+    Instantiation(ItemTreeId<Instantiation>) for ModuleItem
 );
+
+/// A single instantiated unit of a sub-module (`Instantiation` AST item may
+/// declare several comma-separated instances, or expand into several via an
+/// instance-array range — one `Instantiation` item-tree entry is created per
+/// unit, mirroring how `Net`/`Var`/`Param` handle comma-separated
+/// declarations: all units from the same source statement share one
+/// `ast_id` and are disambiguated by `name_idx`/`array_index`).
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub struct Instantiation {
+    /// The instance name. For an arrayed instance (`resistor r[0:3](...)`)
+    /// this is the per-element synthesized name (`"r[2]"`, mirroring
+    /// `bus_bit_name`); the base name and declared range are kept in
+    /// `array` for diagnostics.
+    pub name: Name,
+    /// Index of this unit among the comma-separated `InstanceUnit`s of the
+    /// same `Instantiation` statement (i.e. which `InstanceUnit` this is).
+    pub unit_idx: usize,
+    /// `Some(index)` if this entry is one element of an instance array,
+    /// giving its position (not bounded to msb/lsb order).
+    pub array_index: Option<i32>,
+    /// The (unresolved) name of the module being instantiated.
+    pub module: Name,
+    pub ast_id: AstId<ast::Instantiation>,
+}
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Port {

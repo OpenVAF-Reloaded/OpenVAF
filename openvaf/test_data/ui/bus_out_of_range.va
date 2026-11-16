@@ -1,0 +1,10 @@
+`include "disciplines.vams"
+
+module bus_out_of_range(p, n);
+    inout p, n;
+    electrical p, n;
+    electrical [3:0] bus;
+    analog begin
+        V(bus[10], n) <+ 1.0;
+    end
+endmodule

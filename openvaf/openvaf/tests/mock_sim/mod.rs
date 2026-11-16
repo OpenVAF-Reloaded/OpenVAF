@@ -153,8 +153,8 @@ impl OsdiInstance {
 
         // create jacobian
         for entry in self.descriptor.matrix_entries() {
-            let column = node_mapping[entry.nodes.node_1 as usize].get();
-            let row = node_mapping[entry.nodes.node_2 as usize].get();
+            let row = node_mapping[entry.nodes.node_1 as usize].get();
+            let column = node_mapping[entry.nodes.node_2 as usize].get();
             sim.register_jacobian_entry(row, column);
         }
         sim.build_jacobian();
@@ -162,8 +162,8 @@ impl OsdiInstance {
         // populate matrix ptrs
         for (entry, ptr_resist) in zip(self.descriptor.matrix_entries(), self.matrix_ptrs_resist())
         {
-            let column = node_mapping[entry.nodes.node_1 as usize].get();
-            let row = node_mapping[entry.nodes.node_2 as usize].get();
+            let row = node_mapping[entry.nodes.node_1 as usize].get();
+            let column = node_mapping[entry.nodes.node_2 as usize].get();
             let i = sim.get_jacobian_entry(row, column);
             ptr_resist.set(sim.jacobian_resist[i].get());
             if entry.react_ptr_off != u32::MAX {
@@ -189,7 +189,7 @@ impl OsdiInstance {
             sim.solve.as_mut_ptr(),
             ALPHA,
         );
-        self.descriptor.load_jacobian_tran(self.data, self.data, ALPHA);
+        self.descriptor.load_jacobian_tran(self.data, model.data, ALPHA);
     }
 
     pub fn load_noise(&self, model: &OsdiModel, sim: &mut MockSimulation, freq: f64) {

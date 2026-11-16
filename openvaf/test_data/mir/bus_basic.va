@@ -1,0 +1,12 @@
+`include "disciplines.vams"
+
+module bus_test(p, n);
+    inout p, n;
+    electrical p, n;
+    electrical [3:0] bus;
+    branch (bus[2], bus[0]) br_a;
+    analog begin
+        V(bus[1], n) <+ 1.0;
+        I(br_a) <+ V(bus[3]) * 2;
+    end
+endmodule

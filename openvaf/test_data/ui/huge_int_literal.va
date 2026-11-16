@@ -1,0 +1,16 @@
+`include "disciplines.vams"
+
+// Regression test: a bare integer literal too large for i32 (Verilog-A's
+// `integer` width) must never crash the compiler. Used as a bit-select
+// index, it isn't a valid constant integer, so it degrades to the existing
+// "non-constant bit-select index" diagnostic instead of panicking.
+module huge_int_literal(in, out);
+    input in;
+    output out;
+    electrical in, out;
+    real [0:4] coeffs;
+    analog begin
+        coeffs[6134876650875544] = 1.0;
+        V(out) <+ V(in);
+    end
+endmodule

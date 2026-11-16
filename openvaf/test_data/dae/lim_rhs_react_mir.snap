@@ -1,37 +1,37 @@
-function %(v16, v17, v18, v19, v20, v37, v45) {
+function %(v16, v17, v18, v19, v25, v31, v39) {
     inst0 = const fn %$limit[Spur(1)](2) -> 1
     inst1 = const fn %$store[lim_state0](1) -> 1
     inst2 = const fn %ddt(1) -> 1
 
                                 block5:
-@0009                               br v20, block2, block4
+@0009                               br v19, block2, block4
 
                                 block2:
-@0009                               v21 = call inst0(v18, v19)
+@0009                               v20 = call inst0(v17, v18)
 @0009                               jmp block4
 
                                 block4:
-@0009                               v22 = phi [v21, block2], [v18, block5]
-@0009                               v23 = call inst1(v22)
-@000a                               v24 = fmul v17, v23
-                                    v52 = fmul v37, v24
-                                    v38 = optbarrier v52
-                                    v39 = fneg v24
-                                    v40 = fneg v17
-                                    v58 = fmul v37, v17
-                                    v42 = optbarrier v58
-                                    v61 = fmul v37, v40
-                                    v44 = optbarrier v61
-                                    v46 = fsub v45, v18
-                                    v47 = fmul v17, v46
-                                    v53 = fmul v37, v47
-                                    v48 = optbarrier v53
-                                    v50 = fmul v40, v46
-                                    v56 = fmul v37, v50
-                                    v51 = optbarrier v56
-                                    v55 = fmul v37, v39
-                                    v54 = optbarrier v55
-                                    v57 = optbarrier v37
-                                    v59 = optbarrier v61
-                                    v62 = optbarrier v58
+@0009                               v21 = phi [v20, block2], [v17, block5]
+@0009                               v22 = call inst1(v21)
+@000a                               v23 = fmul v16, v22
+                                    v46 = fmul v31, v23
+                                    v32 = optbarrier v46
+                                    v33 = fneg v23
+                                    v34 = fneg v16
+                                    v52 = fmul v31, v16
+                                    v36 = optbarrier v52
+                                    v55 = fmul v31, v34
+                                    v38 = optbarrier v55
+                                    v40 = fsub v39, v17
+                                    v41 = fmul v16, v40
+                                    v47 = fmul v31, v41
+                                    v42 = optbarrier v47
+                                    v44 = fmul v34, v40
+                                    v50 = fmul v31, v44
+                                    v45 = optbarrier v50
+                                    v49 = fmul v31, v33
+                                    v48 = optbarrier v49
+                                    v51 = optbarrier v31
+                                    v53 = optbarrier v55
+                                    v56 = optbarrier v52
 }

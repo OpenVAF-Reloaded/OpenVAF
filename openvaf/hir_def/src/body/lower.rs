@@ -95,6 +95,19 @@ impl LowerCtx<'_> {
                 }
             }
 
+            ast::Expr::BitSelectExpr(bit_select) => {
+                if let Some(base) = bit_select.base().and_then(Path::resolve) {
+                    let index = self.collect_opt_expr(bit_select.index());
+                    Expr::BitSelect { base, index }
+                } else {
+                    return self.missing_expr();
+                }
+            }
+
+            // Part-selects are only parsed in instance port connections and
+            // are expanded to scalar nodes by hierarchy elaboration.
+            ast::Expr::PartSelectExpr(_) => return self.missing_expr(),
+
             ast::Expr::Literal(lit) => Expr::Literal(Literal::new(lit.kind())),
         };
         self.alloc_expr(e, AstPtr::new(&expr))
@@ -279,7 +292,13 @@ impl Literal {
             ast::LiteralKind::String(lit) => {
                 Literal::String(lit.unescaped_value().into_boxed_str())
             }
-            ast::LiteralKind::IntNumber(lit) => Literal::Int(lit.value()),
+            ast::LiteralKind::IntNumber(lit) => match lit.value() {
+                Some(int) => Literal::Int(int),
+                // doesn't fit in i32 (Verilog-A `integer`'s width) -- still a valid real
+                // constant (e.g. a laplace_nd coefficient spelled without a decimal point),
+                // so fall back to a float literal instead of erroring/panicking.
+                None => Literal::Float(lit.value_as_f64().into()),
+            },
             ast::LiteralKind::SiRealNumber(lit) => Literal::Float(lit.value().into()),
             ast::LiteralKind::StdRealNumber(lit) => Literal::Float(lit.value().into()),
             ast::LiteralKind::Inf => {

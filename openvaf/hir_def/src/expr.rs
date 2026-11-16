@@ -63,6 +63,11 @@ pub enum Expr {
         path: Path,
         port: bool,
     },
+    /// A vectored-net bit-select, e.g. `bus[2]`.
+    BitSelect {
+        base: Path,
+        index: ExprId,
+    },
     BinaryOp {
         lhs: ExprId,
         rhs: ExprId,
@@ -90,6 +95,7 @@ impl Expr {
     pub fn walk_child_exprs(&self, mut f: impl FnMut(ExprId)) {
         match *self {
             Expr::Missing | Expr::Path { .. } | Expr::Literal(_) => {}
+            Expr::BitSelect { index, .. } => f(index),
             Expr::BinaryOp { lhs, rhs, .. } => {
                 f(lhs);
                 f(rhs);

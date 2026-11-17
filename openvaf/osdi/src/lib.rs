@@ -374,7 +374,7 @@ pub fn compile<'a>(
         let attributes: Vec<_> =
             attributes_vec.iter().map(|entry| entry.to_ll_val(&cx, &tys)).collect();
         // Export, but only if array has nonzero length
-        if !disciplines.is_empty() {
+        if !attributes.is_empty() {
             let arr =
                 cx.export_array("OSDI_ATTRIBUTES", tys.osdi_attribute, &attributes, true, false);
             // The LLVM type of OsdiAttribute can be less aligned than the C type

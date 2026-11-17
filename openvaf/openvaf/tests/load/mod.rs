@@ -376,6 +376,32 @@ pub unsafe fn load_osdi_lib(path: &Utf8Path) -> Result<&'static [OsdiDescriptor]
     Ok(descriptors)
 }
 
+/// Natures, disciplines and attributes tables of an OSDI library
+pub struct NdaTables {
+    pub natures: &'static [OsdiNature],
+    pub disciplines: &'static [OsdiDiscipline],
+    pub attributes: &'static [OsdiAttribute],
+}
+
+/// Loads the natures, disciplines and attributes tables (empty if not exported)
+///
+/// # Safety
+/// `path` must be an OSDI 0.5 library compiled by OpenVAF
+pub unsafe fn load_nda_tables(path: &Utf8Path) -> Result<NdaTables> {
+    let lib = Box::leak(Box::new(Library::new(path.as_str())?));
+    unsafe fn table<T>(lib: &Library, name: &[u8], len: &[u8]) -> &'static [T] {
+        match (lib.get::<*const T>(name), lib.get::<*const u32>(len)) {
+            (Ok(ptr), Ok(len)) => slice::from_raw_parts(*ptr, **len as usize),
+            _ => &[],
+        }
+    }
+    Ok(NdaTables {
+        natures: table(lib, b"OSDI_NATURES\0", b"OSDI_NATURES_LEN\0"),
+        disciplines: table(lib, b"OSDI_DISCIPLINES\0", b"OSDI_DISCIPLINES_LEN\0"),
+        attributes: table(lib, b"OSDI_ATTRIBUTES\0", b"OSDI_ATTRIBUTES_LEN\0"),
+    })
+}
+
 unsafe extern "C" fn osdi_log(handle: *mut c_void, msg: *const c_char, lvl: u32) {
     let _ = catch_unwind(|| osdi_log_impl(handle, msg, lvl));
 }

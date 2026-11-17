@@ -3,8 +3,8 @@ use std::mem::replace;
 use ahash::{HashMap, HashSet};
 use hir_def::body::Body;
 use hir_def::{
-    BranchId, BuiltIn, DefWithBodyId, DisciplineId, Expr, ExprId, FunctionArgLoc, FunctionId,
-    Literal, Lookup, NatureId, NodeId, ParamId, Path, Stmt, StmtId, VarId,
+    BranchId, BuiltIn, DefWithBodyId, Expr, ExprId, FunctionArgLoc, FunctionId, Literal, Lookup,
+    NatureId, NodeId, ParamId, Path, Stmt, StmtId, VarId,
 };
 use stdx::impl_display;
 use syntax::ast::AssignOp;
@@ -21,7 +21,7 @@ use crate::builtin::{
 };
 use crate::db::HirTyDB;
 use crate::inference::{BranchWrite, InferenceResult, ResolvedFun};
-use crate::lower::BranchKind;
+use crate::lower::{nets_slot_ok, BranchKind, DisciplineSlot, DisciplineTy, NatureKey};
 use crate::types::{Signature, Ty};
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -444,17 +444,33 @@ impl ExprValidator<'_, '_> {
     fn report_illegal_nature_access(
         &mut self,
         branch: String,
-        discipline: DisciplineId,
+        nets: &[NodeId],
         access_nature: Option<NatureId>,
         access_expr: ExprId,
     ) {
         let db = self.parent.db;
+        let disciplines: Vec<_> = nets.iter().filter_map(|&net| db.node_discipline(net)).collect();
+        // nets without a discipline are reported elsewhere
+        if disciplines.is_empty() {
+            return;
+        }
+        // show the candidates of the first discipline that does not resolve the access
+        let failing = access_nature.and_then(|access_nature| {
+            disciplines.iter().copied().find(|&discipline| {
+                let info = db.discipline_info(discipline);
+                !info.is_natureless() && info.access(access_nature, db).is_none()
+            })
+        });
+        let discipline = failing
+            .or_else(|| {
+                disciplines.iter().copied().find(|&it| !db.discipline_info(it).is_natureless())
+            })
+            .unwrap_or(disciplines[0]);
         let discipline = db.discipline_info(discipline);
 
         let nature_info = |nature: NatureId| {
-            let nature = nature.lookup(db.upcast());
-            let nature = &nature.item_tree(db.upcast())[nature.id];
-            Some((nature.name.clone(), nature.access.clone()?.0))
+            let access = db.nature_info(NatureKey::Decl(nature)).access.clone()?;
+            Some((db.nature_data(nature).name.clone(), access))
         };
         let pot = discipline.potential.and_then(nature_info);
         let flow = discipline.flow.and_then(nature_info);
@@ -466,28 +482,22 @@ impl ExprValidator<'_, '_> {
         })
     }
 
-    fn validate_implicit_branch(
-        &mut self,
-        expr: ExprId,
-        node1: NodeId,
-        node2: NodeId,
-    ) -> Option<DisciplineId> {
-        if let Some(discipline1) = self.parent.db.node_discipline(node1) {
-            if let Some(discipline2) = self.parent.db.node_discipline(node2) {
-                let discipline2 = self.parent.db.discipline_info(discipline2);
-                if !discipline2.compatible(discipline1, self.parent.db) {
-                    self.report(BodyValidationDiagnostic::IncompatibleImplicitBranch {
-                        access: expr,
-                        node1,
-                        node2,
-                    });
-                } else {
-                    return Some(discipline1);
-                }
+    /// Checks that the disciplines of the nodes of an implicit branch are compatible
+    fn validate_implicit_branch(&mut self, expr: ExprId, node1: NodeId, node2: NodeId) -> bool {
+        let db = self.parent.db;
+        if let (Some(discipline1), Some(discipline2)) =
+            (db.node_discipline(node1), db.node_discipline(node2))
+        {
+            if !DisciplineTy::compatible(db, discipline1, discipline2) {
+                self.report(BodyValidationDiagnostic::IncompatibleImplicitBranch {
+                    access: expr,
+                    node1,
+                    node2,
+                });
+                return false;
             }
         }
-
-        None
+        true
     }
 
     fn lint_trivial_branch(&mut self, branch: BranchWrite, call: BuiltIn, expr: ExprId) {
@@ -500,10 +510,16 @@ impl ExprValidator<'_, '_> {
         }
     }
 
-    fn validate_flow_or_pot(&mut self, expr: ExprId, call: BuiltIn, discipline: DisciplineId) {
+    /// Checks `potential(...)` / `flow(...)` of a branch between `nets`
+    fn validate_flow_or_pot(&mut self, expr: ExprId, call: BuiltIn, nets: &[NodeId]) {
+        let db = self.parent.db;
+        // nets without a discipline are reported elsewhere
+        if nets.iter().all(|&net| db.node_discipline(net).is_none()) {
+            return;
+        }
         let is_pot = call == BuiltIn::potential;
-        let discipline_ = self.parent.db.discipline_info(discipline);
-        if discipline_.potential.is_none() && is_pot || discipline_.flow.is_none() && !is_pot {
+        let slot = if is_pot { DisciplineSlot::Potential } else { DisciplineSlot::Flow };
+        if !nets_slot_ok(db, nets, slot) {
             self.report(BodyValidationDiagnostic::IllegalNatureAccess { is_pot, access_expr: expr })
         }
     }
@@ -514,73 +530,42 @@ impl ExprValidator<'_, '_> {
         access_expr: ExprId,
         args: &[ExprId],
     ) {
-        match self.parent.infer.resolved_signatures.get(&access_expr).copied() {
+        let db = self.parent.db;
+        let (branch, nets) = match self.parent.infer.resolved_signatures.get(&access_expr).copied()
+        {
             Some(NATURE_ACCESS_BRANCH) => {
                 let branch = self.parent.infer.expr_types[args[0]].unwrap_branch();
-                if let Some(branch_info) = self.parent.db.branch_info(branch) {
-                    self.report_illegal_nature_access(
-                        self.parent.db.branch_data(branch).name.to_string(),
-                        branch_info.discipline,
-                        Some(access_nature),
-                        access_expr,
-                    )
+                match db.branch_info(branch) {
+                    Some(branch_info) => {
+                        (db.branch_data(branch).name.to_string(), branch_info.kind.nets())
+                    }
+                    None => return,
                 }
             }
 
             Some(NATURE_ACCESS_NODE_GND) => {
                 let node = self.parent.infer.expr_types[args[0]].unwrap_node();
-                if let Some(discipline) = self.parent.db.node_discipline(node) {
-                    let node = self.parent.db.node_data(node);
-                    self.report_illegal_nature_access(
-                        format!("({})", node.name),
-                        discipline,
-                        Some(access_nature),
-                        access_expr,
-                    )
-                }
+                (format!("({})", db.node_data(node).name), vec![node])
             }
 
             Some(NATURE_ACCESS_NODES) => {
                 let node1 = self.parent.infer.expr_types[args[0]].unwrap_node();
-                let node2 = self.parent.infer.expr_types[args[0]].unwrap_node();
-                if let Some(discipline1) = self.parent.db.node_discipline(node1) {
-                    if let Some(discipline2) = self.parent.db.node_discipline(node2) {
-                        let discipline2 = self.parent.db.discipline_info(discipline2);
-                        if discipline2.compatible(discipline1, self.parent.db) {
-                            let node1 = self.parent.db.node_data(node1);
-                            let node2 = self.parent.db.node_data(node2);
-                            self.report_illegal_nature_access(
-                                format!("({}, {})", node1.name, node2.name),
-                                discipline1,
-                                Some(access_nature),
-                                access_expr,
-                            )
-                        } else {
-                            self.report(BodyValidationDiagnostic::IncompatibleImplicitBranch {
-                                access: access_expr,
-                                node1,
-                                node2,
-                            })
-                        }
-                    }
+                let node2 = self.parent.infer.expr_types[args[1]].unwrap_node();
+                if !self.validate_implicit_branch(access_expr, node1, node2) {
+                    return;
                 }
+                let name = format!("({}, {})", db.node_data(node1).name, db.node_data(node2).name);
+                (name, vec![node1, node2])
             }
 
             Some(NATURE_ACCESS_PORT_FLOW) => {
                 let node = self.parent.infer.expr_types[args[0]].unwrap_port_flow();
-                if let Some(discipline) = self.parent.db.node_discipline(node) {
-                    let node = self.parent.db.node_data(node);
-                    self.report_illegal_nature_access(
-                        format!("(<{}>)", node.name),
-                        discipline,
-                        Some(access_nature),
-                        access_expr,
-                    )
-                }
+                (format!("(<{}>)", db.node_data(node).name), vec![node])
             }
             Some(_) => unreachable!(),
-            None => (),
+            None => return,
         };
+        self.report_illegal_nature_access(branch, &nets, Some(access_nature), access_expr)
     }
 
     fn validate_expr(&mut self, expr: ExprId) {
@@ -842,20 +827,20 @@ impl ExprValidator<'_, '_> {
                     BranchWrite::Unnamed { hi: lo, lo: Some(hi) }
                 };
                 self.lint_trivial_branch(branch, call, expr);
-                if let Some(discipline) = self.validate_implicit_branch(expr, hi, lo) {
-                    self.validate_flow_or_pot(expr, call, discipline)
+                if self.validate_implicit_branch(expr, hi, lo) {
+                    self.validate_flow_or_pot(expr, call, &[hi, lo])
                 }
             }
 
             (BuiltIn::potential | BuiltIn::flow, Some(NATURE_ACCESS_NODE_GND)) => {
                 let node = self.parent.infer.expr_types[args[0]].unwrap_node();
-                if let Some(discipline) = self.parent.db.node_discipline(node) {
+                if self.parent.db.node_discipline(node).is_some() {
                     self.lint_trivial_branch(
                         BranchWrite::Unnamed { hi: node, lo: None },
                         call,
                         expr,
                     );
-                    self.validate_flow_or_pot(expr, call, discipline)
+                    self.validate_flow_or_pot(expr, call, &[node])
                 }
             }
 
@@ -866,9 +851,7 @@ impl ExprValidator<'_, '_> {
                     self.report(BodyValidationDiagnostic::ExpectedPort { node, expr })
                 }
 
-                if let Some(discipline) = self.parent.db.node_discipline(node) {
-                    self.validate_flow_or_pot(expr, BuiltIn::flow, discipline)
-                }
+                self.validate_flow_or_pot(expr, BuiltIn::flow, &[node])
             }
 
             (BuiltIn::potential, Some(NATURE_ACCESS_PORT_FLOW)) => {
@@ -890,7 +873,7 @@ impl ExprValidator<'_, '_> {
                                 self.validate_flow_or_pot(
                                     expr,
                                     BuiltIn::flow,
-                                    branch_info.discipline,
+                                    &branch_info.kind.nets(),
                                 )
                             }
                         }
@@ -900,7 +883,7 @@ impl ExprValidator<'_, '_> {
                                 call,
                                 expr,
                             );
-                            self.validate_flow_or_pot(expr, call, branch_info.discipline)
+                            self.validate_flow_or_pot(expr, call, &[node])
                         }
                         BranchKind::Nodes(hi, lo) => {
                             let branch = if hi >= lo {
@@ -909,7 +892,7 @@ impl ExprValidator<'_, '_> {
                                 BranchWrite::Unnamed { hi: lo, lo: Some(hi) }
                             };
                             self.lint_trivial_branch(branch, call, expr);
-                            self.validate_flow_or_pot(expr, call, branch_info.discipline)
+                            self.validate_flow_or_pot(expr, call, &[hi, lo])
                         }
                     }
                 }

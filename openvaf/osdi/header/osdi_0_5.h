@@ -72,11 +72,6 @@
 #define ATTR_TYPE_INT 1
 #define ATTR_TYPE_REAL 2
 
-#define NATREF_NONE 0
-#define NATREF_NATURE 1
-#define NATREF_DISCIPLINE_FLOW 2
-#define NATREF_DISCIPLINE_POTENTIAL 3
-
 #define DOMAIN_NOT_GIVEN 0 
 #define DOMAIN_DISCRETE 1
 #define DOMAIN_CONTINUOUS 2
@@ -173,11 +168,6 @@ typedef struct OsdiNoiseSource {
   OsdiNodePair nodes;
 }OsdiNoiseSource;
 
-typedef struct OsdiNatureRef {
-  uint32_t ref_type;
-  uint32_t index;
-}OsdiNatureRef;
-
 typedef struct OsdiAbsDelay {
   uint32_t y_node;
   uint32_t z_node;
@@ -259,8 +249,8 @@ typedef struct OsdiDescriptor {
   OsdiNodePair* inputs;
   void (*load_jacobian_with_offset_resist)(void *inst, void* model, size_t offset);
   void (*load_jacobian_with_offset_react)(void *inst, void* model, size_t offset);
-  OsdiNatureRef* unknown_nature;
-  OsdiNatureRef* residual_nature;
+  uint32_t *unknown_nature;
+  uint32_t *residual_nature;
   uint32_t *noise_source_type;
   void (*load_noise_params)(void *inst, void *model, double *power, double *exponent);
   uint32_t module_flags;
@@ -273,9 +263,37 @@ typedef struct OsdiDescriptor {
   uint32_t discontinuity_offset;
 }OsdiDescriptor;
 
+/*
+ * Natures and disciplines
+ *
+ * Natures table: the natures declared in the source in order of appearance,
+ * followed by the hidden natures d.potential / d.flow, one for every bound
+ * slot of every declared discipline d, in discipline order of appearance
+ * (d.potential before d.flow). A hidden nature has the bound nature as its
+ * parent and holds the discipline's potential./flow. overrides as its
+ * attributes. Disciplines are listed in order of appearance.
+ *
+ * All indices are resolved indices into the natures table (UINT32_MAX if
+ * not given): OsdiNature.parent, .ddt, .idt, OsdiDiscipline.flow, .potential
+ * (hidden natures, UINT32_MAX for an unbound slot) and the unknown/residual
+ * natures (one index per unknown/residual, UINT32_MAX if it has no nature,
+ * e.g. implicit equations). A base nature has parent UINT32_MAX, a hidden
+ * nature always has a parent. A parent is not guaranteed to be listed before
+ * its children.
+ *
+ * Only given attributes are listed (nothing inherited). Attribute strings
+ * hold the names as written in the source (ddt_nature, idt_nature, discipline
+ * potential/flow), even if the corresponding index refers to a hidden nature.
+ * The discipline's override sections (num_flow_attr, num_potential_attr)
+ * repeat the hidden natures' attributes (kept for compatibility).
+ *
+ * Inheritance (resolved by the simulator): unset attributes are inherited
+ * from the parent. If ddt/idt is not given, the parent's value is used,
+ * except when the parent's value is the parent itself: then the value is the
+ * nature itself. Units and access are only set by base natures.
+ */
 typedef struct OsdiNature {
   char *name;
-  uint32_t parent_type;
   uint32_t parent;
   uint32_t ddt;
   uint32_t idt;

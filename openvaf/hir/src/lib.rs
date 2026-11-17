@@ -605,8 +605,9 @@ impl Nature {
         db.nature_data(self.id).name.to_string()
     }
 
+    /// Units (inherited from the base nature)
     pub fn units(self, db: &CompilationDB) -> String {
-        db.nature_data(self.id).units.clone().unwrap_or_default()
+        db.nature_info(hir_ty::lower::NatureKey::Decl(self.id)).units.clone().unwrap_or_default()
     }
 }
 

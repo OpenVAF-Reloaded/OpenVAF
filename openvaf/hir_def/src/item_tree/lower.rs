@@ -107,20 +107,29 @@ impl Ctx {
                     let ast_id = self.source_ast_id_map.ast_id(&attr);
 
                     let mut evaluated: Option<ConstExprValue> = None;
+                    let mut nature = None;
+                    let is_user = kind == DisciplineAttrKind::UserDefined;
                     match &*name {
-                        kw::potential if potential.is_none() => {
+                        // overrides of the bound natures' ddt_nature / idt_nature
+                        kw::ddt_nature | kw::idt_nature if !is_user => {
+                            if let Some(name) = attr.val().and_then(Self::lower_nature_expr) {
+                                evaluated = Some(ConstExprValue::String(name.name.to_string()));
+                                nature = Some(name);
+                            }
+                        }
+                        kw::potential if is_user && potential.is_none() => {
                             if let Some(name) = attr.val().and_then(Self::lower_nature_expr) {
                                 evaluated = Some(ConstExprValue::String(name.name.to_string()));
                                 potential = Some((name, id.into()));
                             }
                         }
-                        kw::flow if flow.is_none() => {
+                        kw::flow if is_user && flow.is_none() => {
                             if let Some(name) = attr.val().and_then(Self::lower_nature_expr) {
                                 evaluated = Some(ConstExprValue::String(name.name.to_string()));
                                 flow = Some((name, id.into()))
                             }
                         }
-                        kw::domain if domain.is_none() => {
+                        kw::domain if is_user && domain.is_none() => {
                             match attr.val().and_then(|e| e.as_ident()).as_deref() {
                                 Some(kw::continuous) => {
                                     evaluated =
@@ -132,14 +141,15 @@ impl Ctx {
                                         Some(ConstExprValue::String(kw::discrete.to_string()));
                                     domain = Some((Domain::Discrete, id.into()));
                                 }
-                                _ => {
-                                    // All other attributes - evaluate ast expression
-                                    evaluated = attr.val().and_then(|v| v.as_constexprval());
-                                }
+                                _ => (),
                             }
                         }
 
-                        _ => (),
+                        _ => {
+                            // All other attributes (overrides and user defined) - evaluate ast
+                            // expression
+                            evaluated = attr.val().and_then(|v| v.as_constexprval());
+                        }
                     };
 
                     self.tree.data.discipline_attrs.push(DisciplineAttr {
@@ -147,6 +157,7 @@ impl Ctx {
                         kind,
                         ast_id,
                         value: evaluated,
+                        nature,
                     });
                 }
             }

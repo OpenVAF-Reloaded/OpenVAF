@@ -17,7 +17,7 @@ use crate::db::HirTyDB;
 use crate::inference::BranchWrite;
 pub use crate::validation::body::RandomForm;
 use crate::validation::body::{BodyCtx, IllegalCtxAccess, IllegalCtxAccessKind, IllegalRandomKind};
-use crate::validation::types::DuplicateItem;
+use crate::validation::types::{DuplicateItem, NatureDisciplineError};
 
 mod body;
 mod types;
@@ -76,7 +76,7 @@ impl IncompatibleBranchDiagnostic {
                     }])
                     .with_message(msg)
                     .with_notes(vec![
-                        format!("help: disciplines are compatible if their potential and flow natures have the same 'units' attribute"),
+                        format!("help: disciplines are compatible if they have the same domain and their potential and flow natures have the same 'units' attribute"),
                     ])
     }
 }
@@ -782,6 +782,70 @@ impl Diagnostic for TypeValidationDiagnosticWrapped<'_> {
                     node2,
                 }
                 .into_report(self.db, self.parse, self.map, self.sm)
+            }
+            TypeValidationDiagnostic::NatureDiscipline { ref kind, src } => {
+                let src = self.parse.to_file_span(self.map.get_syntax(src).range(), self.sm);
+                let (message, label, notes) = match kind {
+                    NatureDisciplineError::Unresolved { err } => {
+                        (err.to_string(), err.message(), vec![])
+                    }
+                    NatureDisciplineError::ParentDeclaredLater { nature, parent } => (
+                        format!("parent '{parent}' of nature '{nature}' is declared after '{nature}'"),
+                        "parent declared later".to_owned(),
+                        vec!["help: a parent nature must be declared before the derived nature"
+                            .to_owned()],
+                    ),
+                    NatureDisciplineError::ParentCycle { nature } => (
+                        format!("parent chain of nature '{nature}' forms a cycle"),
+                        "cyclic parent chain".to_owned(),
+                        vec![],
+                    ),
+                    NatureDisciplineError::IllegalOverride { attr, owner } => (
+                        format!("'{owner}' must not set '{attr}'"),
+                        format!("'{attr}' is inherited and can't be overridden"),
+                        vec![format!("info: only a base nature can set '{attr}'")],
+                    ),
+                    NatureDisciplineError::MissingAttr { nature, attr } => (
+                        format!("base nature '{nature}' does not set '{attr}'"),
+                        format!("missing '{attr}'"),
+                        vec!["info: a nature without parent must set units, access and abstol"
+                            .to_owned()],
+                    ),
+                    NatureDisciplineError::UnrelatedDtNature {
+                        attr,
+                        value,
+                        parent,
+                        parent_value,
+                    } => (
+                        format!(
+                            "{attr} '{value}' is not related to '{parent_value}' ({attr} of '{parent}')"
+                        ),
+                        format!("'{value}' does not share a base nature with '{parent_value}'"),
+                        vec![],
+                    ),
+                    NatureDisciplineError::SameAccess { discipline, access } => (
+                        format!(
+                            "potential and flow nature of discipline '{discipline}' have the same access function '{access}'"
+                        ),
+                        "same access function as potential".to_owned(),
+                        vec![],
+                    ),
+                    NatureDisciplineError::DiscreteWithNatures { discipline } => (
+                        format!("discrete discipline '{discipline}' binds natures"),
+                        "discrete domain".to_owned(),
+                        vec!["info: only continuous disciplines can bind potential/flow natures"
+                            .to_owned()],
+                    ),
+                };
+                Report::error()
+                    .with_labels(vec![Label {
+                        style: LabelStyle::Primary,
+                        file_id: src.file,
+                        range: src.range.into(),
+                        message: label,
+                    }])
+                    .with_message(message)
+                    .with_notes(notes)
             }
         }
     }

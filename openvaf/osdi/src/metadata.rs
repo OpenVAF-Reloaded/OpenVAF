@@ -4,6 +4,7 @@ use std::iter::once;
 use hir::{CompilationDB, GlobalEvent, ParamSysFun, Type};
 use hir_def::db::HirDefDB;
 use hir_def::ndatable::NDATable;
+use hir_def::DisciplineSlot;
 use hir_lower::{CurrentKind, HiddenStateKey, ImplicitEquation, ParamKind};
 use lasso::{Rodeo, Spur};
 use llvm_sys::core::{
@@ -30,14 +31,13 @@ use crate::inst_data::{
 };
 use crate::load::JacobianLoadType;
 use crate::metadata::osdi_0_5::{
-    OsdiAbsDelay, OsdiDescriptor, OsdiJacobianEntry, OsdiJacobianValue, OsdiNatureRef, OsdiNode,
-    OsdiNodePair, OsdiNoiseSource, OsdiParamOpvar, OsdiTransition, OsdiTys, JACOBIAN_ENTRY_REACT,
+    OsdiAbsDelay, OsdiDescriptor, OsdiJacobianEntry, OsdiJacobianValue, OsdiNode, OsdiNodePair,
+    OsdiNoiseSource, OsdiParamOpvar, OsdiTransition, OsdiTys, JACOBIAN_ENTRY_REACT,
     JACOBIAN_ENTRY_REACT_CONST, JACOBIAN_ENTRY_REACT_OPTIME_CONST, JACOBIAN_ENTRY_RESIST,
     JACOBIAN_ENTRY_RESIST_CONST, JACOBIAN_ENTRY_RESIST_OPTIME_CONST, MODULEFLAG_ABSTIME,
     MODULEFLAG_COMPACT, MODULEFLAG_FINAL_STEP, MODULEFLAG_HIDDEN_STATE, MODULEFLAG_INITIAL_STEP,
-    NATREF_DISCIPLINE_FLOW, NATREF_DISCIPLINE_POTENTIAL, NATREF_NONE, NOISE_TYPE_FLICKER,
-    NOISE_TYPE_TABLE, NOISE_TYPE_WHITE, PARA_KIND_INST, PARA_KIND_MODEL, PARA_KIND_OPVAR,
-    PARA_TY_INT, PARA_TY_REAL, PARA_TY_STR,
+    NOISE_TYPE_FLICKER, NOISE_TYPE_TABLE, NOISE_TYPE_WHITE, PARA_KIND_INST, PARA_KIND_MODEL,
+    PARA_KIND_OPVAR, PARA_TY_INT, PARA_TY_REAL, PARA_TY_STR,
 };
 use crate::ty_len;
 
@@ -479,10 +479,7 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             .collect()
     }
 
-    pub fn unknown_residual_natures(
-        &self,
-        db: &CompilationDB,
-    ) -> (Vec<OsdiNatureRef>, Vec<OsdiNatureRef>) {
+    pub fn unknown_residual_natures(&self, db: &CompilationDB) -> (Vec<u32>, Vec<u32>) {
         let mut uvec = Vec::new();
         let mut rvec = Vec::new();
         for (idx, &unknown) in self.module.dae_system.unknowns.iter_enumerated() {
@@ -660,12 +657,13 @@ fn sim_unknown_info(
     unknown: SimUnknownKind,
     residual_nature_kind: ResidualNatureKind,
     db: &CompilationDB,
-) -> (String, String, String, bool, OsdiNatureRef, OsdiNatureRef) {
+) -> (String, String, String, bool, u32, u32) {
     let name;
     let discipline;
     let is_flow;
-    let mut unknown_nature = OsdiNatureRef { ref_type: NATREF_NONE, index: u32::MAX };
-    let mut residual_nature = OsdiNatureRef { ref_type: NATREF_NONE, index: u32::MAX };
+    // natures table indices, u32::MAX if no nature
+    let mut unknown_nature = u32::MAX;
+    let mut residual_nature = u32::MAX;
 
     match unknown {
         SimUnknownKind::KirchoffLaw(node) => {
@@ -680,7 +678,13 @@ fn sim_unknown_info(
             } else {
                 format!("flow({})", &hi.name(db))
             };
-            discipline = Some(hi.discipline(db));
+            // natureless disciplines are skipped for access functions: use the discipline that
+            // has a flow nature
+            let hi_discipline = hi.discipline(db);
+            discipline = match lo {
+                Some(lo) if hi_discipline.flow(db).is_none() => Some(lo.discipline(db)),
+                _ => Some(hi_discipline),
+            };
             is_flow = true;
         }
         SimUnknownKind::Current(CurrentKind::Branch(br)) => {
@@ -708,17 +712,17 @@ fn sim_unknown_info(
     let mut units = String::default();
     let mut residual_units = String::default();
     if let Some(discipline) = discipline {
-        // Discipline index
-        let ndx = nda_table.discipline_name_map.get(&discipline.name(db)).unwrap().into_raw();
+        let discipline_name = discipline.name(db);
+        // the hidden nature d.potential / d.flow of a discipline slot
+        let hidden_nature =
+            |slot| nda_table.hidden_nature_by_name(&discipline_name, slot).unwrap_or(u32::MAX);
 
         // Unknown
         let nature = if is_flow {
-            unknown_nature.ref_type = NATREF_DISCIPLINE_FLOW;
-            unknown_nature.index = ndx;
+            unknown_nature = hidden_nature(DisciplineSlot::Flow);
             discipline.flow(db)
         } else {
-            unknown_nature.ref_type = NATREF_DISCIPLINE_POTENTIAL;
-            unknown_nature.index = ndx;
+            unknown_nature = hidden_nature(DisciplineSlot::Potential);
             discipline.potential(db)
         };
         if let Some(nature) = nature {
@@ -727,13 +731,11 @@ fn sim_unknown_info(
         // Residual
         let nature = match residual_nature_kind {
             ResidualNatureKind::Flow => {
-                residual_nature.ref_type = NATREF_DISCIPLINE_FLOW;
-                residual_nature.index = ndx;
+                residual_nature = hidden_nature(DisciplineSlot::Flow);
                 discipline.flow(db)
             }
             ResidualNatureKind::Potential => {
-                residual_nature.ref_type = NATREF_DISCIPLINE_POTENTIAL;
-                residual_nature.index = ndx;
+                residual_nature = hidden_nature(DisciplineSlot::Potential);
                 discipline.potential(db)
             }
             _ => None,

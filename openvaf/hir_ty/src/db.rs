@@ -3,13 +3,13 @@ use std::sync::Arc;
 use hir_def::db::HirDefDB;
 use hir_def::nameres::{ResolvedPath, ScopeDefItem};
 use hir_def::{
-    AliasParamId, BranchId, DefWithBodyId, DisciplineId, Lookup, NatureAttrId, NatureId, NodeId,
-    ParamId, ParamSysFun, Type,
+    AliasParamId, BranchId, DefWithBodyId, DisciplineId, Lookup, NatureAttrId, NodeId, ParamId,
+    ParamSysFun, Type,
 };
 use stdx::Upcast;
 
 use crate::inference::InferenceResult;
-use crate::lower::{BranchTy, DisciplineTy, NatureTy};
+use crate::lower::{BranchTy, DisciplineTy, NatureKey, NatureTy};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct LimitSignature {
@@ -21,7 +21,7 @@ pub struct LimitSignature {
 pub trait HirTyDB: HirDefDB + Upcast<dyn HirDefDB> {
     #[salsa::invoke(NatureTy::nature_info_query)]
     #[salsa::cycle(NatureTy::nature_info_recover)]
-    fn nature_info(&self, nature: NatureId) -> Arc<NatureTy>;
+    fn nature_info(&self, nature: NatureKey) -> Arc<NatureTy>;
     #[salsa::invoke(DisciplineTy::discipline_info_query)]
     fn discipline_info(&self, nature: DisciplineId) -> Arc<DisciplineTy>;
     #[salsa::invoke(BranchTy::branch_info_query)]

@@ -1,0 +1,100 @@
+nature Volt
+    units = "V";
+    access = V;
+    abstol = 1e-6;
+endnature
+
+nature Amp
+    units = "A";
+    access = I;
+    abstol = 1e-12;
+endnature
+
+// unrelated to Volt, same units
+nature Volt2
+    units = "V";
+    access = V2;
+    abstol = 1e-6;
+endnature
+
+// unitless natures with equal units
+nature Pot
+    units = "";
+    access = Pa;
+    abstol = 1;
+endnature
+
+nature Flw
+    units = "";
+    access = Fa;
+    abstol = 1;
+endnature
+
+discipline elec
+    potential Volt;
+    flow Amp;
+enddiscipline
+
+discipline potonly
+    potential Volt;
+enddiscipline
+
+discipline elec2
+    potential Volt2;
+    flow Amp;
+enddiscipline
+
+discipline empty
+enddiscipline
+
+discipline digital
+    domain discrete;
+enddiscipline
+
+discipline uless
+    potential Pot;
+    flow Flw;
+enddiscipline
+
+module nature_access(a, b, c, d, e, f, g);
+    inout a, b, c, d, e, f, g;
+    elec a, g;
+    potonly b;
+    elec2 c;
+    empty d;
+    digital e;
+    uless f;
+    branch (a, b) br_ab;
+    branch (d) br_d;
+    real x;
+
+    analog begin
+        // legal
+        I(a, g) <+ V(a, g);
+        x = V(a, b);
+        x = potential(a, b);
+        x = V(a, d);
+        x = potential(a, d);
+        x = V(br_ab);
+        Fa(f) <+ Pa(f);
+        x = I(a, g) + V2(c);
+        I(c, a) <+ 1e-3;
+
+        // b does not resolve I (potential only)
+        x = I(a, b);
+        x = I(br_ab);
+        x = flow(a, b);
+
+        // c resolves V2, not V
+        x = V(a, c);
+        x = V2(a, c);
+
+        // natureless discipline
+        x = V(d);
+        x = V(br_d);
+        x = potential(d);
+
+        // incompatible domains
+        x = V(a, e);
+    end
+endmodule

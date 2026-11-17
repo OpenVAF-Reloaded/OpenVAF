@@ -1,0 +1,54 @@
+error: 'bad_override.potential' must not set 'units'
+   --> /discipline_decl.va:39:5
+   |
+39 |     potential.units = "mV";
+   |     ^^^^^^^^^^^^^^^^^^^^^^^ 'units' is inherited and can't be overridden
+   |
+   = info: only a base nature can set 'units'
+
+error: 'bad_override.potential' must not set 'access'
+   --> /discipline_decl.va:40:5
+   |
+40 |     potential.access = Vx;
+   |     ^^^^^^^^^^^^^^^^^^^^^^ 'access' is inherited and can't be overridden
+   |
+   = info: only a base nature can set 'access'
+
+error: potential and flow nature of discipline 'same_access' have the same access function 'V'
+   --> /discipline_decl.va:46:5
+   |
+46 |     flow VoltD;
+   |     ^^^^^^^^^^^ same access function as potential
+
+error: discrete discipline 'discrete_natures' binds natures
+   --> /discipline_decl.va:51:5
+   |
+51 |     domain discrete;
+   |     ^^^^^^^^^^^^^^^^ discrete domain
+   |
+   = info: only continuous disciplines can bind potential/flow natures
+
+error: 'Nope' was not found in the current scope
+   --> /discipline_decl.va:57:5
+   |
+57 |     potential Nope;
+   |     ^^^^^^^^^^^^^^^ not found
+
+error: ddt_nature 'Amp' is not related to 'Volt' (ddt_nature of 'Volt')
+   --> /discipline_decl.va:64:5
+   |
+64 |     potential.ddt_nature = Amp;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ 'Amp' does not share a base nature with 'Volt'
+
+error: idt_nature 'Volt' is not related to 'Charge' (idt_nature of 'Amp')
+   --> /discipline_decl.va:65:5
+   |
+65 |     flow.idt_nature = Volt;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^ 'Volt' does not share a base nature with 'Charge'
+
+error: 'Nope' was not found in the current scope
+   --> /discipline_decl.va:66:5
+   |
+66 |     flow.ddt_nature = Nope;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^ not found
+

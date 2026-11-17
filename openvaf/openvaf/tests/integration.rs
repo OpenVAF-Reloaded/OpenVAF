@@ -20,6 +20,7 @@ mod jacobian_const;
 mod laplace;
 mod load;
 mod mock_sim;
+mod natures;
 mod random;
 
 fn absdelay_maxdelay_offset_test() -> Result<()> {
@@ -1064,6 +1065,7 @@ harness! {
         Test::new("last_crossing", &last_crossing_test),
         Test::new("transition", &transition_test),
         Test::new("discontinuity", &discontinuity_test),
+        Test::new("natures", &natures::tables_test),
         Test::new("random", &random::generators),
         Test::new("random_errors", &random::errors),
         Test::new("random_zero_voltage", &random::zero_voltage),

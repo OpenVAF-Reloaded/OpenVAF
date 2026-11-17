@@ -1,0 +1,88 @@
+error: illegal access of branch '(a, b)'
+   --> /nature_access.va:84:13
+   |
+84 |         x = I(a, b);
+   |             ^^^^^^^ 'Amp' is not a valid nature for this branch
+   |
+   = help: use 'V' to access 'Volt' (potential)
+
+error: illegal access of branch 'br_ab'
+   --> /nature_access.va:85:13
+   |
+85 |         x = I(br_ab);
+   |             ^^^^^^^^ 'Amp' is not a valid nature for this branch
+   |
+   = help: use 'V' to access 'Volt' (potential)
+
+error: 'flow' access of branch without flow
+   --> /nature_access.va:86:13
+   |
+86 |         x = flow(a, b);
+   |             ^^^^^^^^^^ access of branch without flow
+   |
+   = help: this branches nodes have a discipline without the 'flow' attribute
+
+error: illegal access of branch '(a, c)'
+   --> /nature_access.va:89:13
+   |
+89 |         x = V(a, c);
+   |             ^^^^^^^ 'Volt' is not a valid nature for this branch
+   |
+   = help: use 'V2' or 'I' to access 'Volt2' (potential) or 'Amp' (flow)
+
+error: illegal access of branch '(a, c)'
+   --> /nature_access.va:90:13
+   |
+90 |         x = V2(a, c);
+   |             ^^^^^^^^ 'Volt2' is not a valid nature for this branch
+   |
+   = help: use 'V' or 'I' to access 'Volt' (potential) or 'Amp' (flow)
+
+error: illegal access of branch '(d)'
+   --> /nature_access.va:93:13
+   |
+93 |         x = V(d);
+   |             ^^^^ 'Volt' is not a valid nature for this branch
+   |
+   = help: this branch has a natureless discipline and can't be accessed
+
+error: illegal access of branch 'br_d'
+   --> /nature_access.va:94:13
+   |
+94 |         x = V(br_d);
+   |             ^^^^^^^ 'Volt' is not a valid nature for this branch
+   |
+   = help: this branch has a natureless discipline and can't be accessed
+
+error: 'potential' access of branch without potential
+   --> /nature_access.va:95:13
+   |
+95 |         x = potential(d);
+   |             ^^^^^^^^^^^^ access of branch without potential
+   |
+   = help: this branches nodes have a discipline without the 'potential' attribute
+
+error: nodes 'a' and 'e' of branch '(a,e)' have incompatible disciplines!
+   --> /nature_access.va:98:13
+   |
+61 |     elec a, g;
+   |     ---------- help: 'a' declared with discipline 'elec'
+   .
+65 |     digital e;
+   |     ---------- help: 'e' declared with discipline 'digital'
+   .
+98 |         x = V(a, e);
+   |             ^^^^^^^ '(a,e)' has mismatched disciplines
+   |
+   = help: disciplines are compatible if they have the same domain and their potential and flow natures have the same 'units' attribute
+
+warning[L017]: Current probe always returns zero
+   --> /nature_access.va:86:13
+   |
+86 |         x = flow(a, b);
+   |             ^^^^^^^^^^ always returns zero
+   |
+   = help: there are no contributions to branch (b, a)
+   = info: branches are open circuted by default: I(b, a) <+ 0
+   = trivial_probe is set to warn by default
+

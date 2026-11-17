@@ -384,8 +384,18 @@ impl Diagnostic for SyntaxError {
                         "an identifier precceded by potential or flow: potential.abstol".to_owned(),
                     ])
             }
-            SyntaxError::IllegalNatureIdent { range } => {
+            SyntaxError::IllegalNatureIdent { range, slot_allowed } => {
                 let FileSpan { range, file: file_id } = parse.to_file_span(range, &sm);
+                let notes = if slot_allowed {
+                    vec![
+                        "help: expected one of the following".to_owned(),
+                        "a nature identifier: Voltage".to_owned(),
+                        "a discipline identifier followed by potential or flow: electrical.potential"
+                            .to_owned(),
+                    ]
+                } else {
+                    vec!["help: expected a nature identifier: Voltage".to_owned()]
+                };
                 Report::error()
                     .with_labels(vec![Label {
                         style: LabelStyle::Primary,
@@ -393,12 +403,7 @@ impl Diagnostic for SyntaxError {
                         range: range.into(),
                         message: "illegal nature identifier".to_owned(),
                     }])
-                    .with_notes(vec![
-                        "help: expected one of the following".to_owned(),
-                        "an identifier: voltage".to_owned(),
-                        "an identifier followed by potential or flow: electrical.potential"
-                            .to_owned(),
-                    ])
+                    .with_notes(notes)
             }
             SyntaxError::IllegalAttriubte { expected, range, .. } => {
                 let FileSpan { range, file: file_id } = parse.to_file_span(range, &sm);

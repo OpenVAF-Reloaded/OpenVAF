@@ -66,6 +66,9 @@ Some internals of the OpenVAF compiler are documented in the [internals.md](inte
 - hierarchy support via flattening
 - WebAssembly support
 
+- hidden state support (when --hidden-state/-s option is given)
+- without --hidden-state/-s the compiler behaves as before
+- initial_step/final_step event gating (only with -s)
 
 # What about binaries? 
 

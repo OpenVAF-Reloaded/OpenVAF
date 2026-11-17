@@ -28,7 +28,7 @@ use crate::builtin::{
 use crate::db::{Alias, HirTyDB};
 use crate::diagnostics::{ArrayTypeMismatch, SignatureMismatch, TypeMismatch};
 use crate::inference::fmt_parser::parse_real_fmt_spec;
-use crate::lower::{BranchTy, DisciplineAccess};
+use crate::lower::{nets_access, BranchTy, DisciplineAccess};
 use crate::types::{default_return_ty, BuiltinInfo, Signature, SignatureData, Ty, TyRequirement};
 
 mod fmt_parser;
@@ -607,7 +607,7 @@ impl Ctx<'_> {
         let nature = access.0.lookup(self.db.upcast()).nature;
         // Now that we know that the arguments are valid actually resolve whether this is flow or
         // pot access
-        let access = self.infere_access_kind(nature, expr, args[0]);
+        let access = self.infere_access_kind(nature, expr, args);
 
         // update resolved_calls in case this is actually a pot and not a flow access
         match access {
@@ -629,26 +629,23 @@ impl Ctx<'_> {
         &self,
         nature: NatureId,
         expr: ExprId,
-        arg: ExprId,
+        args: &[ExprId],
     ) -> Option<DisciplineAccess> {
         let signature = self.result.resolved_signatures.get(&expr);
-        let node = match *signature? {
+        let nets = match *signature? {
             NATURE_ACCESS_BRANCH => {
-                let branch = self.result.expr_types[arg].unwrap_branch();
-                let branch_info = self.db.branch_info(branch)?;
-                return branch_info.access(nature, self.db);
+                let branch = self.result.expr_types[args[0]].unwrap_branch();
+                self.db.branch_info(branch)?.kind.nets()
             }
-
-            NATURE_ACCESS_NODES | NATURE_ACCESS_NODE_GND => {
-                self.result.expr_types[arg].unwrap_node()
-            }
-
-            NATURE_ACCESS_PORT_FLOW => self.result.expr_types[arg].unwrap_port_flow(),
+            NATURE_ACCESS_NODES => vec![
+                self.result.expr_types[args[0]].unwrap_node(),
+                self.result.expr_types[args[1]].unwrap_node(),
+            ],
+            NATURE_ACCESS_NODE_GND => vec![self.result.expr_types[args[0]].unwrap_node()],
+            NATURE_ACCESS_PORT_FLOW => vec![self.result.expr_types[args[0]].unwrap_port_flow()],
             var => unreachable!("{:?}", var),
         };
-
-        let discipline = self.db.node_discipline(node)?;
-        self.db.discipline_info(discipline).access(nature, self.db)
+        nets_access(self.db, &nets, nature)
     }
 
     fn infere_builtin(
@@ -1295,6 +1292,10 @@ impl Ctx<'_> {
                     zip(&arg_types, signatures[*candidate].args.as_ref())
                         .all(|(ty, req)| ty.as_ref().map_or(false, |ty| ty.satisfies_semantic(req)))
                 });
+                // e.g. integer arguments of real parameters (casts) satisfy no candidate
+                if candidates.is_empty() {
+                    candidates.clone_from(&new_candidates);
+                }
 
                 if candidates.len() > 1 {
                     new_candidates.clone_from(&candidates);

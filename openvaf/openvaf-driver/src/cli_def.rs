@@ -30,6 +30,9 @@ pub fn main_command() -> Command {
             dump_unopt_mir(),
             dump_ir(),
             dump_unopt_ir(),
+            hidden_state(),
+            dump_hs(),
+            ieee1364(),
             cache_dir(),
             opt_lvl(),
             target(),
@@ -52,6 +55,9 @@ pub const DUMPMIR: &str = "dump-mir";
 pub const DUMPUNOPTMIR: &str = "dump-unopt-mir";
 pub const DUMPIR: &str = "dump-ir";
 pub const DUMPUNOPTIR: &str = "dump-unopt-ir";
+pub const HIDDENSTATE: &str = "hidden-state";
+pub const DUMPHS: &str = "dump-hs";
+pub const IEEE1364: &str = "ieee1364";
 pub const TARGET: &str = "target";
 pub const SUPPORTED_TARGETS: &str = "supported-targets";
 pub const LINTS: &str = "lints";
@@ -115,6 +121,26 @@ fn dump_unopt_ir() -> Arg {
     flag(DUMPUNOPTIR, "dump-unopt-ir")
         .help("Dump unoptimized LLVM IR during compilation.")
         .long_help("Dump unoptimized LLVM IR during compilation.\nUsed for debugging.")
+}
+
+fn hidden_state() -> Arg {
+    flag(HIDDENSTATE, "hidden-state")
+        .short('s')
+        .visible_alias("no-compact")
+        .help("Full model with hidden state detection and event gating.")
+        .long_help("Full mode with hidden state detection and event gating.\nFinds the variables whose value must be kept from one evaluation to the next.\nAlso enabled by --dump-hs.")
+}
+
+fn ieee1364() -> Arg {
+    flag(IEEE1364, "ieee1364")
+        .help("IEEE 1364-2005 random number generator.")
+        .long_help("Use the IEEE 1364-2005 random number generator.")
+}
+
+fn dump_hs() -> Arg {
+    flag(DUMPHS, "dump-hs")
+        .help("Print the hidden state of each compiled module (implies -s).")
+        .long_help("Print the hidden state of each compiled module.\nImplies -s/--hidden-state.")
 }
 
 fn target() -> Arg {

@@ -27,6 +27,8 @@
 #define JACOBIAN_ENTRY_REACT_CONST 2
 #define JACOBIAN_ENTRY_RESIST 4
 #define JACOBIAN_ENTRY_REACT 8
+#define JACOBIAN_ENTRY_RESIST_OPTIME_CONST 16
+#define JACOBIAN_ENTRY_REACT_OPTIME_CONST 32
 
 #define CALC_RESIST_RESIDUAL 1
 #define CALC_REACT_RESIDUAL 2
@@ -45,12 +47,15 @@
 #define ANALYSIS_IC 16384
 #define ANALYSIS_STATIC 32768
 #define ANALYSIS_NODESET 65536
+#define INITIAL_STEP 131072
+#define FINAL_STEP 262144
 
 #define EVAL_RET_FLAG_LIM 1
 #define EVAL_RET_FLAG_FATAL 2
 #define EVAL_RET_FLAG_FINISH 4
 #define EVAL_RET_FLAG_STOP 8
 
+#define INIT_HIDDEN_STATE 1
 
 #define LOG_LVL_MASK 7
 #define LOG_LVL_DEBUG 0
@@ -67,11 +72,6 @@
 #define ATTR_TYPE_INT 1
 #define ATTR_TYPE_REAL 2
 
-#define NATREF_NONE 0
-#define NATREF_NATURE 1
-#define NATREF_DISCIPLINE_FLOW 2
-#define NATREF_DISCIPLINE_POTENTIAL 3
-
 #define DOMAIN_NOT_GIVEN 0 
 #define DOMAIN_DISCRETE 1
 #define DOMAIN_CONTINUOUS 2
@@ -81,6 +81,10 @@
 #define NOISE_TYPE_TABLE 2
 
 #define MODULEFLAG_ABSTIME 1
+#define MODULEFLAG_HIDDEN_STATE 2
+#define MODULEFLAG_INITIAL_STEP 4
+#define MODULEFLAG_FINAL_STEP 8
+#define MODULEFLAG_COMPACT 16
 
 typedef struct OsdiLimFunction {
   char *name;
@@ -102,6 +106,7 @@ typedef struct OsdiSimInfo {
     double *prev_state;
     double *next_state;
     uint32_t flags;
+    double dt;
 }OsdiSimInfo;
 
 typedef union OsdiInitErrorPayload {
@@ -117,6 +122,7 @@ typedef struct OsdiInitInfo {
   uint32_t flags;
   uint32_t num_errors;
   OsdiInitError *errors;
+  uint32_t entity_seed;
 }OsdiInitInfo;
 
 typedef struct OsdiNodePair {
@@ -162,17 +168,22 @@ typedef struct OsdiNoiseSource {
   OsdiNodePair nodes;
 }OsdiNoiseSource;
 
-typedef struct OsdiNatureRef {
-  uint32_t ref_type;
-  uint32_t index;
-}OsdiNatureRef;
-
 typedef struct OsdiAbsDelay {
   uint32_t y_node;
   uint32_t z_node;
   uint32_t td_offset;
   uint32_t maxdelay_offset;
 } OsdiAbsDelay;
+
+typedef struct OsdiTransition {
+  uint32_t tbegin_offset;
+  uint32_t tr_offset;
+  uint32_t tf_offset;
+  uint32_t time_tol_offset;
+  uint32_t input_pending_offset;
+  uint32_t input_accepted_offset;
+  uint32_t output_offset;
+} OsdiTransition;
 
 typedef struct OsdiDescriptor {
   char *name;
@@ -238,19 +249,51 @@ typedef struct OsdiDescriptor {
   OsdiNodePair* inputs;
   void (*load_jacobian_with_offset_resist)(void *inst, void* model, size_t offset);
   void (*load_jacobian_with_offset_react)(void *inst, void* model, size_t offset);
-  OsdiNatureRef* unknown_nature;
-  OsdiNatureRef* residual_nature;
+  uint32_t *unknown_nature;
+  uint32_t *residual_nature;
   uint32_t *noise_source_type;
   void (*load_noise_params)(void *inst, void *model, double *power, double *exponent);
   uint32_t module_flags;
   uint32_t absdelay_count;
   OsdiAbsDelay *absdelays;
   OsdiJacobianValue *jacobian_values;
+  void (*accept)(void *inst, void *model, OsdiSimInfo *info);
+  uint32_t transition_count;
+  OsdiTransition *transitions;
+  uint32_t discontinuity_offset;
 }OsdiDescriptor;
 
+/*
+ * Natures and disciplines
+ *
+ * Natures table: the natures declared in the source in order of appearance,
+ * followed by the hidden natures d.potential / d.flow, one for every bound
+ * slot of every declared discipline d, in discipline order of appearance
+ * (d.potential before d.flow). A hidden nature has the bound nature as its
+ * parent and holds the discipline's potential./flow. overrides as its
+ * attributes. Disciplines are listed in order of appearance.
+ *
+ * All indices are resolved indices into the natures table (UINT32_MAX if
+ * not given): OsdiNature.parent, .ddt, .idt, OsdiDiscipline.flow, .potential
+ * (hidden natures, UINT32_MAX for an unbound slot) and the unknown/residual
+ * natures (one index per unknown/residual, UINT32_MAX if it has no nature,
+ * e.g. implicit equations). A base nature has parent UINT32_MAX, a hidden
+ * nature always has a parent. A parent is not guaranteed to be listed before
+ * its children.
+ *
+ * Only given attributes are listed (nothing inherited). Attribute strings
+ * hold the names as written in the source (ddt_nature, idt_nature, discipline
+ * potential/flow), even if the corresponding index refers to a hidden nature.
+ * The discipline's override sections (num_flow_attr, num_potential_attr)
+ * repeat the hidden natures' attributes (kept for compatibility).
+ *
+ * Inheritance (resolved by the simulator): unset attributes are inherited
+ * from the parent. If ddt/idt is not given, the parent's value is used,
+ * except when the parent's value is the parent itself: then the value is the
+ * nature itself. Units and access are only set by base natures.
+ */
 typedef struct OsdiNature {
   char *name;
-  uint32_t parent_type;
   uint32_t parent;
   uint32_t ddt;
   uint32_t idt;

@@ -440,6 +440,22 @@ pub enum NatureRefKind {
     DisciplineFlow,
 }
 
+/// The potential or flow slot of a discipline
+#[derive(Debug, Eq, PartialEq, Clone, Hash, Copy, PartialOrd, Ord)]
+pub enum DisciplineSlot {
+    Potential,
+    Flow,
+}
+
+impl DisciplineSlot {
+    pub fn name(self) -> &'static str {
+        match self {
+            DisciplineSlot::Potential => "potential",
+            DisciplineSlot::Flow => "flow",
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Nature {
     pub name: Name,
@@ -473,6 +489,18 @@ pub struct DisciplineAttr {
     pub kind: DisciplineAttrKind,
     pub ast_id: AstId<ast::DisciplineAttr>,
     pub value: Option<ConstExprValue>,
+    /// The nature given by a `potential.ddt_nature` / `flow.idt_nature` (...) override
+    pub nature: Option<NatureRef>,
+}
+
+impl DisciplineAttrKind {
+    pub fn slot(self) -> Option<DisciplineSlot> {
+        match self {
+            DisciplineAttrKind::PotentialOverwrite => Some(DisciplineSlot::Potential),
+            DisciplineAttrKind::FlowOverwrite => Some(DisciplineSlot::Flow),
+            DisciplineAttrKind::UserDefined => None,
+        }
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]

@@ -6,7 +6,7 @@ use syntax::name::Name;
 use typed_index_collections::TiSlice;
 
 use crate::db::HirDefDB;
-use crate::item_tree::{self, BranchKind, DisciplineAttrKind, Domain, NatureRef};
+use crate::item_tree::{self, BranchKind, DisciplineAttrKind, DisciplineSlot, Domain, NatureRef};
 use crate::{
     AliasParamId, BranchId, DisciplineId, FunctionId, Intern, ItemTree, LocalFunctionArgId,
     LocalNatureAttrId, Lookup, ModuleId, NatureId, NodeId, NodeLoc, ParamId, Path, Type, VarId,
@@ -32,6 +32,13 @@ pub struct DisciplineAttrData {
     pub kind: DisciplineAttrKind,
 }
 
+/// `ddt_nature` / `idt_nature` overrides of a discipline slot (`flow.ddt_nature = X;`)
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SlotOverrides {
+    pub ddt_nature: Option<NatureRef>,
+    pub idt_nature: Option<NatureRef>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DisciplineData {
     pub name: Name,
@@ -39,6 +46,8 @@ pub struct DisciplineData {
     pub flow: Option<NatureRef>,
     pub domain: Option<Domain>,
     pub attrs: Arena<DisciplineAttrData>,
+    pub potential_overrides: SlotOverrides,
+    pub flow_overrides: SlotOverrides,
 }
 
 impl DisciplineData {
@@ -46,11 +55,29 @@ impl DisciplineData {
         let loc = id.lookup(db);
         let tree = &loc.item_tree(db);
         let discipline = &tree[loc.id];
+        let mut potential_overrides = SlotOverrides::default();
+        let mut flow_overrides = SlotOverrides::default();
         let attrs: Vec<_> = discipline
             .extra_attrs
             .clone()
             .map(|attr| {
                 let attr = &tree[attr];
+                let overrides = match attr.kind.slot() {
+                    Some(DisciplineSlot::Potential) => Some(&mut potential_overrides),
+                    Some(DisciplineSlot::Flow) => Some(&mut flow_overrides),
+                    None => None,
+                };
+                if let (Some(overrides), Some(nature)) = (overrides, &attr.nature) {
+                    // the first one wins, duplicates are reported separately
+                    let dst = if &*attr.name == "ddt_nature" {
+                        &mut overrides.ddt_nature
+                    } else {
+                        &mut overrides.idt_nature
+                    };
+                    if dst.is_none() {
+                        *dst = Some(nature.clone());
+                    }
+                }
                 DisciplineAttrData { name: attr.name.clone(), kind: attr.kind }
             })
             .collect();
@@ -61,21 +88,23 @@ impl DisciplineData {
             flow: discipline.flow.clone().map(|(flow, _)| flow),
             domain: discipline.domain.map(|(domain, _)| domain),
             attrs: Arena::from(attrs),
+            potential_overrides,
+            flow_overrides,
         })
     }
 
-    pub fn compatible(&self, other: &DisciplineData) -> bool {
-        if self.domain.is_none() || other.domain.is_none() {
-            return true;
+    pub fn slot(&self, slot: DisciplineSlot) -> Option<&NatureRef> {
+        match slot {
+            DisciplineSlot::Potential => self.potential.as_ref(),
+            DisciplineSlot::Flow => self.flow.as_ref(),
         }
+    }
 
-        if self.potential.is_none() && self.flow.is_none()
-            || other.potential.is_none() && other.flow.is_none()
-        {
-            return self.domain == other.domain;
+    pub fn overrides(&self, slot: DisciplineSlot) -> &SlotOverrides {
+        match slot {
+            DisciplineSlot::Potential => &self.potential_overrides,
+            DisciplineSlot::Flow => &self.flow_overrides,
         }
-
-        self.potential == other.potential && self.flow == other.flow && self.domain == other.domain
     }
 }
 
@@ -91,6 +120,7 @@ pub struct NatureData {
     pub idt_nature: Option<NatureRef>,
     pub ddt_nature: Option<NatureRef>,
     pub units: Option<String>,
+    pub access: Option<Name>,
     pub abstol: Option<(OrderedFloat<f64>, LocalNatureAttrId)>,
     pub attrs: Arena<NatureAttrData>,
 }
@@ -110,6 +140,7 @@ impl NatureData {
             name: nature.name.clone(),
             parent: nature.parent.clone(),
             units: nature.units.clone().map(|(it, _)| it),
+            access: nature.access.clone().map(|(it, _)| it),
             idt_nature: nature.idt_nature.clone().map(|(it, _)| it),
             ddt_nature: nature.ddt_nature.clone().map(|(it, _)| it),
             abstol: nature.abstol,

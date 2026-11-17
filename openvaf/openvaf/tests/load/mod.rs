@@ -48,6 +48,14 @@ impl OsdiDescriptor {
         unsafe { slice::from_raw_parts(self.jacobian_entries, self.num_jacobian_entries as usize) }
     }
 
+    pub fn transitions(&self) -> &[OsdiTransition] {
+        if self.transition_count == 0 {
+            return &[];
+        }
+        // SAFETY: the descriptor is assumed valid
+        unsafe { slice::from_raw_parts(self.transitions, self.transition_count as usize) }
+    }
+
     pub fn check_init_result(&self, res: OsdiInitInfo) -> Result<()> {
         if (res.flags & EVAL_RET_FLAG_FATAL) != 0 {
             bail!("Verilog-A $fatal was called")
@@ -157,7 +165,8 @@ impl OsdiModel {
             vals_str: ptr::null_mut(),
         };
 
-        let mut res = OsdiInitInfo { flags: 0, num_errors: 0, errors: ptr::null_mut() };
+        let mut res =
+            OsdiInitInfo { flags: 0, num_errors: 0, errors: ptr::null_mut(), entity_seed: 0 };
         self.descriptor.setup_model(
             b"foo\0".as_ptr() as *mut c_void,
             self.data,
@@ -180,6 +189,7 @@ impl OsdiModel {
         OsdiInstance {
             descriptor: self.descriptor,
             data: alloc(self.descriptor.instance_size as usize),
+            entity_seed: 0,
         }
     }
 }
@@ -187,6 +197,8 @@ impl OsdiModel {
 pub struct OsdiInstance {
     pub descriptor: &'static OsdiDescriptor,
     pub data: *mut c_void,
+    /// Passed to `setup_instance()` (seeds the random number generators)
+    pub entity_seed: u32,
 }
 
 impl Drop for OsdiInstance {
@@ -295,7 +307,12 @@ impl OsdiInstance {
             vals_str: ptr::null_mut(),
         };
 
-        let mut res = OsdiInitInfo { flags: 0, num_errors: 0, errors: ptr::null_mut() };
+        let mut res = OsdiInitInfo {
+            flags: INIT_HIDDEN_STATE,
+            num_errors: 0,
+            errors: ptr::null_mut(),
+            entity_seed: self.entity_seed,
+        };
         self.descriptor.setup_instance(
             b"foo\0".as_ptr() as *mut c_void,
             self.data,
@@ -357,6 +374,32 @@ pub unsafe fn load_osdi_lib(path: &Utf8Path) -> Result<&'static [OsdiDescriptor]
         }
     }
     Ok(descriptors)
+}
+
+/// Natures, disciplines and attributes tables of an OSDI library
+pub struct NdaTables {
+    pub natures: &'static [OsdiNature],
+    pub disciplines: &'static [OsdiDiscipline],
+    pub attributes: &'static [OsdiAttribute],
+}
+
+/// Loads the natures, disciplines and attributes tables (empty if not exported)
+///
+/// # Safety
+/// `path` must be an OSDI 0.5 library compiled by OpenVAF
+pub unsafe fn load_nda_tables(path: &Utf8Path) -> Result<NdaTables> {
+    let lib = Box::leak(Box::new(Library::new(path.as_str())?));
+    unsafe fn table<T>(lib: &Library, name: &[u8], len: &[u8]) -> &'static [T] {
+        match (lib.get::<*const T>(name), lib.get::<*const u32>(len)) {
+            (Ok(ptr), Ok(len)) => slice::from_raw_parts(*ptr, **len as usize),
+            _ => &[],
+        }
+    }
+    Ok(NdaTables {
+        natures: table(lib, b"OSDI_NATURES\0", b"OSDI_NATURES_LEN\0"),
+        disciplines: table(lib, b"OSDI_DISCIPLINES\0", b"OSDI_DISCIPLINES_LEN\0"),
+        attributes: table(lib, b"OSDI_ATTRIBUTES\0", b"OSDI_ATTRIBUTES_LEN\0"),
+    })
 }
 
 unsafe extern "C" fn osdi_log(handle: *mut c_void, msg: *const c_char, lvl: u32) {
@@ -500,6 +543,8 @@ bitflags! {
         const JACOBIAN_ENTRY_REACT = JACOBIAN_ENTRY_REACT;
         const JACOBIAN_ENTRY_RESIST_CONST = JACOBIAN_ENTRY_RESIST_CONST;
         const JACOBIAN_ENTRY_REACT_CONST = JACOBIAN_ENTRY_REACT_CONST;
+        const JACOBIAN_ENTRY_RESIST_OPTIME_CONST = JACOBIAN_ENTRY_RESIST_OPTIME_CONST;
+        const JACOBIAN_ENTRY_REACT_OPTIME_CONST = JACOBIAN_ENTRY_REACT_OPTIME_CONST;
     }
 }
 
@@ -535,6 +580,8 @@ bitflags! {
         const ANALYSIS_IC = ANALYSIS_IC;
         const ANALYSIS_STATIC = ANALYSIS_STATIC;
         const ANALYSIS_NODESET = ANALYSIS_NODESET;
+        const INITIAL_STEP = INITIAL_STEP;
+        const FINAL_STEP = FINAL_STEP;
     }
 }
 

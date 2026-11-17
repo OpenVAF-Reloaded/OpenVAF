@@ -1,0 +1,107 @@
+error: base nature 'NoAttrs' does not set 'units'
+   --> /nature_decl.va:24:1
+   |  
+24 | / nature NoAttrs
+25 | |     abstol = 1;
+26 | | endnature
+   | \---------^ missing 'units'
+   |  
+   = info: a nature without parent must set units, access and abstol
+
+error: base nature 'NoAttrs' does not set 'access'
+   --> /nature_decl.va:24:1
+   |  
+24 | / nature NoAttrs
+25 | |     abstol = 1;
+26 | | endnature
+   | \---------^ missing 'access'
+   |  
+   = info: a nature without parent must set units, access and abstol
+
+error: 'BadOverride' must not set 'units'
+   --> /nature_decl.va:30:5
+   |
+30 |     units = "V";
+   |     ^^^^^^^^^^^^ 'units' is inherited and can't be overridden
+   |
+   = info: only a base nature can set 'units'
+
+error: 'BadOverride' must not set 'access'
+   --> /nature_decl.va:31:5
+   |
+31 |     access = Vbo;
+   |     ^^^^^^^^^^^^^ 'access' is inherited and can't be overridden
+   |
+   = info: only a base nature can set 'access'
+
+error: parent 'Late' of nature 'Early' is declared after 'Early'
+   --> /nature_decl.va:35:1
+   |  
+35 | / nature Early : Late
+36 | | endnature
+   | \---------^ parent declared later
+   |  
+   = help: a parent nature must be declared before the derived nature
+
+error: 'Missing' was not found in the current scope
+   --> /nature_decl.va:45:1
+   |  
+45 | / nature U1 : Missing
+46 | | endnature
+   | \---------^ not found
+
+error: 'nodisc' was not found in the current scope
+   --> /nature_decl.va:48:1
+   |  
+48 | / nature U2 : nodisc.flow
+49 | | endnature
+   | \---------^ not found
+
+error: 'flow' was not found in 'disc'
+   --> /nature_decl.va:51:1
+   |  
+51 | / nature U3 : disc.flow
+52 | | endnature
+   | \---------^ not found
+
+error: parent chain of nature 'CycA' forms a cycle
+   --> /nature_decl.va:55:1
+   |  
+55 | / nature CycA : cyc.flow
+56 | | endnature
+   | \---------^ cyclic parent chain
+
+error: parent chain of nature 'CycB' forms a cycle
+   --> /nature_decl.va:58:1
+   |  
+58 | / nature CycB : CycA
+59 | | endnature
+   | \---------^ cyclic parent chain
+
+error: ddt_nature 'Base2' is not related to 'Base' (ddt_nature of 'Base')
+   --> /nature_decl.va:68:5
+   |
+68 |     ddt_nature = Base2;
+   |     ^^^^^^^^^^^^^^^^^^^ 'Base2' does not share a base nature with 'Base'
+
+error: 'Nope' was not found in the current scope
+   --> /nature_decl.va:73:5
+   |
+73 |     ddt_nature = Nope;
+   |     ^^^^^^^^^^^^^^^^^^ not found
+
+error: 'Nope2' was not found in the current scope
+   --> /nature_decl.va:74:5
+   |
+74 |     idt_nature = Nope2;
+   |     ^^^^^^^^^^^^^^^^^^^ not found
+
+error: 'Vb' was already declared in this scope
+   --> /nature_decl.va:80:5
+   |
+ 3 |     access = Vb;
+   |     ------------ help 'Vb' was first declared here
+   .
+80 |     access = Vb;
+   |     ^^^^^^^^^^^^ already declared in this scope
+

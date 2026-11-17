@@ -92,6 +92,8 @@ pub fn compile<'a>(
     dump_unopt_mir: bool,
     dump_ir: bool,
     dump_unopt_ir: bool,
+    compact: bool,
+    dump_hs: bool,
 ) -> (Vec<Utf8PathBuf>, Vec<CompiledModule<'a>>, Rodeo) {
     initialize_llvm();
     let mut literals = Rodeo::new();
@@ -100,7 +102,15 @@ pub fn compile<'a>(
     let modules: Vec<_> = modules
         .iter()
         .map(|module| {
-            let mir = CompiledModule::new(db, module, &mut literals, dump_unopt_mir, dump_mir);
+            let mir = CompiledModule::new(
+                db,
+                module,
+                &mut literals,
+                dump_unopt_mir,
+                dump_mir,
+                compact,
+                dump_hs,
+            );
             for cb in mir.intern.callbacks.iter() {
                 if let CallBackKind::BuiltinLimit { name, num_args } = *cb {
                     lim_table.ensure(OsdiLimFunction { name, num_args: num_args - 2 });
@@ -364,7 +374,7 @@ pub fn compile<'a>(
         let attributes: Vec<_> =
             attributes_vec.iter().map(|entry| entry.to_ll_val(&cx, &tys)).collect();
         // Export, but only if array has nonzero length
-        if !disciplines.is_empty() {
+        if !attributes.is_empty() {
             let arr =
                 cx.export_array("OSDI_ATTRIBUTES", tys.osdi_attribute, &attributes, true, false);
             // The LLVM type of OsdiAttribute can be less aligned than the C type

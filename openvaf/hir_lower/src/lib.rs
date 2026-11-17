@@ -3,7 +3,7 @@ use std::iter::FilterMap;
 
 use ahash::{AHashMap, AHashSet};
 use bitset::HybridBitSet;
-pub use callbacks::{CallBackKind, NoiseTable, ParamInfoKind, RetFlag};
+pub use callbacks::{CallBackKind, NoiseTable, ParamInfoKind, RandomGen, RetFlag};
 use hir::{
     Branch, BranchWrite, CompilationDB, Module, Node, ParamSysFun, Parameter, Type, Variable,
 };
@@ -84,21 +84,122 @@ impl TryFrom<CurrentKind> for BranchWrite {
     }
 }
 
+/// A value carried from one evaluation to the next
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum HiddenStateKey {
+    Var(Variable),
+    /// Output of the `i`-th `slew()` call site
+    Slew(u32),
+    /// State of the `i`-th `last_crossing()` call site
+    LastCrossing(u32, CrossingSlot),
+    /// Input of the `i`-th `transition()` call site
+    Transition(u32),
+    /// Generator state of the random number generator with site id `i`
+    /// (`$random()`, `$arandom()`, `$arandom(constant)`)
+    Random(u32),
+}
+
+/// Slot of a `transition()` call site written by eval
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TransitionSlot {
+    /// Time at which a new transition begins (`$abstime + td`), cleared by accept
+    /// if no new transition was posted
+    Begin,
+    /// Rise time
+    Rise,
+    /// Fall time
+    Fall,
+    /// Time tolerance
+    TimeTol,
+    /// Value of the input, stored in the pending slot of its hidden state
+    Input,
+}
+
+impl TransitionSlot {
+    /// Slots stored in the instance data of a `transition()` call site
+    /// (the input is hidden state)
+    pub const STORED: [TransitionSlot; 4] = [
+        TransitionSlot::Begin,
+        TransitionSlot::Rise,
+        TransitionSlot::Fall,
+        TransitionSlot::TimeTol,
+    ];
+}
+
+/// Hidden state of a `last_crossing()` call site
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CrossingSlot {
+    /// Time of the last rising crossing (-1 if none)
+    Rising,
+    /// Time of the last falling crossing (-1 if none)
+    Falling,
+    /// Last nonzero value of the input
+    LastNonZero,
+    /// Value of the input
+    Input,
+}
+
+impl HiddenStateKey {
+    pub fn ty(&self, db: &CompilationDB) -> Type {
+        match *self {
+            HiddenStateKey::Var(var) => var.ty(db),
+            HiddenStateKey::Slew(_)
+            | HiddenStateKey::LastCrossing(..)
+            | HiddenStateKey::Transition(_) => Type::Real,
+            HiddenStateKey::Random(_) => Type::Integer,
+        }
+    }
+
+    /// The output holding the value at the end of an evaluation
+    pub fn output(&self) -> PlaceKind {
+        match *self {
+            HiddenStateKey::Var(var) => PlaceKind::Var(var),
+            HiddenStateKey::Slew(i) => PlaceKind::SlewOutput(i),
+            HiddenStateKey::LastCrossing(i, slot) => PlaceKind::LastCrossingOutput(i, slot),
+            HiddenStateKey::Transition(i) => PlaceKind::Transition(i, TransitionSlot::Input),
+            HiddenStateKey::Random(i) => PlaceKind::RandomOutput(i),
+        }
+    }
+
+    /// Value of the accepted slot after initialization if not zero
+    pub fn init_value(&self) -> Option<f64> {
+        match *self {
+            HiddenStateKey::LastCrossing(_, CrossingSlot::Rising | CrossingSlot::Falling) => {
+                Some(-1.0)
+            }
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ParamKind {
     Param(Parameter),
     Abstime,
+    /// Time step of the current transient step, zero outside transient analysis
+    TimeStep,
     EnableIntegration,
     EnableLim,
+    InitialStep,
+    FinalStep,
     PrevState(LimitState),
     NewState(LimitState),
-    Voltage { hi: Node, lo: Option<Node> },
+    Voltage {
+        hi: Node,
+        lo: Option<Node>,
+    },
     Current(CurrentKind),
     Temperature,
-    ParamGiven { param: Parameter },
-    PortConnected { port: Node },
+    ParamGiven {
+        param: Parameter,
+    },
+    PortConnected {
+        port: Node,
+    },
     ParamSysFun(ParamSysFun),
-    HiddenState(Variable),
+    HiddenState(HiddenStateKey),
+    /// Output of the `i`-th `transition()` call site, written by the simulator
+    TransitionOutput(u32),
     ImplicitUnknown(ImplicitEquation),
 }
 
@@ -117,11 +218,15 @@ impl ParamKind {
                 | ParamKind::Current(_)
                 | ParamKind::ImplicitUnknown(_)
                 | ParamKind::Abstime
+                | ParamKind::TimeStep
                 | ParamKind::EnableIntegration
                 | ParamKind::HiddenState(_)
+                | ParamKind::TransitionOutput(_)
                 | ParamKind::PrevState(_)
                 | ParamKind::NewState(_)
                 | ParamKind::EnableLim
+                | ParamKind::InitialStep
+                | ParamKind::FinalStep
         )
     }
 }
@@ -186,12 +291,30 @@ pub enum PlaceKind {
     AbsDelayTime(u32),
     /// Stores the raw (unclamped) value of `tdmax` for absdelay slot `i` into instance data.
     AbsDelayMax(u32),
+    /// Value of a hidden state variable after the analog initial blocks. Only an
+    /// output (never a place), it is stored in the accepted state slot.
+    HiddenStateInit(Variable),
+    /// Output of the `i`-th `slew()` call site, stored in the pending slot of
+    /// its hidden state
+    SlewOutput(u32),
+    /// New state of the `i`-th `last_crossing()` call site, stored in the
+    /// pending slot of its hidden state
+    LastCrossingOutput(u32, CrossingSlot),
+    /// Slot of the `i`-th `transition()` call site written by eval
+    Transition(u32, TransitionSlot),
+    /// New generator state of the random number generator with site id `i`,
+    /// stored in the pending slot of its hidden state
+    RandomOutput(u32),
+    /// Seed of the random number generator with site id `i` given as a constant
+    /// (`$arandom(constant)`). Only an output (never a place), init stores it in
+    /// the accepted state slot.
+    RandomInit(u32),
 }
 
 impl PlaceKind {
     pub fn ty(&self, db: &CompilationDB) -> Type {
         match *self {
-            PlaceKind::Var(var) => var.ty(db),
+            PlaceKind::Var(var) | PlaceKind::HiddenStateInit(var) => var.ty(db),
             PlaceKind::FunctionReturn(fun) => fun.return_ty(db),
             PlaceKind::FunctionArg(arg) => arg.ty(db),
 
@@ -199,16 +322,23 @@ impl PlaceKind {
             | PlaceKind::Contribute { .. }
             | PlaceKind::BoundStep
             | PlaceKind::AbsDelayTime(_)
-            | PlaceKind::AbsDelayMax(_) => Type::Real,
+            | PlaceKind::AbsDelayMax(_)
+            | PlaceKind::SlewOutput(_)
+            | PlaceKind::LastCrossingOutput(..)
+            | PlaceKind::Transition(..) => Type::Real,
             PlaceKind::ParamMin(param) | PlaceKind::ParamMax(param) | PlaceKind::Param(param) => {
                 param.ty(db)
             }
             PlaceKind::IsVoltageSrc(_) | PlaceKind::CollapseImplicitEquation(_) => Type::Bool,
+            PlaceKind::RandomOutput(_) | PlaceKind::RandomInit(_) => Type::Integer,
         }
     }
 
     pub fn is_init_only(&self) -> bool {
-        matches!(self, Self::CollapseImplicitEquation(_))
+        matches!(
+            self,
+            Self::CollapseImplicitEquation(_) | Self::HiddenStateInit(_) | Self::RandomInit(_)
+        )
     }
 }
 
@@ -435,15 +565,27 @@ impl HirInterner {
     }
 }
 
+/// The analog blocks of a module lowered by [`MirBuilder`]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LoweredBlocks {
+    /// analog initial blocks followed by normal analog blocks
+    All,
+    /// only normal analog blocks
+    Analog,
+}
+
 pub struct MirBuilder<'a> {
     db: &'a CompilationDB,
     module: Module,
+    blocks: LoweredBlocks,
     is_output: &'a dyn Fn(PlaceKind) -> bool,
     required_vars: &'a mut dyn Iterator<Item = Variable>,
+    hidden_state: &'a [Variable],
     tagged_reads: AHashSet<Variable>,
     tag_writes: bool,
     ctx: Option<&'a mut FunctionBuilderContext>,
     lower_equations: bool,
+    compact: bool,
 }
 
 impl<'a> MirBuilder<'a> {
@@ -456,12 +598,15 @@ impl<'a> MirBuilder<'a> {
         MirBuilder {
             db,
             module,
+            blocks: LoweredBlocks::All,
+            hidden_state: &[],
             tagged_reads: AHashSet::new(),
             is_output,
             required_vars,
             ctx: None,
             lower_equations: false,
             tag_writes: false,
+            compact: true,
         }
     }
 
@@ -489,6 +634,28 @@ impl<'a> MirBuilder<'a> {
 
     pub fn with_equations(mut self) -> Self {
         self.lower_equations = true;
+        self
+    }
+
+    pub fn with_blocks(mut self, blocks: LoweredBlocks) -> Self {
+        self.blocks = blocks;
+        self
+    }
+
+    /// Variables whose value is carried from one evaluation to the next. In the
+    /// analog initial blocks they start from their initializers. Their values after
+    /// the analog initial blocks are `HiddenStateInit` outputs. In the analog blocks
+    /// they start from their `HiddenState` parameters.
+    pub fn with_hidden_state(mut self, hidden_state: &'a [Variable]) -> Self {
+        self.hidden_state = hidden_state;
+        self
+    }
+
+    /// Compact-model Verilog-A (default): `@(initial_step)` bodies run in every
+    /// evaluation. Otherwise (full Verilog-A event semantics) they run only when the
+    /// `InitialStep` parameter is set (and one of the phases is the current analysis).
+    pub fn with_compact(mut self, compact: bool) -> Self {
+        self.compact = compact;
         self
     }
 
@@ -522,14 +689,40 @@ impl<'a> MirBuilder<'a> {
 
         let mut ctx = LoweringCtx::new(self.db, builder, !self.lower_equations, &mut interner)
             .with_tagged_vars(self.tagged_reads);
+        ctx.compact = self.compact;
         let mut body_ctx =
             BodyLoweringCtx { ctx: &mut ctx, body: analog_initial_body.borrow(), path: &path };
 
         // lower analog initial blocks first
-        body_ctx.lower_entry_stmts();
+        let mut hidden_state_init = Vec::with_capacity(self.hidden_state.len());
+        if self.blocks == LoweredBlocks::All {
+            for &var in self.hidden_state {
+                let val = body_ctx.ctx.lower_expr_body(var.init(self.db).borrow(), 0);
+                body_ctx.ctx.def_place(PlaceKind::Var(var), val);
+            }
+            body_ctx.lower_entry_stmts();
+            for &var in self.hidden_state {
+                let mut val = body_ctx.ctx.use_place(PlaceKind::Var(var));
+                // also for constants: the value must be an instruction that init computes
+                val = body_ctx.ctx.func.ins().optbarrier(val);
+                hidden_state_init.push((PlaceKind::HiddenStateInit(var), val.into()));
+                let state =
+                    body_ctx.ctx.use_param(ParamKind::HiddenState(HiddenStateKey::Var(var)));
+                body_ctx.ctx.def_place(PlaceKind::Var(var), state);
+            }
+        }
         // ... and normal analog blocks afterwards
         body_ctx.body = analog_body.borrow();
         body_ctx.lower_entry_stmts();
+
+        // Seeds of $arandom(constant), lowered at the end so that they are
+        // computed unconditionally (by init, they depend only on parameters)
+        for (i, body, expr) in std::mem::take(&mut ctx.random_seeds) {
+            let mut val = BodyLoweringCtx { ctx: &mut ctx, body: body.borrow(), path: &path }
+                .lower_expr(expr);
+            val = ctx.func.ins().optbarrier(val);
+            hidden_state_init.push((PlaceKind::RandomInit(i), val.into()));
+        }
 
         for var in self.required_vars {
             ctx.dec_place(PlaceKind::Var(var));
@@ -548,6 +741,7 @@ impl<'a> MirBuilder<'a> {
                 }
             })
             .collect();
+        ctx.intern.outputs.extend(hidden_state_init);
         ctx.func.ins().ret();
         ctx.func.finalize();
         (func, interner)

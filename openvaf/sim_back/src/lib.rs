@@ -1,20 +1,27 @@
 use hir::{BranchWrite, CompilationDB, Node};
-use hir_lower::{CurrentKind, HirInterner, ImplicitEquation, ParamKind};
+use hir_lower::{
+    CurrentKind, HiddenStateKey, HirInterner, ImplicitEquation, ParamKind, PlaceKind,
+    TransitionSlot,
+};
 use lasso::Rodeo;
 use mir::Function;
 use mir_opt::{simplify_cfg, sparse_conditional_constant_propagation};
 pub use module_info::{collect_modules, ModuleInfo};
 use stdx::impl_debug_display;
 
+use typed_index_collections::TiVec;
+
 use crate::context::{Context, OptimiziationStage};
-use crate::dae::DaeSystem;
+use crate::dae::{DaeSystem, MatrixEntryId};
 use crate::init::Initialization;
+pub use crate::jacobian_const::JacobianConstness;
 use crate::node_collapse::NodeCollapse;
 use crate::topology::Topology;
 
 mod context;
 pub mod dae;
 pub mod init;
+mod jacobian_const;
 mod module_info;
 pub mod node_collapse;
 mod noise;
@@ -43,12 +50,20 @@ impl_debug_display! {
 pub struct CompiledModule<'a> {
     pub info: &'a ModuleInfo,
     pub dae_system: DaeSystem,
+    /// Constness of the entries in `dae_system.jacobian`
+    pub jacobian_constness: TiVec<MatrixEntryId, JacobianConstness>,
     pub eval: Function,
     pub intern: HirInterner,
     pub init: Initialization,
     pub model_param_setup: Function,
     pub model_param_intern: HirInterner,
     pub node_collapse: NodeCollapse,
+    /// Values that must be kept between evaluations: detected variables and the
+    /// state of `slew()`, `last_crossing()`, and `transition()` call sites (empty
+    /// unless compiled with full Verilog-A semantics)
+    pub hidden_state: Vec<HiddenStateKey>,
+    /// Compiled as a compact model (without full Verilog-A semantics, `-s`)
+    pub compact: bool,
 }
 
 pub fn print_module(
@@ -112,7 +127,7 @@ pub fn print_intern(pfx: &str, db: &CompilationDB, intern: &HirInterner) {
                     println!("{pfx} .. {:?} -> {:?}", n.name(db), val);
                 }
             },
-            ParamKind::HiddenState(var) => {
+            ParamKind::HiddenState(HiddenStateKey::Var(var)) => {
                 println!("{pfx} .. {:?} -> {:?}", var.name(db), val);
             }
             // ParamKind::ImplicitUnknown
@@ -159,9 +174,46 @@ impl<'a> CompiledModule<'a> {
         literals: &mut Rodeo,
         dump_unopt_mir: bool,
         dump_mir: bool,
+        compact: bool,
+        dump_hs: bool,
     ) -> CompiledModule<'a> {
+        // full Verilog-A semantics (hidden state, events) unless compiling a compact model
+        let hidden_vars =
+            if compact { Vec::new() } else { Context::detect_hidden_state(db, literals, module) };
+
         // Build MIR for the module
-        let mut cx = Context::new(db, literals, module);
+        let mut cx = Context::new(db, literals, module, &hidden_vars, compact);
+
+        // slew(), last_crossing(), transition(), and random number generator state
+        // is always hidden state
+        let mut hidden_state: Vec<_> = hidden_vars.into_iter().map(HiddenStateKey::Var).collect();
+        hidden_state.extend(cx.intern.params.raw.keys().filter_map(|kind| match *kind {
+            ParamKind::HiddenState(
+                key @ (HiddenStateKey::Slew(_)
+                | HiddenStateKey::LastCrossing(..)
+                | HiddenStateKey::Random(_)),
+            ) => Some(key),
+            _ => None,
+        }));
+        // eval never reads the accepted input of a transition()
+        hidden_state.extend(cx.intern.outputs.keys().filter_map(|kind| match *kind {
+            PlaceKind::Transition(i, TransitionSlot::Input) => Some(HiddenStateKey::Transition(i)),
+            _ => None,
+        }));
+        if dump_hs {
+            println!("Hidden state of {}", module.module.name(db));
+            for key in &hidden_state {
+                match *key {
+                    HiddenStateKey::Var(var) => println!("  {}", var.name(db)),
+                    HiddenStateKey::Slew(i) => println!("  slew #{i}"),
+                    HiddenStateKey::LastCrossing(i, slot) => {
+                        println!("  last_crossing #{i} {slot:?}")
+                    }
+                    HiddenStateKey::Transition(i) => println!("  transition #{i}"),
+                    HiddenStateKey::Random(i) => println!("  random generator #{i}"),
+                }
+            }
+        }
 
         if dump_unopt_mir {
             println!("Unoptimized MIR (no DAE) of {}", module.module.name(db));
@@ -201,6 +253,9 @@ impl<'a> CompiledModule<'a> {
         let node_collapse = NodeCollapse::new(&init, &dae_system, &cx);
         debug_assert!(cx.func.validate());
         debug_assert!(init.func.validate());
+
+        // Constness of Jacobian entries, computed on the final eval MIR
+        let jacobian_constness = jacobian_const::jacobian_constness(&mut cx, &dae_system);
 
         // TODO: refactor param intilization to use tables
         // Make a list of instance parameters
@@ -248,10 +303,13 @@ impl<'a> CompiledModule<'a> {
             intern: cx.intern,
             info: module,
             dae_system,
+            jacobian_constness,
             init,
             model_param_intern,
             model_param_setup,
             node_collapse,
+            hidden_state,
+            compact,
         }
     }
 }

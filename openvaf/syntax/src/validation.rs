@@ -3,8 +3,8 @@ use tokens::SyntaxKind;
 use tokens::SyntaxKind::NET_TYPE;
 
 use crate::ast::{
-    self, support, ArgListOwner, AttrsOwner, BlockItem, ConstraintValue, Expr, FunctionItem,
-    LiteralKind, ModulePortKind, ModulePorts, Name, PathSegmentKind,
+    self, support, ArgListOwner, BlockItem, ConstraintValue, Expr, FunctionItem, LiteralKind,
+    ModulePortKind, ModulePorts, Name, PathSegmentKind,
 };
 use crate::name::{kw, kw_comp};
 use crate::{match_ast, AstNode, AstPtr, SyntaxError, SyntaxNode, SyntaxNodePtr, T};
@@ -356,13 +356,13 @@ fn validate_branch_decl(decl: ast::BranchDecl, errors: &mut Vec<SyntaxError>) {
 
 fn validate_nature_decl(nature: ast::NatureDecl, errors: &mut Vec<SyntaxError>) {
     if let Some(parent) = nature.parent() {
-        check_nature_path(&parent, errors)
+        check_nature_path(&parent, true, errors)
     }
-    for attr in nature.attrs() {
+    for attr in nature.nature_attrs() {
         if let (Some(name), Some(val)) = (attr.name(), attr.val()) {
             let name_text = name.syntax().text();
             if name_text == "ddt_nature" || name_text == "idt_nature" {
-                check_nature_ref_attr(&val, errors)
+                check_nature_ref_attr(&val, false, errors)
             } else if name_text == "access" && val.as_raw_ident().is_none() {
                 errors.push(SyntaxError::IllegalAttriubte {
                     attr: "access",
@@ -374,23 +374,39 @@ fn validate_nature_decl(nature: ast::NatureDecl, errors: &mut Vec<SyntaxError>) 
     }
 }
 
-fn check_nature_path(path: &ast::Path, errors: &mut Vec<SyntaxError>) {
-    if let Some(segment) = path.segment_token() {
-        match path.qualifiers().count() {
-            0 => (),
-            1 if matches!(segment.text(), "ddt_nature" | "idt_nature") => (),
-            _ => errors.push(SyntaxError::IllegalNatureIdent { range: path.syntax().text_range() }),
+/// A nature reference is a nature identifier. If `slot_allowed` (nature parent) it can also be
+/// `discipline.potential` / `discipline.flow`.
+fn check_nature_path(path: &ast::Path, slot_allowed: bool, errors: &mut Vec<SyntaxError>) {
+    let is_name = |path: &ast::Path| path.segment_kind() == Some(PathSegmentKind::Name);
+    let legal = match path.qualifier() {
+        None => is_name(path),
+        Some(qual) => {
+            slot_allowed
+                && qual.qualifier().is_none()
+                && is_name(&qual)
+                && path
+                    .segment_token()
+                    .map_or(false, |segment| matches!(segment.text(), "potential" | "flow"))
         }
+    };
+    if !legal {
+        errors.push(SyntaxError::IllegalNatureIdent {
+            range: path.syntax().text_range(),
+            slot_allowed,
+        })
     }
 }
 
-fn check_nature_ref_attr(val: &Expr, errors: &mut Vec<SyntaxError>) {
+fn check_nature_ref_attr(val: &Expr, slot_allowed: bool, errors: &mut Vec<SyntaxError>) {
     if let Expr::PathExpr(path) = val {
         if let Some(path) = path.path() {
-            check_nature_path(&path, errors)
+            check_nature_path(&path, slot_allowed, errors)
         }
     } else if val.syntax().children_with_tokens().all(|t| t.kind() != SyntaxKind::ERROR) {
-        errors.push(SyntaxError::IllegalNatureIdent { range: val.syntax().text_range() })
+        errors.push(SyntaxError::IllegalNatureIdent {
+            range: val.syntax().text_range(),
+            slot_allowed,
+        })
     }
 }
 
@@ -436,10 +452,14 @@ fn validate_discipline_decl(discipline: ast::DisciplineDecl, errors: &mut Vec<Sy
             }
 
             if let Some(val) = attr.val() {
+                let segment_text = name
+                    .segment_token()
+                    .map(|segment| segment.text().to_owned())
+                    .unwrap_or_default();
                 match &*name_text {
-                    "potential" | "flow" => check_nature_ref_attr(&val, errors),
-                    "idt_nature" | "ddt_nature" if is_overwrite => {
-                        check_nature_ref_attr(&val, errors)
+                    "potential" | "flow" => check_nature_ref_attr(&val, false, errors),
+                    _ if is_overwrite && matches!(&*segment_text, "idt_nature" | "ddt_nature") => {
+                        check_nature_ref_attr(&val, false, errors)
                     }
 
                     "domain" => {

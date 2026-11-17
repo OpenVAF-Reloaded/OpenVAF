@@ -35,7 +35,14 @@ pub(super) fn nature(p: &mut Parser, m: Marker) {
     p.bump(T![nature]);
     name_r(p, TokenSet::new(&[T![;], T![:]]));
     if p.eat(T![:]) {
-        name_ref_r(p, TokenSet::unique(T![;]));
+        // parent: nature identifier or discipline.potential / discipline.flow
+        // (validated in syntax::validation)
+        if p.at_ts(paths::PATH_SEGMENT_TS) {
+            path(p);
+        } else {
+            let err = p.unexpected_token_msg(IDENT);
+            p.err_recover(err, TokenSet::unique(T![;]).union(NATURE_RECOVERY_SET));
+        }
     }
     p.eat(T![;]);
     while !p.at_ts(NATURE_RECOVERY_SET) {

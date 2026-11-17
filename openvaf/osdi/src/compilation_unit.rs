@@ -3,7 +3,7 @@ use std::ptr::NonNull;
 
 use hir::CompilationDB;
 use hir_lower::fmt::{DisplayKind, FmtArg, FmtArgKind};
-use hir_lower::{CallBackKind, HirInterner, RetFlag};
+use hir_lower::{CallBackKind, HiddenStateKey, HirInterner, RetFlag};
 use lasso::Rodeo;
 use llvm_sys::core::{
     LLVMAddIncoming, LLVMAppendBasicBlockInContext, LLVMBuildAdd, LLVMBuildArrayMalloc,
@@ -15,10 +15,10 @@ use llvm_sys::core::{
 use llvm_sys::{LLVMIntPredicate, LLVMLinkage, LLVMUnnamedAddr, LLVMValue};
 use mir::{FuncRef, Function};
 use mir_llvm::{BuiltCallbackFun, CallbackFun, CodegenCx, LLVMBackend, ModuleLlvm, UNNAMED};
-use sim_back::dae::DaeSystem;
+use sim_back::dae::{DaeSystem, MatrixEntryId};
 use sim_back::init::Initialization;
 use sim_back::node_collapse::NodeCollapse;
-use sim_back::{CompiledModule, ModuleInfo};
+use sim_back::{CompiledModule, JacobianConstness, ModuleInfo};
 use typed_index_collections::TiVec;
 use typed_indexmap::TiSet;
 
@@ -132,6 +132,8 @@ impl<'a, 'b, 'll> OsdiCompilationUnit<'a, 'b, 'll> {
 pub struct OsdiModule<'a> {
     pub info: &'a ModuleInfo,
     pub dae_system: &'a DaeSystem,
+    /// Constness of the entries in `dae_system.jacobian`
+    pub jacobian_constness: &'a TiVec<MatrixEntryId, JacobianConstness>,
     pub eval: &'a Function,
     pub intern: &'a HirInterner,
     pub init: &'a Initialization,
@@ -139,6 +141,10 @@ pub struct OsdiModule<'a> {
     pub model_param_intern: &'a HirInterner,
     pub lim_table: &'a TiSet<OsdiLimId, OsdiLimFunction>,
     pub node_collapse: &'a NodeCollapse,
+    /// Values carried from one evaluation to the next
+    pub hidden_state: &'a [HiddenStateKey],
+    /// Compiled as a compact model (without full Verilog-A semantics, `-s`)
+    pub compact: bool,
     pub sym: String,
 }
 
@@ -152,24 +158,31 @@ impl<'a> OsdiModule<'a> {
         let CompiledModule {
             info,
             dae_system,
+            jacobian_constness,
             eval,
             intern,
             init,
             model_param_setup,
             model_param_intern,
             node_collapse,
+            hidden_state,
+            compact,
+            ..
         } = module;
         OsdiModule {
             sym,
             lim_table,
             info,
             dae_system,
+            jacobian_constness,
             eval,
             intern,
             init,
             model_param_setup,
             model_param_intern,
             node_collapse,
+            hidden_state,
+            compact: *compact,
         }
     }
 }
@@ -247,13 +260,38 @@ pub fn general_callbacks<'ll>(
                 | CallBackKind::CollapseHint(_, _)
                 | CallBackKind::BuiltinLimit { .. }
                 | CallBackKind::StoreLimit(_)
-                | CallBackKind::LimDiscontinuity
+                | CallBackKind::Discontinuity { .. }
                 | CallBackKind::Analysis
                 | CallBackKind::NoiseTable(_)
                 | CallBackKind::WhiteNoise { .. }
                 | CallBackKind::FlickerNoise { .. }
                 | CallBackKind::TimeDerivative => return None,
 
+                CallBackKind::RandomNext { gen, .. } | CallBackKind::RandomValue { gen, .. } => {
+                    // the state is an integer, the arguments and the value are real or
+                    // integer (RandomGen::is_real), next returns the state
+                    let sig = call.signature();
+                    let name = sig.name;
+                    let fun = builder
+                        .cx
+                        .get_func_by_name(&name)
+                        .unwrap_or_else(|| panic!("stdlib function {name} is missing"));
+                    let ty_int = builder.cx.ty_int();
+                    let ty_val = if gen.is_real() { builder.cx.ty_double() } else { ty_int };
+                    let mut params = vec![ty_val; sig.params as usize];
+                    params[0] = ty_int;
+                    let ret = match call {
+                        CallBackKind::RandomValue { .. } => ty_val,
+                        _ => ty_int,
+                    };
+                    let fun_ty = builder.cx.ty_func(&params, ret);
+                    CallbackFun::Prebuilt(BuiltCallbackFun {
+                        fun_ty,
+                        fun,
+                        state: Box::new([]),
+                        num_state: 0,
+                    })
+                }
                 CallBackKind::Print { kind, arg_tys } => {
                     let (fun, fun_ty) = print_callback(builder.cx, *kind, arg_tys);
                     CallbackFun::Prebuilt(BuiltCallbackFun {

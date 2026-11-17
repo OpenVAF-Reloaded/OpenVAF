@@ -1,10 +1,11 @@
 use core::ptr::NonNull;
 use std::iter::once;
 
-use hir::{CompilationDB, ParamSysFun, Type};
+use hir::{CompilationDB, GlobalEvent, ParamSysFun, Type};
 use hir_def::db::HirDefDB;
 use hir_def::ndatable::NDATable;
-use hir_lower::{CurrentKind, ImplicitEquation, ParamKind};
+use hir_def::DisciplineSlot;
+use hir_lower::{CurrentKind, HiddenStateKey, ImplicitEquation, ParamKind};
 use lasso::{Rodeo, Spur};
 use llvm_sys::core::{
     LLVMConstArray2, LLVMConstInt, LLVMConstPtrToInt, LLVMGetArrayLength2, LLVMGetDataLayoutStr,
@@ -16,9 +17,9 @@ use llvm_sys::target::{
     LLVMPointerSize, LLVMTargetDataRef,
 };
 use llvm_sys::LLVMValue;
-use mir::{ValueDef, F_ZERO};
+use mir::F_ZERO;
 use mir_llvm::CodegenCx;
-use sim_back::dae::{MatrixEntry, NoiseSourceKind, ResidualNatureKind};
+use sim_back::dae::{NoiseSourceKind, ResidualNatureKind};
 use sim_back::SimUnknownKind;
 use smol_str::SmolStr;
 use stdx::iter::zip;
@@ -30,10 +31,11 @@ use crate::inst_data::{
 };
 use crate::load::JacobianLoadType;
 use crate::metadata::osdi_0_5::{
-    OsdiAbsDelay, OsdiDescriptor, OsdiJacobianEntry, OsdiJacobianValue, OsdiNatureRef, OsdiNode,
-    OsdiNodePair, OsdiNoiseSource, OsdiParamOpvar, OsdiTys, JACOBIAN_ENTRY_REACT,
-    JACOBIAN_ENTRY_REACT_CONST, JACOBIAN_ENTRY_RESIST, JACOBIAN_ENTRY_RESIST_CONST,
-    MODULEFLAG_ABSTIME, NATREF_DISCIPLINE_FLOW, NATREF_DISCIPLINE_POTENTIAL, NATREF_NONE,
+    OsdiAbsDelay, OsdiDescriptor, OsdiJacobianEntry, OsdiJacobianValue, OsdiNode, OsdiNodePair,
+    OsdiNoiseSource, OsdiParamOpvar, OsdiTransition, OsdiTys, JACOBIAN_ENTRY_REACT,
+    JACOBIAN_ENTRY_REACT_CONST, JACOBIAN_ENTRY_REACT_OPTIME_CONST, JACOBIAN_ENTRY_RESIST,
+    JACOBIAN_ENTRY_RESIST_CONST, JACOBIAN_ENTRY_RESIST_OPTIME_CONST, MODULEFLAG_ABSTIME,
+    MODULEFLAG_COMPACT, MODULEFLAG_FINAL_STEP, MODULEFLAG_HIDDEN_STATE, MODULEFLAG_INITIAL_STEP,
     NOISE_TYPE_FLICKER, NOISE_TYPE_TABLE, NOISE_TYPE_WHITE, PARA_KIND_INST, PARA_KIND_MODEL,
     PARA_KIND_OPVAR, PARA_TY_INT, PARA_TY_REAL, PARA_TY_STR,
 };
@@ -301,21 +303,6 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             .collect()
     }
 
-    fn is_const(&self, entry: &MatrixEntry, reactive: bool) -> bool {
-        let entry = if reactive { entry.react } else { entry.resist };
-        match self.module.eval.dfg.value_def(entry) {
-            ValueDef::Result(_, _) => false,
-            ValueDef::Param(param) => self
-                .module
-                .intern
-                .params
-                .get_index(param)
-                .map_or(true, |(kind, _)| !kind.op_dependent()),
-            ValueDef::Const(_) => true,
-            ValueDef::Invalid => unreachable!(),
-        }
-    }
-
     pub fn jacobian_entries(&self, target_data: &LLVMTargetDataRef) -> Vec<OsdiJacobianEntry> {
         let OsdiCompilationUnit { inst_data, module, .. } = self;
         let mut jacobian_ptr_react_offset = unsafe {
@@ -332,16 +319,25 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             .dae_system
             .jacobian
             .iter()
-            .map(|entry| {
+            .zip(module.jacobian_constness.iter())
+            .map(|(entry, constness)| {
                 let mut flags = 0;
                 let mut react_ptr_off = u32::MAX;
 
-                if self.is_const(entry, false) {
+                if constness.resist_const {
                     flags |= JACOBIAN_ENTRY_RESIST_CONST
                 }
 
-                if self.is_const(entry, true) {
+                if constness.react_const {
                     flags |= JACOBIAN_ENTRY_REACT_CONST
+                }
+
+                if constness.resist_optime_const {
+                    flags |= JACOBIAN_ENTRY_RESIST_OPTIME_CONST
+                }
+
+                if constness.react_optime_const {
+                    flags |= JACOBIAN_ENTRY_REACT_OPTIME_CONST
                 }
 
                 if entry.resist != F_ZERO {
@@ -457,10 +453,33 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
             .collect()
     }
 
-    pub fn unknown_residual_natures(
-        &self,
-        db: &CompilationDB,
-    ) -> (Vec<OsdiNatureRef>, Vec<OsdiNatureRef>) {
+    pub fn transitions(&self, target_data: &LLVMTargetDataRef) -> Vec<OsdiTransition> {
+        let inst_data = &self.inst_data;
+        (0..inst_data.num_transitions)
+            .map(|i| {
+                let [tbegin_offset, tr_offset, tf_offset, time_tol_offset, output_offset] =
+                    inst_data.transition_offsets(i, target_data);
+                let input = |pending| {
+                    inst_data.hidden_state_offset(
+                        HiddenStateKey::Transition(i),
+                        pending,
+                        target_data,
+                    )
+                };
+                OsdiTransition {
+                    tbegin_offset,
+                    tr_offset,
+                    tf_offset,
+                    time_tol_offset,
+                    input_pending_offset: input(true),
+                    input_accepted_offset: input(false),
+                    output_offset,
+                }
+            })
+            .collect()
+    }
+
+    pub fn unknown_residual_natures(&self, db: &CompilationDB) -> (Vec<u32>, Vec<u32>) {
         let mut uvec = Vec::new();
         let mut rvec = Vec::new();
         for (idx, &unknown) in self.module.dae_system.unknowns.iter_enumerated() {
@@ -539,6 +558,18 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                     module_flags |= MODULEFLAG_ABSTIME;
                 }
             });
+            // set even without full Verilog-A event semantics (bodies run in every
+            // evaluation), the simulator may still want to signal the steps
+            module.info.module.analog_block(db).global_events().for_each(|event| match event {
+                GlobalEvent::InitialStep => module_flags |= MODULEFLAG_INITIAL_STEP,
+                GlobalEvent::FinalStep => module_flags |= MODULEFLAG_FINAL_STEP,
+            });
+            if !module.hidden_state.is_empty() {
+                module_flags |= MODULEFLAG_HIDDEN_STATE;
+            }
+            if module.compact {
+                module_flags |= MODULEFLAG_COMPACT;
+            }
 
             OsdiDescriptor {
                 name: module.info.module.name(db),
@@ -600,6 +631,10 @@ impl<'ll> OsdiCompilationUnit<'_, '_, 'll> {
                 absdelay_count: module.intern.absdelay_equations.len() as u32,
                 absdelays: self.absdelays(target_data),
                 jacobian_values: self.jacobian_values(target_data),
+                accept: self.accept(),
+                transition_count: self.inst_data.num_transitions,
+                transitions: self.transitions(target_data),
+                discontinuity_offset: self.inst_data.discontinuity_offset(target_data),
             }
         }
     }
@@ -622,12 +657,13 @@ fn sim_unknown_info(
     unknown: SimUnknownKind,
     residual_nature_kind: ResidualNatureKind,
     db: &CompilationDB,
-) -> (String, String, String, bool, OsdiNatureRef, OsdiNatureRef) {
+) -> (String, String, String, bool, u32, u32) {
     let name;
     let discipline;
     let is_flow;
-    let mut unknown_nature = OsdiNatureRef { ref_type: NATREF_NONE, index: u32::MAX };
-    let mut residual_nature = OsdiNatureRef { ref_type: NATREF_NONE, index: u32::MAX };
+    // natures table indices, u32::MAX if no nature
+    let mut unknown_nature = u32::MAX;
+    let mut residual_nature = u32::MAX;
 
     match unknown {
         SimUnknownKind::KirchoffLaw(node) => {
@@ -642,7 +678,13 @@ fn sim_unknown_info(
             } else {
                 format!("flow({})", &hi.name(db))
             };
-            discipline = Some(hi.discipline(db));
+            // natureless disciplines are skipped for access functions: use the discipline that
+            // has a flow nature
+            let hi_discipline = hi.discipline(db);
+            discipline = match lo {
+                Some(lo) if hi_discipline.flow(db).is_none() => Some(lo.discipline(db)),
+                _ => Some(hi_discipline),
+            };
             is_flow = true;
         }
         SimUnknownKind::Current(CurrentKind::Branch(br)) => {
@@ -670,17 +712,17 @@ fn sim_unknown_info(
     let mut units = String::default();
     let mut residual_units = String::default();
     if let Some(discipline) = discipline {
-        // Discipline index
-        let ndx = nda_table.discipline_name_map.get(&discipline.name(db)).unwrap().into_raw();
+        let discipline_name = discipline.name(db);
+        // the hidden nature d.potential / d.flow of a discipline slot
+        let hidden_nature =
+            |slot| nda_table.hidden_nature_by_name(&discipline_name, slot).unwrap_or(u32::MAX);
 
         // Unknown
         let nature = if is_flow {
-            unknown_nature.ref_type = NATREF_DISCIPLINE_FLOW;
-            unknown_nature.index = ndx;
+            unknown_nature = hidden_nature(DisciplineSlot::Flow);
             discipline.flow(db)
         } else {
-            unknown_nature.ref_type = NATREF_DISCIPLINE_POTENTIAL;
-            unknown_nature.index = ndx;
+            unknown_nature = hidden_nature(DisciplineSlot::Potential);
             discipline.potential(db)
         };
         if let Some(nature) = nature {
@@ -689,13 +731,11 @@ fn sim_unknown_info(
         // Residual
         let nature = match residual_nature_kind {
             ResidualNatureKind::Flow => {
-                residual_nature.ref_type = NATREF_DISCIPLINE_FLOW;
-                residual_nature.index = ndx;
+                residual_nature = hidden_nature(DisciplineSlot::Flow);
                 discipline.flow(db)
             }
             ResidualNatureKind::Potential => {
-                residual_nature.ref_type = NATREF_DISCIPLINE_POTENTIAL;
-                residual_nature.index = ndx;
+                residual_nature = hidden_nature(DisciplineSlot::Potential);
                 discipline.potential(db)
             }
             _ => None,

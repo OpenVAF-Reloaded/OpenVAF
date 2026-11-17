@@ -1,0 +1,84 @@
+error: illegal nature identifier
+   --> /nature_refs.va:21:15
+   |
+21 | nature Bad1 : a.b.potential
+   |               ^^^^^^^^^^^^^ illegal nature identifier
+   |
+   = help: expected one of the following
+   = a nature identifier: Voltage
+   = a discipline identifier followed by potential or flow: electrical.potential
+
+error: illegal nature identifier
+   --> /nature_refs.va:24:15
+   |
+24 | nature Bad2 : disc.abstol
+   |               ^^^^^^^^^^^ illegal nature identifier
+   |
+   = help: expected one of the following
+   = a nature identifier: Voltage
+   = a discipline identifier followed by potential or flow: electrical.potential
+
+error: illegal nature identifier
+   --> /nature_refs.va:29:18
+   |
+29 |     ddt_nature = disc.potential;
+   |                  ^^^^^^^^^^^^^^ illegal nature identifier
+   |
+   = help: expected a nature identifier: Voltage
+
+error: illegal nature identifier
+   --> /nature_refs.va:30:18
+   |
+30 |     idt_nature = disc.flow;
+   |                  ^^^^^^^^^ illegal nature identifier
+   |
+   = help: expected a nature identifier: Voltage
+
+error: illegal nature identifier
+   --> /nature_refs.va:34:18
+   |
+34 |     ddt_nature = 5;
+   |                  ^ illegal nature identifier
+   |
+   = help: expected a nature identifier: Voltage
+
+error: illegal nature identifier
+   --> /nature_refs.va:35:18
+   |
+35 |     idt_nature = "Base";
+   |                  ^^^^^^ illegal nature identifier
+   |
+   = help: expected a nature identifier: Voltage
+
+error: illegal nature identifier
+   --> /nature_refs.va:42:23
+   |
+42 |     flow.idt_nature = disc.flow;
+   |                       ^^^^^^^^^ illegal nature identifier
+   |
+   = help: expected a nature identifier: Voltage
+
+error: illegal nature identifier
+   --> /nature_refs.va:43:23
+   |
+43 |     flow.ddt_nature = 1.0;
+   |                       ^^^ illegal nature identifier
+   |
+   = help: expected a nature identifier: Voltage
+
+error: illegal nature identifier
+   --> /nature_refs.va:47:15
+   |
+47 |     potential disc.potential;
+   |               ^^^^^^^^^^^^^^ illegal nature identifier
+   |
+   = help: expected a nature identifier: Voltage
+
+error: illegal nature identifier
+   --> /nature_refs.va:48:10
+   |
+48 |     flow 5;
+   |          ^ illegal nature identifier
+   |
+   = help: expected a nature identifier: Voltage
+

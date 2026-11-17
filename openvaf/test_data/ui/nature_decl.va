@@ -1,0 +1,89 @@
+nature Base
+    units = "V";
+    access = Vb;
+    abstol = 1e-6;
+endnature
+
+nature Base2
+    units = "A";
+    access = Ib;
+    abstol = 1e-12;
+    ddt_nature = Base2;
+endnature
+
+// legal: derived nature, ddt_nature declared later, parent through a discipline slot
+nature Derived : Base
+    abstol = 1e-3;
+    ddt_nature = LaterDerived;
+endnature
+
+nature FromSlot : disc.potential
+endnature
+
+// base nature without units / access
+nature NoAttrs
+    abstol = 1;
+endnature
+
+// derived nature overriding units and access
+nature BadOverride : Base
+    units = "V";
+    access = Vbo;
+endnature
+
+// parent declared after the nature
+nature Early : Late
+endnature
+
+nature Late
+    units = "s";
+    access = Tl;
+    abstol = 1;
+endnature
+
+// unresolved parents
+nature U1 : Missing
+endnature
+
+nature U2 : nodisc.flow
+endnature
+
+nature U3 : disc.flow
+endnature
+
+// cycle through a discipline slot: CycA -> cyc.flow -> CycB -> CycA
+nature CycA : cyc.flow
+endnature
+
+nature CycB : CycA
+endnature
+
+discipline cyc
+    potential Base;
+    flow CycB;
+enddiscipline
+
+// ddt_nature override not related to the parent's ddt_nature (Base itself)
+nature BadDdt : Base
+    ddt_nature = Base2;
+endnature
+
+// unresolved ddt_nature / idt_nature
+nature BadRef : Base
+    ddt_nature = Nope;
+    idt_nature = Nope2;
+endnature
+
+// duplicate access function
+nature DupAccess
+    units = "W";
+    access = Vb;
+    abstol = 1;
+endnature
+
+nature LaterDerived : Base
+endnature
+
+discipline disc
+    potential Base;
+enddiscipline

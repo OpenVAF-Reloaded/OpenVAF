@@ -14,7 +14,9 @@ impl std::fmt::Display for Whitespace {
     }
 }
 impl AstToken for Whitespace {
-    fn can_cast(kind: SyntaxKind) -> bool { kind == WHITESPACE }
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == WHITESPACE
+    }
     fn cast(syntax: SyntaxToken) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
             Some(Self { syntax })
@@ -22,7 +24,9 @@ impl AstToken for Whitespace {
             None
         }
     }
-    fn syntax(&self) -> &SyntaxToken { &self.syntax }
+    fn syntax(&self) -> &SyntaxToken {
+        &self.syntax
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -35,7 +39,9 @@ impl std::fmt::Display for Comment {
     }
 }
 impl AstToken for Comment {
-    fn can_cast(kind: SyntaxKind) -> bool { kind == COMMENT }
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == COMMENT
+    }
     fn cast(syntax: SyntaxToken) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
             Some(Self { syntax })
@@ -43,7 +49,9 @@ impl AstToken for Comment {
             None
         }
     }
-    fn syntax(&self) -> &SyntaxToken { &self.syntax }
+    fn syntax(&self) -> &SyntaxToken {
+        &self.syntax
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -56,7 +64,9 @@ impl std::fmt::Display for StrLit {
     }
 }
 impl AstToken for StrLit {
-    fn can_cast(kind: SyntaxKind) -> bool { kind == STR_LIT }
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == STR_LIT
+    }
     fn cast(syntax: SyntaxToken) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
             Some(Self { syntax })
@@ -64,7 +74,9 @@ impl AstToken for StrLit {
             None
         }
     }
-    fn syntax(&self) -> &SyntaxToken { &self.syntax }
+    fn syntax(&self) -> &SyntaxToken {
+        &self.syntax
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -77,7 +89,9 @@ impl std::fmt::Display for IntNumber {
     }
 }
 impl AstToken for IntNumber {
-    fn can_cast(kind: SyntaxKind) -> bool { kind == INT_NUMBER }
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == INT_NUMBER
+    }
     fn cast(syntax: SyntaxToken) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
             Some(Self { syntax })
@@ -85,7 +99,9 @@ impl AstToken for IntNumber {
             None
         }
     }
-    fn syntax(&self) -> &SyntaxToken { &self.syntax }
+    fn syntax(&self) -> &SyntaxToken {
+        &self.syntax
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -98,7 +114,9 @@ impl std::fmt::Display for StdRealNumber {
     }
 }
 impl AstToken for StdRealNumber {
-    fn can_cast(kind: SyntaxKind) -> bool { kind == STD_REAL_NUMBER }
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == STD_REAL_NUMBER
+    }
     fn cast(syntax: SyntaxToken) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
             Some(Self { syntax })
@@ -106,7 +124,9 @@ impl AstToken for StdRealNumber {
             None
         }
     }
-    fn syntax(&self) -> &SyntaxToken { &self.syntax }
+    fn syntax(&self) -> &SyntaxToken {
+        &self.syntax
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -119,7 +139,9 @@ impl std::fmt::Display for SiRealNumber {
     }
 }
 impl AstToken for SiRealNumber {
-    fn can_cast(kind: SyntaxKind) -> bool { kind == SI_REAL_NUMBER }
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SI_REAL_NUMBER
+    }
     fn cast(syntax: SyntaxToken) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
             Some(Self { syntax })
@@ -127,7 +149,9 @@ impl AstToken for SiRealNumber {
             None
         }
     }
-    fn syntax(&self) -> &SyntaxToken { &self.syntax }
+    fn syntax(&self) -> &SyntaxToken {
+        &self.syntax
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -140,7 +164,9 @@ impl std::fmt::Display for NetType {
     }
 }
 impl AstToken for NetType {
-    fn can_cast(kind: SyntaxKind) -> bool { kind == NET_TYPE }
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == NET_TYPE
+    }
     fn cast(syntax: SyntaxToken) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
             Some(Self { syntax })
@@ -148,7 +174,9 @@ impl AstToken for NetType {
             None
         }
     }
-    fn syntax(&self) -> &SyntaxToken { &self.syntax }
+    fn syntax(&self) -> &SyntaxToken {
+        &self.syntax
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -161,7 +189,9 @@ impl std::fmt::Display for Sysfun {
     }
 }
 impl AstToken for Sysfun {
-    fn can_cast(kind: SyntaxKind) -> bool { kind == SYSFUN }
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SYSFUN
+    }
     fn cast(syntax: SyntaxToken) -> Option<Self> {
         if Self::can_cast(syntax.kind()) {
             Some(Self { syntax })
@@ -169,5 +199,7 @@ impl AstToken for Sysfun {
             None
         }
     }
-    fn syntax(&self) -> &SyntaxToken { &self.syntax }
+    fn syntax(&self) -> &SyntaxToken {
+        &self.syntax
+    }
 }

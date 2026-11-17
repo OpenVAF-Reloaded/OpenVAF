@@ -66,6 +66,8 @@ pub enum SyntaxError {
 
     IllegalNatureIdent {
         range: TextRange,
+        /// `discipline.potential` / `discipline.flow` would be allowed here (nature parent)
+        slot_allowed: bool,
     },
     IllegalAttriubte {
         range: TextRange,

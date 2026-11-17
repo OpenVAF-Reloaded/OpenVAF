@@ -1,16 +1,23 @@
+use ahash::{AHashMap, AHashSet};
 use bitset::{BitSet, SparseBitMatrix};
-use hir::CompilationDB;
-use hir_lower::{HirInterner, MirBuilder, PlaceKind};
+use hir::{CompilationDB, Variable};
+use hir_lower::{HiddenStateKey, HirInterner, LoweredBlocks, MirBuilder, ParamKind, PlaceKind};
 use lasso::Rodeo;
-use mir::{Block, ControlFlowGraph, DominatorTree, Function, Inst, InstructionData, Value};
+use mir::{
+    strip_optbarrier, Block, ControlFlowGraph, DominatorTree, Function, Inst, InstructionData,
+    Value,
+};
 use mir_opt::{
-    aggressive_dead_code_elimination, dead_code_elimination, inst_combine, propagate_direct_taint,
-    propagate_taint, simplify_cfg, simplify_cfg_no_phi_merge,
-    sparse_conditional_constant_propagation, GVN,
+    aggressive_dead_code_elimination, aggressive_dead_code_elimination_with_param_edges,
+    dead_code_elimination, inst_combine, propagate_direct_taint, propagate_taint, simplify_cfg,
+    simplify_cfg_no_phi_merge, sparse_conditional_constant_propagation, GVN,
 };
 use stdx::packed_option::PackedOption;
 
 use crate::ModuleInfo;
+
+#[cfg(test)]
+mod tests;
 
 pub(crate) struct Context<'a> {
     pub(crate) func: Function,
@@ -22,6 +29,10 @@ pub(crate) struct Context<'a> {
     pub(crate) output_values: BitSet<Value>,
     pub(crate) op_dependent_insts: BitSet<Inst>,
     pub(crate) op_dependent_vals: Vec<Value>,
+    /// Variables whose value is carried from one evaluation to the next.
+    /// Their `HiddenState` parameter is the value from the previous evaluation
+    /// and their final value is an output.
+    pub(crate) hidden_state: AHashSet<Variable>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -32,7 +43,14 @@ pub enum OptimiziationStage {
 }
 
 impl<'a> Context<'a> {
-    pub fn new(db: &'a CompilationDB, literals: &mut Rodeo, module: &'a ModuleInfo) -> Self {
+    pub fn new(
+        db: &'a CompilationDB,
+        literals: &mut Rodeo,
+        module: &'a ModuleInfo,
+        hidden_state_vars: &[Variable],
+        compact: bool,
+    ) -> Self {
+        let hidden_state: AHashSet<Variable> = hidden_state_vars.iter().copied().collect();
         let (mut func, mut intern) = MirBuilder::new(
             db,
             module.module,
@@ -43,19 +61,30 @@ impl<'a> Context<'a> {
                 | PlaceKind::IsVoltageSrc(_)
                 | PlaceKind::BoundStep
                 | PlaceKind::AbsDelayTime(_)
-                | PlaceKind::AbsDelayMax(_) => true,
-                PlaceKind::Var(var) => module.op_vars.contains_key(&var),
+                | PlaceKind::AbsDelayMax(_)
+                | PlaceKind::SlewOutput(_)
+                | PlaceKind::LastCrossingOutput(..)
+                | PlaceKind::Transition(..)
+                | PlaceKind::RandomOutput(_) => true,
+                PlaceKind::Var(var) => {
+                    module.op_vars.contains_key(&var) || hidden_state.contains(&var)
+                }
                 _ => false,
             },
-            &mut module.op_vars.keys().copied(),
+            &mut module.op_vars.keys().copied().chain(hidden_state.iter().copied()),
         )
         .with_equations()
         .with_tagged_writes()
+        .with_hidden_state(hidden_state_vars)
+        .with_compact(compact)
         .build(literals);
-        // TODO hidden state
-        intern.insert_var_init(db, &mut func, literals);
+        // The HiddenState parameters of hidden state variables are kept. They are
+        // read from the accepted state slot. Their initializers are lowered by the
+        // MirBuilder before the analog initial blocks.
+        intern.insert_var_init(db, &mut func, literals, |var| !hidden_state.contains(&var));
 
         Context {
+            hidden_state,
             output_values: BitSet::new_empty(func.dfg.num_values()),
             func,
             cfg: ControlFlowGraph::new(),
@@ -66,6 +95,157 @@ impl<'a> Context<'a> {
             op_dependent_insts: BitSet::new_empty(0),
             op_dependent_vals: Vec::new(),
         }
+    }
+
+    /// Find variables whose value must be carried from one evaluation to the next.
+    ///
+    /// Performs a mock build of the analog blocks of the module in which the final
+    /// value of every variable is an output. The analog initial blocks are not part
+    /// of an evaluation. They run once during initialization. A variable is hidden
+    /// state if
+    /// - it is not constant, i.e. its final value can differ from its initial value, and
+    /// - its `HiddenState` parameter still reaches a real output or a side effect
+    ///   (the value from the previous evaluation is observable). The value may also
+    ///   be observed indirectly in a later evaluation: once the `HiddenState`
+    ///   parameter of a modified variable is live, its final value is live, too.
+    ///
+    /// The constant variables are found optimistically. Initially all variables are
+    /// assumed to be constant and their `HiddenState` parameters are replaced by their
+    /// initial values, i.e. the values after the initializers and the analog initial
+    /// blocks. After optimization the variables whose final value is not their initial
+    /// value are no longer considered constant. This is repeated until the set of
+    /// constant variables does not change. If all variables in the set hold their
+    /// initial value on entry, they also hold it on exit, so by induction they hold it
+    /// in every evaluation.
+    ///
+    /// Output variables (op vars) are never hidden state. They start from their
+    /// initializer in every evaluation, so they stay in the set of constant variables.
+    pub fn detect_hidden_state(
+        db: &CompilationDB,
+        literals: &mut Rodeo,
+        module: &ModuleInfo,
+    ) -> Vec<Variable> {
+        let is_real_output = |kind: PlaceKind| match kind {
+            PlaceKind::Contribute { .. }
+            | PlaceKind::ImplicitResidual { .. }
+            | PlaceKind::CollapseImplicitEquation(_)
+            | PlaceKind::IsVoltageSrc(_)
+            | PlaceKind::BoundStep
+            | PlaceKind::AbsDelayTime(_)
+            | PlaceKind::AbsDelayMax(_) => true,
+            PlaceKind::Var(var) => module.op_vars.contains_key(&var),
+            _ => false,
+        };
+        let (probe, probe_intern) = MirBuilder::new(
+            db,
+            module.module,
+            &|kind| is_real_output(kind) || matches!(kind, PlaceKind::Var(_)),
+            &mut module.op_vars.keys().copied(),
+        )
+        .with_equations()
+        .with_blocks(LoweredBlocks::Analog)
+        .with_compact(false)
+        .build(literals);
+
+        let mut constant: AHashSet<Variable> = probe_intern
+            .params
+            .iter()
+            .filter_map(|(kind, _)| match *kind {
+                ParamKind::HiddenState(HiddenStateKey::Var(var)) => Some(var),
+                _ => None,
+            })
+            .collect();
+
+        let (mut func, intern, mut cfg, dom_tree, mut output_values) = loop {
+            let mut func = probe.clone();
+            let mut intern = probe_intern.clone();
+            // Optimization replaces values. To find the optimized initial values
+            // they are passed through optbarriers that are kept alive.
+            let init = intern.insert_init_state(db, &mut func, literals, module.module, |var| {
+                constant.contains(&var)
+            });
+
+            // Simplify with the final and the initial values of all variables kept alive
+            let mut output_values = BitSet::new_empty(func.dfg.num_values() + 1);
+            output_values.extend(intern.outputs.values().copied().filter_map(PackedOption::expand));
+            output_values.extend(init.values().copied());
+            let mut cfg = ControlFlowGraph::new();
+            cfg.compute(&func);
+            dead_code_elimination(&mut func, &output_values);
+            sparse_conditional_constant_propagation(&mut func, &cfg);
+            inst_combine(&mut func);
+            simplify_cfg(&mut func, &mut cfg);
+            let mut dom_tree = DominatorTree::default();
+            dom_tree.compute(&func, &cfg, true, true, false);
+            let mut gvn = GVN::default();
+            gvn.init(&func, &dom_tree, intern.params.len() as u32);
+            gvn.solve(&mut func);
+            gvn.remove_unnecessary_insts(&mut func, &dom_tree);
+
+            // Variables whose final value differs from their initial value are not constant.
+            // Output variables always start from their initializer and stay constant.
+            let mut changed = false;
+            for (var, init_val) in init {
+                if module.op_vars.contains_key(&var) {
+                    continue;
+                }
+                let Some(out) = intern.outputs.get(&PlaceKind::Var(var)).and_then(|v| v.expand())
+                else {
+                    continue;
+                };
+                if strip_optbarrier(&func, out) != strip_optbarrier(&func, init_val) {
+                    constant.remove(&var);
+                    changed = true;
+                }
+            }
+            if !changed {
+                break (func, intern, cfg, dom_tree, output_values);
+            }
+        };
+
+        // Variables that are not constant and whose final value differs from their
+        // value on entry, with their HiddenState parameter and their final value (output)
+        let modified: Vec<_> = intern
+            .params
+            .iter()
+            .filter_map(|(kind, &param)| {
+                let ParamKind::HiddenState(HiddenStateKey::Var(var)) = *kind else { return None };
+                if constant.contains(&var) {
+                    return None;
+                }
+                let out = intern.outputs.get(&PlaceKind::Var(var))?.expand()?;
+                (strip_optbarrier(&func, out) != param).then_some((var, param, out))
+            })
+            .collect();
+
+        // The final value of a modified variable is the value of its
+        // HiddenState parameter in the next evaluation
+        let next_eval: AHashMap<Value, Value> =
+            modified.iter().map(|&(_, param, out)| (param, out)).collect();
+
+        // Keep only the real outputs and side effects alive
+        output_values.clear();
+        for (&kind, val) in intern.outputs.iter() {
+            if is_real_output(kind) {
+                if let Some(val) = val.expand() {
+                    output_values.insert(val);
+                }
+            }
+        }
+        let mut control_dep = SparseBitMatrix::new_square(0);
+        dom_tree.compute_postdom_frontiers(&cfg, &mut control_dep);
+        aggressive_dead_code_elimination_with_param_edges(
+            &mut func,
+            &mut cfg,
+            &|val, _| output_values.contains(val),
+            &|param| next_eval.get(&param).copied(),
+            &control_dep,
+        );
+
+        modified
+            .into_iter()
+            .filter_map(|(var, param, _)| (!func.dfg.value_dead(param)).then_some(var))
+            .collect()
     }
 
     pub fn optimize(&mut self, stage: OptimiziationStage) -> GVN {
@@ -117,13 +297,20 @@ impl<'a> Context<'a> {
                 .extend(self.intern.outputs.values().copied().filter_map(PackedOption::expand));
         } else {
             for (kind, val) in self.intern.outputs.iter() {
-                if matches!(kind, PlaceKind::Var(var) if self.module.op_vars.contains_key(var))
+                if matches!(kind, PlaceKind::Var(var) if self.module.op_vars.contains_key(var)
+                    || self.hidden_state.contains(var))
                     || matches!(
                         kind,
                         PlaceKind::CollapseImplicitEquation(_)
                             | PlaceKind::BoundStep
                             | PlaceKind::AbsDelayTime(_)
                             | PlaceKind::AbsDelayMax(_)
+                            | PlaceKind::HiddenStateInit(_)
+                            | PlaceKind::SlewOutput(_)
+                            | PlaceKind::LastCrossingOutput(..)
+                            | PlaceKind::Transition(..)
+                            | PlaceKind::RandomOutput(_)
+                            | PlaceKind::RandomInit(_)
                     )
                 {
                     self.output_values.insert(val.unwrap_unchecked());

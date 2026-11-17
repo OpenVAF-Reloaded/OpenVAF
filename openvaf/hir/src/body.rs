@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use hir_def::db::HirDefDB;
-pub use hir_def::expr::Event;
+pub use hir_def::expr::{Event, GlobalEvent};
 use hir_def::DefWithBodyId;
 pub use hir_def::{/*expr::CaseCond,*/ BuiltIn, Case, ExprId, Literal, ParamSysFun, StmtId, Type,};
 use hir_ty::db::HirTyDB;
@@ -27,15 +27,28 @@ impl Body {
     pub fn borrow(&self) -> BodyRef<'_> {
         BodyRef { body: &self.body, infere: &self.infere }
     }
+
+    /// Kinds of all global events (`@(initial_step)`, `@(final_step)`) in this body
+    pub fn global_events(&self) -> impl Iterator<Item = GlobalEvent> + '_ {
+        self.body.stmts.iter().filter_map(|stmt| match stmt {
+            hir_def::Stmt::EventControl { event: Event::Global { kind, .. }, .. } => Some(*kind),
+            _ => None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct BodyRef<'a> {
-    body: &'a hir_def::body::Body,
-    infere: &'a inference::InferenceResult,
+    body: &'a Arc<hir_def::body::Body>,
+    infere: &'a Arc<inference::InferenceResult>,
 }
 
 impl<'a> BodyRef<'a> {
+    /// The body this reference points to
+    pub fn to_body(&self) -> Body {
+        Body { body: self.body.clone(), infere: self.infere.clone() }
+    }
+
     pub fn entry(&self) -> &'a [StmtId] {
         &self.body.entry_stmts
     }

@@ -1,0 +1,49 @@
+nature Base
+    units = "V";
+    access = Vb;
+    abstol = 1e-6;
+    ddt_nature = Base;
+endnature
+
+// legal references
+nature Derived1 : Base
+    ddt_nature = Base;
+    idt_nature = Later;
+endnature
+
+nature Derived2 : disc.potential;
+endnature
+
+nature Derived3 : disc.flow
+endnature
+
+// illegal parents
+nature Bad1 : a.b.potential
+endnature
+
+nature Bad2 : disc.abstol
+endnature
+
+// illegal ddt_nature / idt_nature values
+nature Bad3 : Base
+    ddt_nature = disc.potential;
+    idt_nature = disc.flow;
+endnature
+
+nature Bad4 : Base
+    ddt_nature = 5;
+    idt_nature = "Base";
+endnature
+
+discipline disc
+    potential Base;
+    flow Base;
+    potential.ddt_nature = Base;
+    flow.idt_nature = disc.flow;
+    flow.ddt_nature = 1.0;
+enddiscipline
+
+discipline disc2
+    potential disc.potential;
+    flow 5;
+enddiscipline

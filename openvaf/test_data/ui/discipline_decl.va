@@ -1,0 +1,67 @@
+nature Volt
+    units = "V";
+    access = V;
+    abstol = 1e-6;
+endnature
+
+nature VoltD : Volt
+endnature
+
+nature Charge
+    units = "C";
+    access = Q;
+    abstol = 1e-14;
+endnature
+
+nature ChargeD : Charge
+endnature
+
+nature Amp
+    units = "A";
+    access = I;
+    abstol = 1e-12;
+    idt_nature = Charge;
+endnature
+
+// legal overrides (idt_nature related to Charge)
+discipline good
+    potential Volt;
+    flow Amp;
+    potential.abstol = 1e-3;
+    flow.idt_nature = ChargeD;
+    flow.user_attr = 5;
+    user_attr = "x";
+enddiscipline
+
+// units / access overrides
+discipline bad_override
+    potential Volt;
+    potential.units = "mV";
+    potential.access = Vx;
+enddiscipline
+
+// same access function for potential and flow
+discipline same_access
+    potential Volt;
+    flow VoltD;
+enddiscipline
+
+// discrete domain with natures
+discipline discrete_natures
+    domain discrete;
+    potential Volt;
+enddiscipline
+
+// unresolved bound nature
+discipline unresolved
+    potential Nope;
+enddiscipline
+
+// ddt_nature / idt_nature override not related to the bound nature's value
+discipline bad_dt
+    potential Volt;
+    flow Amp;
+    potential.ddt_nature = Amp;
+    flow.idt_nature = Volt;
+    flow.ddt_nature = Nope;
+enddiscipline
